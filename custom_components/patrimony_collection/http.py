@@ -271,7 +271,7 @@ class PatrimonyPairClaimView(HomeAssistantView):
         want = (request.headers.get("Accept") or "").lower()
         if "application/json" in want:
             return web.json_response({"url": ticket["url"], "token": ticket["token"]})
-        return web.Response(text=house_pair.claim_html(deep), content_type="text/html; charset=utf-8")
+        return web.Response(text=house_pair.claim_html(deep), content_type="text/html", charset="utf-8")
 
 
 class PatrimonyNotifyView(HomeAssistantView):
