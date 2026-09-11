@@ -1994,7 +1994,7 @@
         const pos = [[0,8],[1,8],[2,8],[3,8],[4,8],[5,8],[7,8],[8,8],[8,7],[8,5],[8,4],[8,3],[8,2],[8,1],[8,0]];
         const pos2 = [[8,size-1],[8,size-2],[8,size-3],[8,size-4],[8,size-5],[8,size-6],[8,size-7],[size-8,8],[size-7,8],[size-6,8],[size-5,8],[size-4,8],[size-3,8],[size-2,8],[size-1,8]];
         for (let i = 0; i < 15; i++) {
-          const dark = ((bits15 >>> i) & 1) === 1;
+          const dark = ((bits15 >>> (14 - i)) & 1) === 1;
           set(pos[i][0], pos[i][1], dark, true);
           set(pos2[i][0], pos2[i][1], dark, true);
         }
@@ -2098,7 +2098,7 @@
         const a = [[0,8],[1,8],[2,8],[3,8],[4,8],[5,8],[7,8],[8,8],[8,7],[8,5],[8,4],[8,3],[8,2],[8,1],[8,0]];
         const b = [[8,size-1],[8,size-2],[8,size-3],[8,size-4],[8,size-5],[8,size-6],[8,size-7],[size-8,8],[size-7,8],[size-6,8],[size-5,8],[size-4,8],[size-3,8],[size-2,8],[size-1,8]];
         for (let i = 0; i < 15; i++) {
-          const dark = ((bits15 >>> i) & 1) === 1;
+          const dark = ((bits15 >>> (14 - i)) & 1) === 1;
           mod[a[i][1]][a[i][0]] = dark;
           mod[b[i][1]][b[i][0]] = dark;
         }
