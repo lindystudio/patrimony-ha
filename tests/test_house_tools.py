@@ -1,0 +1,179 @@
+"""House tools stay off PresentationDocument. Photo, notes, pair, notify."""
+from pathlib import Path
+
+from custom_components.patrimony_collection.const import (
+    BACKEND_BASE,
+    NOTES_MAX_CHARS,
+    PHOTO_MAX_BYTES,
+)
+from custom_components.patrimony_collection.mapping import (
+    DEMO_ENTRY_DATA,
+    DEMO_OPTIONS,
+    build_presentation_document,
+)
+from custom_components.patrimony_collection.notes import document as notes_document
+from custom_components.patrimony_collection.notes import load_notes, save_notes
+from custom_components.patrimony_collection.notify import (
+    MISSING_KEY,
+    is_usable_house_event_key,
+    load_card_id,
+)
+from custom_components.patrimony_collection.pair import https_house_url, mint_pairing, pairing_uri
+from custom_components.patrimony_collection.photo import (
+    delete_photo,
+    load_photo,
+    photo_path,
+    reject_put,
+    save_photo,
+    sniff_content_type,
+)
+
+JPEG = b"\xff\xd8\xff" + b"\x10" * 32
+WEBP = b"RIFF" + (12).to_bytes(4, "little") + b"WEBP" + b"VP8 " 
+SECRET_NOTE = "HOUSE_NOTE_SECRET_xyz"
+SECRET_TOKEN = "llat-SECRET-pairing-token-not-hek"
+
+
+class _Hass:
+    def __init__(self, root: Path, external_url=None):
+        self.config = type(
+            "c",
+            (),
+            {
+                "path": lambda _self, p, root=root: str(root / p),
+                "external_url": external_url,
+                "internal_url": None,
+            },
+        )()
+
+    def now(self):
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc)
+
+
+def test_photo_save_load_delete(tmp_path):
+    hass = _Hass(tmp_path)
+    assert load_photo(hass) is None
+    assert sniff_content_type(JPEG) == "image/jpeg"
+    assert sniff_content_type(WEBP) == "image/webp"
+    save_photo(hass, JPEG)
+    path = photo_path(hass)
+    assert path.name == "face.jpg"
+    assert path.is_file()
+    assert load_photo(hass) == JPEG
+    assert delete_photo(hass) is True
+    assert load_photo(hass) is None
+    assert delete_photo(hass) is False
+
+
+def test_photo_reject_too_big_and_wrong_type():
+    assert reject_put("image/jpeg", JPEG) is None
+    assert reject_put("image/webp", WEBP) is None
+    assert reject_put("image/png", JPEG) is not None
+    assert reject_put("text/plain", JPEG) is not None
+    assert reject_put("image/jpeg", b"not-an-image") is not None
+    huge = b"\xff\xd8\xff" + b"\x00" * PHOTO_MAX_BYTES
+    assert len(huge) > PHOTO_MAX_BYTES
+    assert reject_put("image/jpeg", huge) is not None
+
+
+def test_notes_roundtrip_empty_and_cap(tmp_path):
+    hass = _Hass(tmp_path)
+    pid = DEMO_ENTRY_DATA["property_id"]
+    missing = notes_document(hass, pid)
+    assert missing == {"schemaVersion": 1, "propertyId": pid, "text": "", "updatedAt": None}
+    saved = save_notes(hass, "", pid)
+    assert saved["text"] == ""
+    assert saved["schemaVersion"] == 1
+    assert saved["updatedAt"]
+    loaded = load_notes(hass)
+    assert loaded["text"] == ""
+    long_text = "n" * (NOTES_MAX_CHARS + 50)
+    capped = save_notes(hass, long_text, pid)
+    assert len(capped["text"]) == NOTES_MAX_CHARS
+    again = notes_document(hass, pid)
+    assert again["text"] == "n" * NOTES_MAX_CHARS
+    assert again["propertyId"] == pid
+
+
+def test_notes_photo_pairing_not_on_presentation_document(tmp_path):
+    hass = _Hass(tmp_path)
+    pid = DEMO_ENTRY_DATA["property_id"]
+    save_notes(hass, SECRET_NOTE, pid)
+    save_photo(hass, JPEG)
+    uri = pairing_uri("https://ha.example.com", SECRET_TOKEN)
+    doc = build_presentation_document(hass, DEMO_ENTRY_DATA, DEMO_OPTIONS)
+    blob = str(doc)
+    assert doc["schemaVersion"] == 1
+    assert "notes" not in doc
+    assert "photo" not in doc
+    assert "pairing" not in doc
+    assert "contacts" not in doc
+    assert SECRET_NOTE not in blob
+    assert SECRET_TOKEN not in blob
+    assert "face.jpg" not in blob
+    assert "data:image" not in blob
+    assert uri not in blob
+    assert "patrimony://pair" not in blob
+
+
+def test_notify_refuses_missing_and_jwt_keys(tmp_path):
+    assert is_usable_house_event_key(None) is False
+    assert is_usable_house_event_key("") is False
+    assert is_usable_house_event_key("hek_") is False
+    assert is_usable_house_event_key("not-a-key") is False
+    assert is_usable_house_event_key("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.sig") is False
+    assert is_usable_house_event_key("hek_eyJhbGciOi") is False
+    assert is_usable_house_event_key("Bearer token") is False
+    assert is_usable_house_event_key("hek_house_ok") is True
+    assert MISSING_KEY["error"]["code"] == "missing_house_event_key"
+    hass = _Hass(tmp_path)
+    first = load_card_id(hass)
+    second = load_card_id(hass)
+    assert first == second
+    path = tmp_path / "patrimony_collection" / "notify.json"
+    assert path.is_file()
+    assert first in path.read_text()
+    assert "mapping.json" not in path.name
+    assert BACKEND_BASE == "https://api.patrimonycollection.com"
+
+
+def test_pairing_helper_does_not_write_token(tmp_path):
+    hass = _Hass(tmp_path, external_url="http://ha.example.com")
+    url = https_house_url(hass)
+    assert url.startswith("https://")
+    uri = pairing_uri(url, SECRET_TOKEN)
+    assert uri.startswith("patrimony://pair?")
+    assert "url=" in uri and "token=" in uri
+    import asyncio
+    status, payload = asyncio.run(mint_pairing(hass, type("u", (), {"is_admin": True})()))
+    assert status == 501
+    root = tmp_path / "patrimony_collection"
+    for name in ("mapping.json", "notes.json", "contacts.json"):
+        path = root / name
+        assert not path.exists()
+        if path.exists():
+            assert SECRET_TOKEN not in path.read_text()
+    if root.exists():
+        for path in root.rglob("*"):
+            if path.is_file():
+                data = path.read_bytes()
+                assert SECRET_TOKEN.encode() not in data
+                assert SECRET_TOKEN not in data.decode("utf-8", "ignore")
+
+
+if __name__ == "__main__":
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as d:
+        test_photo_save_load_delete(Path(d))
+    test_photo_reject_too_big_and_wrong_type()
+    with tempfile.TemporaryDirectory() as d:
+        test_notes_roundtrip_empty_and_cap(Path(d))
+    with tempfile.TemporaryDirectory() as d:
+        test_notes_photo_pairing_not_on_presentation_document(Path(d))
+    with tempfile.TemporaryDirectory() as d:
+        test_notify_refuses_missing_and_jwt_keys(Path(d))
+    with tempfile.TemporaryDirectory() as d:
+        test_pairing_helper_does_not_write_token(Path(d))
+    print("ok")
