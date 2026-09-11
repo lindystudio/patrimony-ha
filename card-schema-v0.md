@@ -1,7 +1,7 @@
 # Patrimony Collection — Card Presentation Schema 1.0 (frozen v0)
 
 Status: frozen for the PropertiesWallet migration.
-Owner: Tech Lead. Changes require a schemaVersion bump.
+Changes require a schemaVersion bump.
 
 This is the only live-state contract the iOS app is allowed to understand. Home Assistant maps entities to this JSON. The app renders it. The backend never serves it.
 

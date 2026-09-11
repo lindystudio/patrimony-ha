@@ -1,6 +1,6 @@
 # Patrimony Collection — Home Assistant integration (design)
 
-Status: design for v0 sketch. Owner of the live-state contract is Tech Lead (`card-schema-v0.md`). This file does not change that contract.
+Status: design for v0 sketch. The live-state contract lives in `card-schema-v0.md`. This file does not change that contract.
 
 The iOS app is a thin renderer. This integration is the only place raw Home Assistant entities exist. It **emits** `PresentationDocument`. It does not invent kinds, fields, or product claims.
 
