@@ -32,6 +32,10 @@ def test_demo_fixture_has_no_entity_geo_or_token_keys() -> None:
     assert doc["schemaVersion"] == 1
     assert doc["property"]["id"] == "00000000-0000-4000-8000-000000000001"
     assert doc["property"]["displayName"] == "Demo Home"
+    assert doc["property"]["location"] == "Example"
+    assert "street" not in doc["property"]
+    assert "city" not in doc["property"]
+    assert "country" not in doc["property"]
     blob = json.dumps(doc)
     assert "entity_id" not in blob
 

@@ -32,10 +32,11 @@ Root:
 |---|---|---|
 | `id` | string UUID | yes |
 | `displayName` | string | yes |
-| `locationLabel` | string | no |
+| `location` | string | no |
+| `locationLabel` | string | no (deprecated alias of `location`) |
 | `timezone` | string IANA | yes |
 
-Do not emit: `latitude`, `longitude`, `lat`, `lon`, `coordinate`, `coordinates`, `region`, `map`, `entity_id`, `haHostname`.
+Do not emit: `latitude`, `longitude`, `lat`, `lon`, `coordinate`, `coordinates`, `region`, `map`, `street`, `city`, `country`, `address`, `postal_code`, `entity_id`, `haHostname`.
 
 Card:
 
@@ -110,7 +111,7 @@ Invalid documents are not sent. If mapping is empty, send a **valid** document w
 
 ## 5. Config entries and options (HA storage)
 
-Domain: `patrimony_collection`. Config flow version: `1`. Single instance.
+Domain: `patrimony_collection`. Config flow version: `2` (v2 stores `location`; leftover `location_label` / street / city / country are joined). Single instance.
 
 **Config entry `data`** (created by config flow, rarely changed):
 
@@ -118,7 +119,7 @@ Domain: `patrimony_collection`. Config flow version: `1`. Single instance.
 {
   "property_id": "00000000-0000-4000-8000-000000000001",
   "display_name": "Demo Home",
-  "location_label": "Example",
+  "location": "Example",
   "timezone": "UTC"
 }
 ```
@@ -178,7 +179,7 @@ Orphan mappings (card_id missing) are skipped. Broken entity_id → item with `v
 ## 7. Integrator UX steps
 
 1. Install custom component, restart HA.
-2. Add **Patrimony Collection**. Enter `property_id` (same UUID the operator used in `create-property`), display name, optional location label, IANA timezone.
+2. Add **Patrimony Collection**. Enter `property_id` (same UUID the operator used in `create-property`), display name, optional Location (free text), IANA timezone.
 3. Create a long-lived token in HA for the iOS user (or a dedicated `patrimony` user with read access). Put that token in the principal’s iOS Keychain under `collection.patrimony.house` / `property.id`. Do not paste it into Patrimony backend.
 4. **Configure** → add the Guest Wi-Fi entity to a `network` card, label `Guest Wi-Fi`, bool, `ok_when_on`. Add climate/security the same way. For outdoor weather: enable Met.no (or another HA weather integration) on the house, then map `weather.*` twice (attribute `temperature` → Outdoor number; state → Condition enum) onto a `custom` card titled Weather, or onto the climate card.
 5. Confirm `GET /api/patrimony_collection/state` as that HA user returns schema JSON with no `entity_id`.

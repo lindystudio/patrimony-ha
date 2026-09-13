@@ -66,7 +66,7 @@ HA OS: Add-on store → Patrimony Collection (filter/select). Also keep the cust
 |---|---|---|
 | `property_id` | UUID; **must equal** backend registry `properties.id` and iOS Keychain account | `property.id` |
 | `display_name` | non-empty | `property.displayName` |
-| `location_label` | optional short place (“Example”), not an address | `property.locationLabel` |
+| `location` | optional free-text place (“Example”). Migrates leftover `location_label` / street / city / country by joining non-empty parts. | `property.location` (also `property.locationLabel`) |
 | `timezone` | IANA | `property.timezone` |
 
 Abort `already_configured` if an entry exists (v0: one house per HA). Do not ask for latitude/longitude. Do not ask for the iOS token (HA already authenticates its own API).
@@ -210,18 +210,19 @@ Never emit patches. Never emit on unrelated entities. Never write to HA entities
 
 ## Privacy — what is allowed on the wire
 
-**Allowed:** schema fields only: `schemaVersion`, `generatedAt`, `property.{id,displayName,locationLabel,timezone}`, `cards[]` with `id,kind,title,priority,items[]` with `id,label,value,valueType,unit,severity,updatedAt`.
+**Allowed:** schema fields only: `schemaVersion`, `generatedAt`, `property.{id,displayName,location,locationLabel,timezone}`, `cards[]` with `id,kind,title,priority,items[]` with `id,label,value,valueType,unit,severity,updatedAt`.
 
 **Strip before send / never persist in the document / never log:**
 
 - `entity_id`, keys ending in `_entity_id`, `device_id`, `area_id`, `unique_id`
-- `latitude`, `longitude`, `lat`, `lon`, `coordinate`, `coordinates`, `gps`, `gps_accuracy`, `location`, `region`, `map`
+- `latitude`, `longitude`, `lat`, `lon`, `coordinate`, `coordinates`, `gps`, `gps_accuracy`, `region`, `map`
+- `street`, `city`, `country`, `address`, `postal_code`, and other structured address keys
 - HA tokens, `access_token`, `refresh_token`, `Authorization`, long-lived token strings
 - Internal URLs (`internal_url`, `external_url`, `base_url`, webhook URLs, camera still URLs)
 - Pass-kit / Wallet keys
 - Raw `attributes` / `context` blobs
 
-`locationLabel` is a short human place, not geodata. House identity is `property.id` (UUID) + `displayName`. Timezone is IANA for display clocks only.
+`location` is free-text the principal chooses, not geodata and not a structured address. `locationLabel` is a deprecated alias of the same string. House identity is `property.id` (UUID) + `displayName`. Timezone is IANA for display clocks only.
 
 Logs: item/card UUIDs and kind/title/severity only. No entity ids in log lines at info+.
 
@@ -250,7 +251,7 @@ No outbound copy of `hass.data` tokens. Snapshot builder takes `State` objects a
 Canonical fixture: `fixtures/demo-state.json`
 
 - property.id `00000000-0000-4000-8000-000000000001`
-- displayName Demo Home, locationLabel Example, timezone UTC
+- displayName Demo Home, location Example, timezone UTC
 - Network: Guest Wi-Fi bool, ok_when_on
 - Weather custom card: Outdoor number C, Condition enum (house weather.*, typically Met.no)
 
@@ -283,7 +284,7 @@ Add more **items** on the same card (or another `network` card if the integrator
 - Backend `GET /v1/properties` `id`
 - This config entry
 
-`displayName` is the wallet title. `locationLabel` is optional (“Example”). No coordinates. Integrator types the UUID to match the operator-created registry row (operator CLI `create-property --id`). v0 does not mint a second id.
+`displayName` is the wallet title. `location` is optional free text (“Example”). No coordinates and no street / city / country fields. Integrator types the UUID to match the operator-created registry row (operator CLI `create-property --id`). v0 does not mint a second id.
 
 ## Out of scope (do not implement)
 

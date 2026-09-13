@@ -28,6 +28,7 @@ Root object. Unknown keys: ignore. Missing required keys: reject the document, k
   "property": {
     "id": "3f1c0a2e-7c4b-4d91-9a2e-0b7d1c8e4a10",
     "displayName": "Demo Home",
+    "location": "Example",
     "locationLabel": "Example",
     "timezone": "Europe/Athens"
   },
@@ -48,10 +49,11 @@ Root object. Unknown keys: ignore. Missing required keys: reject the document, k
 |---|---|---|---|
 | id | string (UUID) | yes | Stable per house. App identity for Keychain and backend registry. |
 | displayName | string | yes | Non-empty after trim. Wallet card title. |
-| locationLabel | string | no | Short human place ("Example"). Not an address. |
+| location | string | no | Free-text place the principal chooses ("Example"). Not a structured address and not geodata. |
+| locationLabel | string | no | Deprecated alias of `location`. Still emitted with the same value. |
 | timezone | string | yes | IANA name. Used to format `updatedAt` only. |
 
-Forbidden on `property` (if present, ignore, never persist, never log, never map): `latitude`, `longitude`, `lat`, `lon`, `coordinate`, `coordinates`, `region`, `map`, `entity_id`, any HA object id.
+Forbidden on `property` (if present, ignore, never persist, never log, never map): `latitude`, `longitude`, `lat`, `lon`, `coordinate`, `coordinates`, `region`, `map`, `street`, `city`, `country`, `address`, `postal_code`, `entity_id`, any HA object id.
 
 ## 4. Card
 
@@ -150,6 +152,7 @@ Until the HA integration exists:
   "property": {
     "id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
     "displayName": "Demo Home",
+    "location": "Example",
     "locationLabel": "Example",
     "timezone": "Europe/Athens"
   },

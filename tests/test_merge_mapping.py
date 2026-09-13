@@ -37,6 +37,31 @@ def test_partial_file_unions():
     assert "new-item" in ids
 
 
+def test_shared_location_label_migrates_to_location():
+    data, _opts = merge_options(
+        {
+            "property_id": DEMO_ENTRY_DATA["property_id"],
+            "display_name": "Demo Home",
+            "location_label": "Harbour",
+            "timezone": "UTC",
+        },
+        DEMO_OPTIONS,
+        {"location_label": "Harbour", "street": "1 Road", "city": "Athens", "cards": [], "mappings": []},
+    )
+    assert data["location"] == "Harbour"
+    assert "location_label" not in data
+    assert "street" not in data
+
+
+def test_shared_address_parts_join_when_no_location():
+    data, _opts = merge_options(
+        {"property_id": DEMO_ENTRY_DATA["property_id"], "display_name": "Demo Home", "timezone": "UTC"},
+        DEMO_OPTIONS,
+        {"street": "1 Road", "city": "Athens", "country": "Greece", "cards": [], "mappings": []},
+    )
+    assert data["location"] == "1 Road, Athens, Greece"
+
+
 def test_weather_home_is_demo_weather_source():
     eids = {row["entity_id"] for row in DEMO_OPTIONS[CONF_MAPPINGS]}
     assert "weather.home" in eids
@@ -45,4 +70,6 @@ if __name__ == "__main__":
     test_empty_file_keeps_entry_weather()
     test_partial_file_unions()
     test_weather_home_is_demo_weather_source()
+    test_shared_location_label_migrates_to_location()
+    test_shared_address_parts_join_when_no_location()
     print("ok")

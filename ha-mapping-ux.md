@@ -114,7 +114,7 @@ Writes/control, deltas, Energy kind, coordinates, tokens on the wire, phone call
 
 ## Phone surfaces (unchanged schema)
 
-1. **Wallet pass:** still + displayName + locationLabel + house badge + first 6 items flattened (cards already sorted priority, then title) in a 3-column grid + UPDATED. Kind and card title are not on the pass.
+1. **Wallet pass:** still + displayName + location + house badge + first 6 items flattened (cards already sorted priority, then title) in a 3-column grid + UPDATED. Kind and card title are not on the pass.
 2. **Open house:** same pass, then one block per card title, items as label | value.
 
 Item formatting (they format, they do not re-derive):

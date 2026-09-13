@@ -35,7 +35,9 @@ DEFAULT_HOUSE_URL: Final = ""
 
 CONF_PROPERTY_ID: Final = "property_id"
 CONF_DISPLAY_NAME: Final = "display_name"
-CONF_LOCATION_LABEL: Final = "location_label"
+CONF_LOCATION: Final = "location"
+CONF_LOCATION_LABEL: Final = "location_label"  # legacy storage key
+LOCATION_MAX_CHARS: Final = 200
 CONF_TIMEZONE: Final = "timezone"
 CONF_CARDS: Final = "cards"
 CONF_MAPPINGS: Final = "mappings"
@@ -87,9 +89,27 @@ FORBIDDEN_WIRE_KEYS: Final = frozenset(
         "coordinates",
         "gps",
         "gps_accuracy",
-        "location",
         "region",
         "map",
+        "street",
+        "city",
+        "country",
+        "address",
+        "address_line",
+        "address_line1",
+        "address_line2",
+        "addressLine",
+        "house_number",
+        "houseNumber",
+        "postal_code",
+        "postalCode",
+        "zip",
+        "zip_code",
+        "zipcode",
+        "state",
+        "province",
+        "county",
+        "district",
         "access_token",
         "refresh_token",
         "ha_token",

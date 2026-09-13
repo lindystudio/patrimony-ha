@@ -14,10 +14,12 @@ from .const import (
     BOOL_TRUE,
     CONF_CARDS,
     CONF_DISPLAY_NAME,
+    CONF_LOCATION,
     CONF_LOCATION_LABEL,
     CONF_MAPPINGS,
     CONF_PROPERTY_ID,
     CONF_TIMEZONE,
+    LOCATION_MAX_CHARS,
     DEFAULT_PRIORITY,
     FORBIDDEN_WIRE_KEYS,
     KIND_DEFAULT_TITLES,
@@ -312,19 +314,151 @@ def collapse_cards_by_title(
     return kept, assign_featured_ranks(_dedupe_mappings(remapped))
 
 
+# Ordered for a single free-text Location (street → locality → region → postal → country).
+ADDRESS_PART_KEYS: tuple[str, ...] = (
+    "street",
+    "address_line",
+    "address_line1",
+    "addressLine",
+    "address",
+    "house_number",
+    "houseNumber",
+    "city",
+    "state",
+    "province",
+    "postal_code",
+    "postalCode",
+    "zip",
+    "zip_code",
+    "zipcode",
+    "country",
+    "county",
+    "district",
+    "address_line2",
+)
+
+LOCATION_VALUE_KEYS: tuple[str, ...] = (
+    CONF_LOCATION,
+    CONF_LOCATION_LABEL,
+    "locationLabel",
+)
+
+LOCATION_INPUT_KEYS: frozenset[str] = frozenset(LOCATION_VALUE_KEYS + ADDRESS_PART_KEYS)
+
+
+def _first_text(*values: Any) -> str:
+    for val in values:
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
+def join_address_parts(src: dict[str, Any] | None) -> str:
+    """Join non-empty structured address parts. Empty if nothing to migrate."""
+    if not isinstance(src, dict):
+        return ""
+    parts: list[str] = []
+    seen: set[str] = set()
+    for key in ADDRESS_PART_KEYS:
+        val = src.get(key)
+        if not isinstance(val, str):
+            continue
+        text = val.strip()
+        if not text:
+            continue
+        folded = text.casefold()
+        if folded in seen:
+            continue
+        seen.add(folded)
+        parts.append(text)
+    return ", ".join(parts)
+
+
+def resolve_location(*sources: Any) -> str:
+    """Single free-text Location: prefer location / location_label, else join parts."""
+    for src in sources:
+        if not isinstance(src, dict):
+            continue
+        explicit = _first_text(*(src.get(key) for key in LOCATION_VALUE_KEYS))
+        if explicit:
+            return explicit[:LOCATION_MAX_CHARS]
+    for src in sources:
+        if not isinstance(src, dict):
+            continue
+        joined = join_address_parts(src)
+        if joined:
+            return joined[:LOCATION_MAX_CHARS]
+    return ""
+
+
+def migrate_house_data(data: dict[str, Any] | None) -> dict[str, Any]:
+    """Rewrite stored house fields onto `location`; drop structured address keys."""
+    out = dict(data or {})
+    loc = resolve_location(out)
+    for key in ADDRESS_PART_KEYS:
+        out.pop(key, None)
+    out.pop(CONF_LOCATION_LABEL, None)
+    out.pop("locationLabel", None)
+    if loc:
+        out[CONF_LOCATION] = loc
+    else:
+        out.pop(CONF_LOCATION, None)
+    return out
+
+
+def has_location_input(body: dict[str, Any] | None) -> bool:
+    if not isinstance(body, dict):
+        return False
+    if any(key in body for key in LOCATION_INPUT_KEYS):
+        return True
+    prop = body.get("property")
+    return isinstance(prop, dict) and any(key in prop for key in LOCATION_INPUT_KEYS)
+
+
+def apply_location_from_editor(
+    entry_data: dict[str, Any], body: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Merge an editor POST into config-entry house data. Missing location keys leave it."""
+    out = migrate_house_data(entry_data)
+    if not has_location_input(body):
+        return out
+    prop = body.get("property") if isinstance(body, dict) else None
+    loc = resolve_location(body or {}, prop if isinstance(prop, dict) else {})
+    if loc:
+        out[CONF_LOCATION] = loc
+    else:
+        out.pop(CONF_LOCATION, None)
+    return out
+
+
+def mapping_house_fields(entry_data: dict[str, Any]) -> dict[str, Any]:
+    """House identity written to mapping.json. No structured address keys."""
+    migrated = migrate_house_data(entry_data)
+    return {
+        "property_id": migrated.get(CONF_PROPERTY_ID),
+        "display_name": migrated.get(CONF_DISPLAY_NAME),
+        "location": migrated.get(CONF_LOCATION) or "",
+        "timezone": migrated.get(CONF_TIMEZONE),
+    }
+
+
 def merge_options(entry_data: dict[str, Any], options: dict[str, Any], shared: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
-    data = dict(entry_data)
+    data = migrate_house_data(entry_data)
     opts = dict(options or {})
     if shared:
         for key, dest in (
             ("property_id", CONF_PROPERTY_ID),
             ("display_name", CONF_DISPLAY_NAME),
-            ("location_label", CONF_LOCATION_LABEL),
             ("timezone", CONF_TIMEZONE),
         ):
             val = shared.get(key) or shared.get(dest)
             if val:
                 data[dest] = val
+        loc = resolve_location(shared, data)
+        if loc:
+            data[CONF_LOCATION] = loc
+        elif CONF_LOCATION not in data:
+            data.pop(CONF_LOCATION, None)
         file_cards = _list(shared.get(CONF_CARDS) or shared.get("cards"))
         file_maps = _list(shared.get(CONF_MAPPINGS) or shared.get("mappings"))
         opts[CONF_CARDS] = _union_rows(_list(opts.get(CONF_CARDS)), file_cards, _card_key)
@@ -459,10 +593,7 @@ def seed_shared_mapping(hass: HomeAssistant | None, entry_data: dict[str, Any], 
         return
     p.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "property_id": entry_data.get(CONF_PROPERTY_ID),
-        "display_name": entry_data.get(CONF_DISPLAY_NAME),
-        "location_label": entry_data.get(CONF_LOCATION_LABEL),
-        "timezone": entry_data.get(CONF_TIMEZONE),
+        **mapping_house_fields(entry_data),
         "cards": cards,
         "mappings": mappings,
     }
@@ -1182,13 +1313,15 @@ def build_presentation_document(
     cards.sort(key=lambda card: (card["priority"], card["title"]))
     cards = cards[:MAX_CARDS]
 
-    location = (entry_data.get(CONF_LOCATION_LABEL) or "").strip()
+    location = resolve_location(entry_data)
     property_obj: dict[str, Any] = {
         "id": str(entry_data[CONF_PROPERTY_ID]),
         "displayName": str(entry_data[CONF_DISPLAY_NAME]).strip(),
         "timezone": str(entry_data[CONF_TIMEZONE]).strip(),
     }
     if location:
+        property_obj["location"] = location
+        # Alias for iOS still reading locationLabel during the parallel rename.
         property_obj["locationLabel"] = location
     property_obj["localTime"] = house_local_time(hass, entry_data.get(CONF_TIMEZONE))
 
@@ -1206,7 +1339,7 @@ def build_presentation_document(
 DEMO_ENTRY_DATA = {
     CONF_PROPERTY_ID: "00000000-0000-4000-8000-000000000001",
     CONF_DISPLAY_NAME: "Demo Home",
-    CONF_LOCATION_LABEL: "Example",
+    CONF_LOCATION: "Example",
     CONF_TIMEZONE: "UTC",
 }
 DEMO_OPTIONS = {

@@ -1,5 +1,5 @@
 name: Patrimony Collection
-version: "0.4.0"
+version: "0.4.29"
 slug: patrimony_collection
 description: Choose which house entities the Patrimony Collection app can see. Read-only. No control.
 url: https://www.patrimonycollection.com
@@ -18,12 +18,12 @@ map:
 options:
   property_id: ""
   display_name: ""
-  location_label: ""
+  location: ""
   timezone: "UTC"
   house_event_key: ""
 schema:
   property_id: str
   display_name: str
-  location_label: str
+  location: str
   timezone: str
   house_event_key: str?

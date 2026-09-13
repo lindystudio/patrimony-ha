@@ -29,14 +29,88 @@ KINDS = ("security", "climate", "network", "cellar", "arrivals", "custom")
 STATIC = Path(__file__).resolve().parent / "static"
 
 
+ADDRESS_PART_KEYS = (
+    "street",
+    "address_line",
+    "address_line1",
+    "addressLine",
+    "address",
+    "house_number",
+    "houseNumber",
+    "city",
+    "state",
+    "province",
+    "postal_code",
+    "postalCode",
+    "zip",
+    "zip_code",
+    "zipcode",
+    "country",
+    "county",
+    "district",
+    "address_line2",
+)
+LOCATION_VALUE_KEYS = ("location", "location_label", "locationLabel")
+LOCATION_MAX_CHARS = 200
+
+
+def _first_text(*values):
+    for val in values:
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
+def join_address_parts(src):
+    if not isinstance(src, dict):
+        return ""
+    parts, seen = [], set()
+    for key in ADDRESS_PART_KEYS:
+        val = src.get(key)
+        if not isinstance(val, str):
+            continue
+        text = val.strip()
+        if not text:
+            continue
+        folded = text.casefold()
+        if folded in seen:
+            continue
+        seen.add(folded)
+        parts.append(text)
+    return ", ".join(parts)
+
+
+def resolve_location(*sources):
+    for src in sources:
+        if not isinstance(src, dict):
+            continue
+        explicit = _first_text(*(src.get(key) for key in LOCATION_VALUE_KEYS))
+        if explicit:
+            return explicit[:LOCATION_MAX_CHARS]
+    for src in sources:
+        if not isinstance(src, dict):
+            continue
+        joined = join_address_parts(src)
+        if joined:
+            return joined[:LOCATION_MAX_CHARS]
+    return ""
+
+
 def load_options() -> dict:
+    raw = {}
     if OPTIONS_PATH.is_file():
-        return json.loads(OPTIONS_PATH.read_text())
+        try:
+            loaded = json.loads(OPTIONS_PATH.read_text())
+            if isinstance(loaded, dict):
+                raw = loaded
+        except Exception:
+            raw = {}
     return {
-        "property_id": "",
-        "display_name": "",
-        "location_label": "",
-        "timezone": "UTC",
+        "property_id": raw.get("property_id") or "",
+        "display_name": raw.get("display_name") or "",
+        "location": resolve_location(raw),
+        "timezone": raw.get("timezone") or "UTC",
+        "house_event_key": raw.get("house_event_key") or "",
     }
 
 
@@ -245,11 +319,16 @@ def save_mapping(doc: dict) -> None:
     cards = coerced
     cards, mappings = collapse_cards_by_title(cards, mappings)
     MAPPING_PATH.parent.mkdir(parents=True, exist_ok=True)
+    opts = load_options()
+    incoming = dict(doc or {})
+    loc = resolve_location(incoming, incoming.get("property") if isinstance(incoming.get("property"), dict) else {}, existing, opts)
+    if any(k in incoming for k in LOCATION_VALUE_KEYS + ADDRESS_PART_KEYS):
+        loc = resolve_location(incoming, incoming.get("property") if isinstance(incoming.get("property"), dict) else {})
     out = {
-        "property_id": doc.get("property_id") or existing.get("property_id") or load_options().get("property_id"),
-        "display_name": doc.get("display_name") or existing.get("display_name") or load_options().get("display_name"),
-        "location_label": doc.get("location_label") or existing.get("location_label") or load_options().get("location_label"),
-        "timezone": doc.get("timezone") or existing.get("timezone") or load_options().get("timezone"),
+        "property_id": doc.get("property_id") or existing.get("property_id") or opts.get("property_id"),
+        "display_name": doc.get("display_name") or existing.get("display_name") or opts.get("display_name"),
+        "location": loc,
+        "timezone": doc.get("timezone") or existing.get("timezone") or opts.get("timezone"),
         "cards": cards,
         "mappings": mappings,
     }
@@ -547,7 +626,16 @@ class Handler(BaseHTTPRequestHandler):
             opts = load_options()
             mapping = load_mapping()
             cards, mappings = collapse_cards_by_title(mapping.get("cards") or [], mapping.get("mappings") or [])
-            return self._json(200, {**opts, **{k: mapping.get(k, opts.get(k)) for k in opts}, "cards": cards, "mappings": mappings})
+            loc = resolve_location(mapping, opts)
+            house = {
+                "property_id": mapping.get("property_id") or opts.get("property_id"),
+                "display_name": mapping.get("display_name") or opts.get("display_name"),
+                "location": loc,
+                "timezone": mapping.get("timezone") or opts.get("timezone"),
+                "cards": cards,
+                "mappings": mappings,
+            }
+            return self._json(200, house)
         if path in ("/api/contacts", "api/contacts"):
             opts = load_options()
             doc = load_contacts()

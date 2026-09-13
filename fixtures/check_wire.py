@@ -5,6 +5,7 @@ from pathlib import Path
 FORBIDDEN = {
     "entity_id", "entities", "device_id", "area_id", "latitude", "longitude",
     "lat", "lon", "coordinate", "coordinates", "access_token", "ha_token",
+    "street", "city", "country", "address", "postal_code",
 }
 
 

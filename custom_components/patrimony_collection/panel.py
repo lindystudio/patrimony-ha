@@ -9,7 +9,6 @@ from .const import (
     CONF_CARDS,
     CONF_DISPLAY_NAME,
     CONF_HOUSE_EVENT_KEY,
-    CONF_LOCATION_LABEL,
     CONF_MAPPINGS,
     CONF_PROPERTY_ID,
     CONF_TIMEZONE,
@@ -18,7 +17,17 @@ from .const import (
     SEVERITY_MODES,
     VALUE_TYPES,
 )
-from .mapping import build_presentation_document, live_entity_fields, load_shared_mapping, merge_options, normalize_editor_payload, seed_shared_mapping
+from .mapping import (
+    apply_location_from_editor,
+    build_presentation_document,
+    live_entity_fields,
+    load_shared_mapping,
+    mapping_house_fields,
+    merge_options,
+    normalize_editor_payload,
+    resolve_location,
+    seed_shared_mapping,
+)
 
 try:
     from homeassistant.components.http import HomeAssistantView
@@ -168,7 +177,7 @@ class PatrimonyMappingView(HomeAssistantView):
                 "property": {
                     "id": data.get(CONF_PROPERTY_ID),
                     "displayName": data.get(CONF_DISPLAY_NAME),
-                    "locationLabel": data.get(CONF_LOCATION_LABEL),
+                    "location": resolve_location(data),
                     "timezone": data.get(CONF_TIMEZONE),
                 },
                 "cards": opts.get(CONF_CARDS) or [],
@@ -199,8 +208,12 @@ class PatrimonyMappingView(HomeAssistantView):
         options[CONF_MAPPINGS] = mappings
         if CONF_HOUSE_EVENT_KEY in (entry.options or {}):
             options[CONF_HOUSE_EVENT_KEY] = entry.options.get(CONF_HOUSE_EVENT_KEY)
-        self.hass.config_entries.async_update_entry(entry, options=options)
-        seed_shared_mapping(self.hass, dict(entry.data), options)
+        house_data = apply_location_from_editor(dict(entry.data), body)
+        if house_data != dict(entry.data):
+            self.hass.config_entries.async_update_entry(entry, data=house_data, options=options)
+        else:
+            self.hass.config_entries.async_update_entry(entry, options=options)
+        seed_shared_mapping(self.hass, house_data, options)
         # Force rewrite mapping.json with the saved union
         try:
             path = Path(self.hass.config.path("patrimony_collection/mapping.json"))
@@ -208,10 +221,7 @@ class PatrimonyMappingView(HomeAssistantView):
             if path.is_file():
                 existing = json.loads(path.read_text())
             payload = {
-                "property_id": entry.data.get(CONF_PROPERTY_ID),
-                "display_name": entry.data.get(CONF_DISPLAY_NAME),
-                "location_label": entry.data.get(CONF_LOCATION_LABEL),
-                "timezone": entry.data.get(CONF_TIMEZONE),
+                **mapping_house_fields(house_data),
                 "cards": cards,
                 "mappings": mappings,
             }
@@ -222,7 +232,7 @@ class PatrimonyMappingView(HomeAssistantView):
             path.write_text(json.dumps(payload, indent=2) + "\n")
         except Exception:
             pass
-        document = build_presentation_document(self.hass, dict(entry.data), options)
+        document = build_presentation_document(self.hass, house_data, options)
         return web.json_response({"ok": True, "document": document})
 
 

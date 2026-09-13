@@ -10,7 +10,13 @@ from typing import Any
 
 from .const import CONF_MAPPINGS, DOMAIN, SNAPSHOT_DEBOUNCE_SECONDS
 from .http import async_setup_http
-from .mapping import build_presentation_document, load_shared_mapping, merge_options, seed_shared_mapping
+from .mapping import (
+    build_presentation_document,
+    load_shared_mapping,
+    merge_options,
+    migrate_house_data,
+    seed_shared_mapping,
+)
 from .websocket import async_fire_state, async_setup_websocket
 
 _LOGGER = logging.getLogger(__name__)
@@ -112,6 +118,14 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
     await async_setup_http(hass)
     await async_setup_websocket(hass)
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """v2: one free-text location; join leftover street/city/country if present."""
+    if entry.version < 2:
+        new_data = migrate_house_data(dict(entry.data))
+        hass.config_entries.async_update_entry(entry, data=new_data, version=2)
     return True
 
 

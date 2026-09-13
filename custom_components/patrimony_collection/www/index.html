@@ -417,6 +417,10 @@
       <section class="soon-card" id="soon_home">
         <h2>Home settings</h2>
         <p class="quiet">The face of the pass, the house file, and who may join.</p>
+        <h3>Location</h3>
+        <p class="quiet">Whatever you want on the pass. A city, a nickname, or nothing.</p>
+        <input id="house_location" maxlength="200" autocomplete="off" />
+        <p class="status" id="location_status"></p>
         <h3>Photograph</h3>
         <p class="quiet">The face of the pass.</p>
         <div class="still still-empty" id="photo_still">
@@ -621,11 +625,22 @@
       houseMeta = m.property || {};
       lastEntities = e.entities || [];
     }
+    function houseLocation(p, m) {
+      p = p || {};
+      m = m || {};
+      const raw = p.location || m.location || p.locationLabel || p.location_label
+        || m.location_label || m.locationLabel || "";
+      return String(raw || "").trim();
+    }
     async function MODE_SAVE() {
       return api("/api/patrimony_collection/editor/mapping", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cards: cardsForWire(), mappings: mapping.mappings }),
+        body: JSON.stringify({
+          cards: cardsForWire(),
+          mappings: mapping.mappings,
+          location: houseLocation(preview.property, houseMeta),
+        }),
       });
     }
     async function MODE_SEARCH(q) {
@@ -751,7 +766,7 @@
       const sev = maxSev((preview.cards || []).flatMap(c => c.items || []));
       const clock = houseClockText();
       $("pass").innerHTML = `
-        <div class="place">${esc(p.locationLabel || "")}</div>
+        <div class="place">${esc(p.location || p.locationLabel || "")}</div>
         <div class="pass-title-row">
           <h2>${esc(p.displayName || "House")}</h2>
           <div class="pass-clock" id="pass_clock"${clock ? "" : " hidden"} aria-label="House time">${esc(clock)}</div>
@@ -1412,7 +1427,7 @@
       preview = {
         property: {
           displayName: prop.displayName || houseMeta.display_name || houseMeta.displayName || "House",
-          locationLabel: prop.locationLabel || houseMeta.location_label || houseMeta.locationLabel || "",
+          location: houseLocation(prop, houseMeta),
           timezone: prop.timezone || houseMeta.timezone || "",
           localTime: prop.localTime || "",
         },
@@ -1701,7 +1716,7 @@
       const p = (preview && preview.property) || {};
       const m = houseMeta || {};
       const name = p.displayName || p.display_name || m.display_name || m.displayName || "House";
-      const place = p.locationLabel || p.location_label || m.location_label || m.locationLabel || "";
+      const place = houseLocation(p, m);
       const zone = p.timezone || m.timezone || "";
       const rawId = p.propertyId || p.property_id || m.property_id || m.propertyId || "";
       let id = String(rawId || "");
@@ -1716,6 +1731,8 @@
       set("house_place", place);
       set("house_zone", zone);
       set("house_id", "");
+      const locEl = $("house_location");
+      if (locEl && document.activeElement !== locEl) locEl.value = place;
     }
     function panelTabKey() { return "patrimony.panelTab"; }
     function readPanelTab() {
@@ -2318,6 +2335,38 @@
       if ($("soon_zone")) $("soon_zone").textContent = zone || "—";
       const f = p.usesFahrenheit;
       if ($("soon_units")) $("soon_units").textContent = f === true ? "Fahrenheit" : "Celsius";
+      const locEl = $("house_location");
+      if (locEl && document.activeElement !== locEl) locEl.value = houseLocation(p, m);
+    }
+    let locationTimer = null;
+    function scheduleLocation() {
+      const val = (($("house_location") && $("house_location").value) || "");
+      houseMeta.location = val;
+      if (preview.property) preview.property.location = val;
+      fillHouseBar();
+      if (typeof renderPass === "function") renderPass();
+      if (locationTimer) clearTimeout(locationTimer);
+      locationTimer = setTimeout(() => {
+        locationTimer = null;
+        saveLocationNow();
+      }, 500);
+    }
+    async function saveLocationNow() {
+      const val = (($("house_location") && $("house_location").value) || "").trim();
+      houseMeta.location = val;
+      if (preview.property) preview.property.location = val;
+      try {
+        await api("/api/patrimony_collection/editor/mapping", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ location: val }),
+        });
+        if ($("location_status")) $("location_status").textContent = "Saved";
+        fillHouseBar();
+        if (typeof renderPass === "function") renderPass();
+      } catch (e) {
+        if ($("location_status")) $("location_status").textContent = "Could not save";
+      }
     }
     async function loadNotifyConfig() {
       try {
@@ -2460,6 +2509,7 @@
       if ($("photo_keep")) $("photo_keep").onclick = () => { if ($("photo_confirm")) $("photo_confirm").hidden = true; };
       if ($("photo_confirm_no")) $("photo_confirm_no").onclick = () => { if ($("photo_confirm")) $("photo_confirm").hidden = true; };
       if ($("notes_text")) $("notes_text").addEventListener("input", scheduleNotes);
+      if ($("house_location")) $("house_location").addEventListener("input", scheduleLocation);
       if ($("pair_show")) $("pair_show").onclick = showPairing;
       if ($("pair_dismiss")) $("pair_dismiss").onclick = () => { clearPairing(); if ($("pair_status")) $("pair_status").textContent = ""; };
       fillComponentVersion();

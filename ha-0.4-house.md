@@ -2,7 +2,7 @@
 
 Integrator + principal. Lives on the house HA. Not on `patrimony/state`. schemaVersion 1 unchanged.
 
-Tabs stay Cards | People | Soon. Soon is these four, not a "later" placeholder. Visual language unchanged (ink / cream / gold, Fraunces, sentence case). No window.prompt.
+Tabs stay Cards | People | Soon. Soon is these four, not a "later" placeholder. Home settings has one free-text **Location** field (not street / city / country). Visual language unchanged (ink / cream / gold, Fraunces, sentence case). No window.prompt.
 
 ## Photograph
 

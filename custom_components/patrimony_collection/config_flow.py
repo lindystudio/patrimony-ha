@@ -10,6 +10,7 @@ from .const import (
     CONF_CARDS,
     CONF_DISPLAY_NAME,
     CONF_HOUSE_EVENT_KEY,
+    CONF_LOCATION,
     CONF_LOCATION_LABEL,
     CONF_MAPPINGS,
     CONF_PROPERTY_ID,
@@ -69,7 +70,7 @@ except ImportError:  # sketch without HA: keep the class shape importable-ish
 class PatrimonyCollectionConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Single house per HA instance."""
 
-    VERSION = 1
+    VERSION = 2
     _async_abort_entries_match = getattr(
         config_entries.ConfigFlow, "_async_abort_entries_match", lambda self, *a, **k: None
     )
@@ -85,7 +86,9 @@ class PatrimonyCollectionConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             property_id = str(user_input[CONF_PROPERTY_ID]).strip().lower()
             display_name = str(user_input[CONF_DISPLAY_NAME]).strip()
             timezone = str(user_input[CONF_TIMEZONE]).strip()
-            location = str(user_input.get(CONF_LOCATION_LABEL) or "").strip()
+            location = str(
+                user_input.get(CONF_LOCATION) or user_input.get(CONF_LOCATION_LABEL) or ""
+            ).strip()
             if not display_name:
                 errors[CONF_DISPLAY_NAME] = "empty"
             if "/" not in timezone:
@@ -103,7 +106,7 @@ class PatrimonyCollectionConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_TIMEZONE: timezone,
                 }
                 if location:
-                    data[CONF_LOCATION_LABEL] = location
+                    data[CONF_LOCATION] = location
                 return self.async_create_entry(
                     title=display_name,
                     data=data,
@@ -114,7 +117,7 @@ class PatrimonyCollectionConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {
                 vol.Required(CONF_PROPERTY_ID): str,
                 vol.Required(CONF_DISPLAY_NAME): str,
-                vol.Optional(CONF_LOCATION_LABEL, default=""): str,
+                vol.Optional(CONF_LOCATION, default=""): str,
                 vol.Required(CONF_TIMEZONE, default="UTC"): str,
             }
         )

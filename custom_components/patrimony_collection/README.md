@@ -17,7 +17,7 @@ On supervised Home Assistant, install the **Patrimony Collection** add-on so it 
 4. Enter:
    - `property_id` — UUID that **must equal** backend `properties.id` and the iOS Keychain account
    - `display_name` — wallet title (e.g. Demo Home)
-   - `location_label` — optional short place (e.g. Example), not an address
+   - `location` — optional free-text place (e.g. Example). The principal chooses what to put here.
    - `timezone` — IANA (e.g. `UTC`)
 5. One instance per HA. A second add is aborted as already configured.
 

@@ -3,11 +3,11 @@
     "step": {
       "user": {
         "title": "Patrimony Collection",
-        "description": "Map this Home Assistant instance to one house. property_id must match the backend registry and the iOS Keychain account. Do not enter coordinates or an access token.",
+        "description": "Map this Home Assistant instance to one house. property_id must match the backend registry and the iOS Keychain account. Location is free text — a city, a nickname, or nothing. Do not enter coordinates or an access token.",
         "data": {
           "property_id": "Property ID (UUID)",
           "display_name": "Display name",
-          "location_label": "Location label (optional)",
+          "location": "Location",
           "timezone": "Timezone (IANA)"
         }
       }
