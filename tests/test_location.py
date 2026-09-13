@@ -102,6 +102,7 @@ def test_redact_strips_structured_address_keeps_location():
             "id": "00000000-0000-4000-8000-000000000001",
             "displayName": "Demo Home",
             "location": "Example",
+            "usesFahrenheit": True,
             "street": "1 Road",
             "city": "Athens",
             "country": "Greece",
@@ -110,10 +111,11 @@ def test_redact_strips_structured_address_keeps_location():
     }
     clean = redact_document(raw)
     assert clean["property"]["location"] == "Example"
+    assert "usesFahrenheit" not in clean["property"]
     assert "street" not in clean["property"]
     assert "city" not in clean["property"]
     assert "country" not in clean["property"]
-    for key in ("street", "city", "country", "address", "postal_code"):
+    for key in ("street", "city", "country", "address", "postal_code", "usesFahrenheit"):
         assert key in FORBIDDEN_WIRE_KEYS
     assert "location" not in FORBIDDEN_WIRE_KEYS
 

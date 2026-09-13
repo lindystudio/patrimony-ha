@@ -110,6 +110,8 @@ FORBIDDEN_WIRE_KEYS: Final = frozenset(
         "province",
         "county",
         "district",
+        "usesFahrenheit",
+        "uses_fahrenheit",
         "access_token",
         "refresh_token",
         "ha_token",

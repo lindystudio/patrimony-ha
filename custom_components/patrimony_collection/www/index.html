@@ -460,7 +460,6 @@
         <p class="status" id="pair_status"></p>
         <div class="soon-meta">
           <p>Time zone <span id="soon_zone">—</span></p>
-          <p>Units <span id="soon_units">Celsius</span></p>
         </div>
       </section>
       <section class="soon-card" id="soon_conn" hidden>
@@ -2333,8 +2332,6 @@
       const m = houseMeta || {};
       const zone = p.timezone || m.timezone || "";
       if ($("soon_zone")) $("soon_zone").textContent = zone || "—";
-      const f = p.usesFahrenheit;
-      if ($("soon_units")) $("soon_units").textContent = f === true ? "Fahrenheit" : "Celsius";
       const locEl = $("house_location");
       if (locEl && document.activeElement !== locEl) locEl.value = houseLocation(p, m);
     }
