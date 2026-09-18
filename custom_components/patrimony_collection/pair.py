@@ -9,7 +9,7 @@ import secrets
 import time
 from datetime import timedelta
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from .const import (
     DEFAULT_HOUSE_URL,
@@ -36,6 +36,21 @@ def https_house_url(hass) -> str:
     if not raw.startswith("https://"):
         raw = "https://" + raw.lstrip("/")
     return raw
+
+
+def house_url_is_usable(url: str) -> bool:
+    """Reject hostless bases that become https://api/... in Camera."""
+    try:
+        parsed = urlparse(str(url or "").strip())
+    except Exception:
+        return False
+    host = (parsed.hostname or "").strip().lower()
+    if parsed.scheme != "https" or not host:
+        return False
+    # Single-label junk like "api" from https:///api/... normalization
+    if "." not in host and host not in {"localhost"}:
+        return False
+    return True
 
 
 def pairing_uri(url: str, token: str) -> str:
@@ -177,5 +192,13 @@ async def mint_pairing(hass, user) -> tuple[int, dict[str, Any]]:
     if not token or not isinstance(token, str):
         return 501, UNAVAILABLE
     house = https_house_url(hass)
+    if not house_url_is_usable(house):
+        _LOGGER.warning("pairing mint refused: Home Assistant External URL is missing or invalid")
+        return 503, {
+            "error": {
+                "code": "external_url_required",
+                "message": "Set Home Assistant External URL (Settings → System → Network) to your public https host, then show a pairing code again.",
+            }
+        }
     code = put_ticket(hass, house, token)
     return 200, {"pairing": claim_url(hass, code)}
