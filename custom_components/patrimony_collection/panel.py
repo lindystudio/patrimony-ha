@@ -295,7 +295,7 @@ async def async_setup_panel(hass: HomeAssistant) -> None:
             hass,
             component_name="iframe",
             sidebar_title="Patrimony",
-            sidebar_icon="mdi:wallet-travel",
+            sidebar_icon="mdi:key",
             frontend_url_path="patrimony",
             config={"url": iframe_url},
             require_admin=True,
