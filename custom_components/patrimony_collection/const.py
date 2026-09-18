@@ -26,7 +26,7 @@ PAIR_CLIENT_NAME: Final = "Patrimony iOS"
 PAIR_TICKET_TTL_SECONDS: Final = 15 * 60
 NOTIFY_PATH: Final = "/api/patrimony_collection/notify"
 NOTIFY_FILE: Final = "patrimony_collection/notify.json"
-BACKEND_BASE: Final = "https://api.patrimonycollection.com"
+BACKEND_BASE: Final = "https://patrimony-api.beli-c25.workers.dev"
 NOTIFY_USER_AGENT: Final = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
