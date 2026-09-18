@@ -21,9 +21,12 @@ from custom_components.patrimony_collection.notify import (
 from custom_components.patrimony_collection.pair import https_house_url, mint_pairing, pairing_uri
 from custom_components.patrimony_collection.photo import (
     delete_photo,
+    load_default_photo,
     load_photo,
     photo_path,
     reject_put,
+    resolve_photo,
+    restore_default_photo,
     save_photo,
     sniff_content_type,
 )
@@ -64,6 +67,44 @@ def test_photo_save_load_delete(tmp_path):
     assert delete_photo(hass) is True
     assert load_photo(hass) is None
     assert delete_photo(hass) is False
+
+
+def test_photo_get_falls_back_and_restore_writes_bundled_default(tmp_path):
+    hass = _Hass(tmp_path)
+    bundled = load_default_photo()
+    assert bundled
+    assert sniff_content_type(bundled) == "image/jpeg"
+    assert len(bundled) <= PHOTO_MAX_BYTES
+
+    resolved = resolve_photo(hass)
+    assert resolved is not None
+    data, ctype, source = resolved
+    assert source == "default"
+    assert ctype == "image/jpeg"
+    assert data == bundled
+    assert load_photo(hass) is None
+
+    save_photo(hass, JPEG)
+    data, ctype, source = resolve_photo(hass)
+    assert source == "custom"
+    assert data == JPEG
+
+    assert delete_photo(hass) is True
+    data, _ctype, source = resolve_photo(hass)
+    assert source == "default"
+    assert data == bundled
+    assert load_photo(hass) is None
+
+    assert restore_default_photo(hass) is True
+    assert load_photo(hass) == bundled
+    data, ctype, source = resolve_photo(hass)
+    assert source == "custom"
+    assert ctype == "image/jpeg"
+    assert data == bundled
+
+    save_photo(hass, JPEG)
+    assert restore_default_photo(hass) is True
+    assert load_photo(hass) == bundled
 
 
 def test_photo_reject_too_big_and_wrong_type():
@@ -115,6 +156,23 @@ def test_notes_photo_pairing_not_on_presentation_document(tmp_path):
     assert "data:image" not in blob
     assert uri not in blob
     assert "patrimony://pair" not in blob
+
+
+def test_bundled_default_matches_addon_and_ui_copy_is_generic():
+    bundled = load_default_photo()
+    assert bundled
+    root = Path(__file__).resolve().parents[1]
+    addon = (root / "addons" / "patrimony_collection" / "default.jpg").read_bytes()
+    assert addon == bundled
+    for rel in (
+        "custom_components/patrimony_collection/www/index.html",
+        "addons/patrimony_collection/static/index.html",
+    ):
+        html = (root / rel).read_text(encoding="utf-8")
+        assert "Restore default" in html
+        low = html.lower()
+        assert "copenhagen" not in low
+        assert "nyhavn" not in low
 
 
 def test_notify_refuses_missing_and_jwt_keys(tmp_path):
@@ -169,9 +227,12 @@ if __name__ == "__main__":
         test_photo_save_load_delete(Path(d))
     test_photo_reject_too_big_and_wrong_type()
     with tempfile.TemporaryDirectory() as d:
+        test_photo_get_falls_back_and_restore_writes_bundled_default(Path(d))
+    with tempfile.TemporaryDirectory() as d:
         test_notes_roundtrip_empty_and_cap(Path(d))
     with tempfile.TemporaryDirectory() as d:
         test_notes_photo_pairing_not_on_presentation_document(Path(d))
+    test_bundled_default_matches_addon_and_ui_copy_is_generic()
     with tempfile.TemporaryDirectory() as d:
         test_notify_refuses_missing_and_jwt_keys(Path(d))
     with tempfile.TemporaryDirectory() as d:

@@ -16,6 +16,7 @@ MAX_CONTACTS: Final = 40
 PHOTO_PATH: Final = "/api/patrimony_collection/photo"
 PHOTO_FILE: Final = "patrimony_collection/face.jpg"
 PHOTO_MAX_BYTES: Final = 2 * 1024 * 1024
+PHOTO_SOURCE_HEADER: Final = "X-Patrimony-Photo-Source"
 NOTES_PATH: Final = "/api/patrimony_collection/notes"
 NOTES_FILE: Final = "patrimony_collection/notes.json"
 NOTES_MAX_CHARS: Final = 8000

@@ -425,7 +425,8 @@
         </div>
         <p class="quiet" id="photo_empty">No photograph yet.</p>
         <div class="actions">
-          <button class="primary" type="button" id="photo_replace">Replace</button>
+          <button class="primary" type="button" id="photo_restore">Restore default</button>
+          <button class="ghost" type="button" id="photo_replace">Replace</button>
           <button class="danger" type="button" id="photo_remove" hidden>Remove</button>
           <input type="file" id="photo_file" accept="image/jpeg,image/webp" hidden />
         </div>
@@ -2127,6 +2128,18 @@
     let notesReady = false;
     let pairingUri = null;
 
+    function syncPhotoButtons(mode) {
+      const restore = $("photo_restore");
+      const replace = $("photo_replace");
+      const remove = $("photo_remove");
+      if (restore) {
+        restore.hidden = mode === "custom";
+        restore.className = mode === "custom" ? "ghost" : "primary";
+      }
+      if (replace) replace.className = "ghost";
+      if (remove) remove.hidden = mode !== "custom";
+      if ($("photo_confirm") && mode !== "custom") $("photo_confirm").hidden = true;
+    }
     function setStillEmpty() {
       const still = $("photo_still");
       if (still) still.classList.add("still-empty");
@@ -2134,9 +2147,7 @@
       if (img) { img.removeAttribute("src"); img.alt = ""; }
       if (photoObjectUrl) { URL.revokeObjectURL(photoObjectUrl); photoObjectUrl = null; }
       if ($("photo_empty")) $("photo_empty").hidden = false;
-      if ($("photo_remove")) $("photo_remove").hidden = true;
-      if ($("photo_confirm")) $("photo_confirm").hidden = true;
-      if ($("photo_replace")) $("photo_replace").className = "primary";
+      syncPhotoButtons("empty");
     }
     function sniffStillMime(bytes) {
       if (bytes.length >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) return "image/jpeg";
@@ -2152,16 +2163,14 @@
       }
       return "data:" + mime + ";base64," + btoa(bin);
     }
-    function setStillDataUrl(url) {
+    function setStillDataUrl(url, source) {
       const still = $("photo_still");
       if (still) still.classList.remove("still-empty");
       if (photoObjectUrl) { URL.revokeObjectURL(photoObjectUrl); photoObjectUrl = null; }
       const img = $("photo_img");
       if (img) { img.removeAttribute("hidden"); img.src = url; img.alt = "Photograph"; }
       if ($("photo_empty")) $("photo_empty").hidden = true;
-      if ($("photo_remove")) $("photo_remove").hidden = false;
-      if ($("photo_confirm")) $("photo_confirm").hidden = true;
-      if ($("photo_replace")) $("photo_replace").className = "ghost";
+      syncPhotoButtons(source === "default" ? "default" : "custom");
       if ($("photo_status")) $("photo_status").textContent = "";
     }
     async function loadPhoto() {
@@ -2182,10 +2191,21 @@
           if ($("photo_status")) $("photo_status").textContent = "Could not load the photograph.";
           return;
         }
-        setStillDataUrl(bytesToDataUrl(bytes, mime));
+        const source = (r.headers.get("X-Patrimony-Photo-Source") || "custom").toLowerCase();
+        setStillDataUrl(bytesToDataUrl(bytes, mime), source);
       } catch (e) {
         setStillEmpty();
         if ($("photo_status")) $("photo_status").textContent = "Could not load the photograph.";
+      }
+    }
+    async function restorePhoto() {
+      if ($("photo_status")) $("photo_status").textContent = "";
+      try {
+        const r = await bin(PHOTO_PATH, { method: "POST" });
+        if (!r.ok) { $("photo_status").textContent = "Could not restore"; return; }
+        await loadPhoto();
+      } catch (e) {
+        $("photo_status").textContent = "Could not restore";
       }
     }
     async function putPhoto(file) {
@@ -2449,6 +2469,7 @@
         btn.onclick = () => showHouseSub(btn.dataset.houseSub);
       });
       showHouseSub(readHouseSub());
+      if ($("photo_restore")) $("photo_restore").onclick = restorePhoto;
       if ($("photo_replace")) $("photo_replace").onclick = () => $("photo_file") && $("photo_file").click();
       if ($("photo_file")) $("photo_file").onchange = () => {
         const f = $("photo_file").files && $("photo_file").files[0];

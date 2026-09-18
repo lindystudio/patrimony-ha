@@ -15,6 +15,7 @@ from .const import (
     PAIR_CLAIM_PATH,
     PHOTO_MAX_BYTES,
     PHOTO_PATH,
+    PHOTO_SOURCE_HEADER,
     REST_PATH,
 )
 from . import contacts as house_contacts
@@ -152,18 +153,35 @@ class PatrimonyPhotoView(HomeAssistantView):
     async def get(self, request):
         from aiohttp import web
 
-        data = house_photo.load_photo(self.hass)
-        if data is None:
+        resolved = house_photo.resolve_photo(self.hass)
+        if resolved is None:
             return web.Response(status=404)
-        ctype = house_photo.sniff_content_type(data) or "image/jpeg"
+        data, ctype, source = resolved
         return web.Response(
             body=data,
             content_type=ctype,
             headers={
                 "Cache-Control": "no-store",
                 "X-Content-Type-Options": "nosniff",
+                PHOTO_SOURCE_HEADER: source,
+                "Access-Control-Expose-Headers": PHOTO_SOURCE_HEADER,
             },
         )
+
+    async def post(self, request):
+        from aiohttp import web
+
+        if not house_photo.restore_default_photo(self.hass):
+            return web.json_response(
+                {
+                    "error": {
+                        "code": "no_default",
+                        "message": "No bundled default photograph",
+                    }
+                },
+                status=404,
+            )
+        return web.Response(status=204)
 
     async def put(self, request):
         from aiohttp import web

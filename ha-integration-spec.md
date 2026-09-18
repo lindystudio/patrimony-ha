@@ -215,9 +215,10 @@ Off `patrimony/state` and PresentationDocument. `schemaVersion` stays 1. Same HA
 
 | Method | Path | Auth | Body / notes |
 |---|---|---|---|
-| GET | `/api/patrimony_collection/photo` | Bearer | Raw jpeg/webp bytes. 404 if missing. Sniff magic for Content-Type. |
+| GET | `/api/patrimony_collection/photo` | Bearer | Raw jpeg/webp bytes. Stored `face.jpg` if present, else bundled product still. Header `X-Patrimony-Photo-Source: custom\|default`. 404 only if both missing. Sniff magic for Content-Type. |
 | PUT | `/api/patrimony_collection/photo` | Bearer (not admin-only) | Raw image bytes, `image/jpeg` or `image/webp`, max 2 MB. Store `config/patrimony_collection/face.jpg`. |
-| DELETE | `/api/patrimony_collection/photo` | Bearer | 204, or 404 if already gone. |
+| DELETE | `/api/patrimony_collection/photo` | Bearer | 204, or 404 if already gone. Clears stored still; GET then falls back to the bundled default. |
+| POST | `/api/patrimony_collection/photo` | Bearer | Restore default: copy bundled product still to `face.jpg`. 204. No upload. |
 | GET/PUT | `/api/patrimony_collection/notes` | Bearer | `{ "schemaVersion": 1, "propertyId": "<uuid>", "text": "", "updatedAt": "<ISO Z>" \| null }`. Cap 8k (truncate on save). Missing GET: empty text, `updatedAt` null. Store `config/patrimony_collection/notes.json`. |
 | POST | `/api/patrimony_collection/pair` | Bearer + admin | `{ "pairing": "patrimony://pair?url=<https>&token=<llat>" }` once. Mints HA long-lived token named `Patrimony iOS`. Never persist or log the token. 403 if not admin; 501 if HA auth APIs missing. |
 | GET | `/api/patrimony_collection/notify` | Bearer | `{ "configured": true\|false }` — true iff a usable `hek_…` house event key is in config entry options. |

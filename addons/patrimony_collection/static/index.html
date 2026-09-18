@@ -348,8 +348,9 @@
           <img id="photo_img" alt="House photograph" hidden />
         </div>
         <div class="actions">
-          <button class="primary" type="button" id="photo_replace">Replace</button>
-          <button class="danger" type="button" id="photo_remove">Remove</button>
+          <button class="primary" type="button" id="photo_restore">Restore default</button>
+          <button class="ghost" type="button" id="photo_replace">Replace</button>
+          <button class="danger" type="button" id="photo_remove" hidden>Remove</button>
           <input type="file" id="photo_file" accept="image/jpeg,image/webp" hidden />
         </div>
         <div class="confirm-bar" id="photo_confirm" hidden>
@@ -1606,6 +1607,18 @@
     let notesTimer = null;
     let notesReady = false;
 
+    function syncPhotoButtons(mode) {
+      const restore = $("photo_restore");
+      const replace = $("photo_replace");
+      const remove = $("photo_remove");
+      if (restore) {
+        restore.hidden = mode === "custom";
+        restore.className = mode === "custom" ? "ghost" : "primary";
+      }
+      if (replace) replace.className = "ghost";
+      if (remove) remove.hidden = mode !== "custom";
+      if ($("photo_confirm") && mode !== "custom") $("photo_confirm").hidden = true;
+    }
     async function loadPhoto() {
       const empty = $("photo_empty");
       const img = $("photo_img");
@@ -1616,6 +1629,7 @@
           img.hidden = true;
           if (empty) empty.hidden = false;
           if (photoObjectUrl) { URL.revokeObjectURL(photoObjectUrl); photoObjectUrl = null; }
+          syncPhotoButtons("empty");
           return;
         }
         if (!r.ok) throw new Error("photo");
@@ -1625,9 +1639,19 @@
         img.src = photoObjectUrl;
         img.hidden = false;
         if (empty) empty.hidden = true;
+        const source = (r.headers.get("X-Patrimony-Photo-Source") || "custom").toLowerCase();
+        syncPhotoButtons(source === "default" ? "default" : "custom");
       } catch (e) {
         if ($("photo_status")) $("photo_status").textContent = "Could not load the photograph.";
+        syncPhotoButtons("empty");
       }
+    }
+    async function restorePhoto() {
+      $("photo_status").textContent = "Saving…";
+      const r = await apiBinary(PHOTO_PATH, { method: "POST" });
+      if (!r.ok) { $("photo_status").textContent = "Could not restore."; return; }
+      await loadPhoto();
+      $("photo_status").textContent = "Restored";
     }
     async function putPhoto(file) {
       const type = file.type === "image/webp" ? "image/webp" : (file.type === "image/jpeg" ? "image/jpeg" : "");
@@ -1644,7 +1668,12 @@
       $("photo_status").textContent = "Saving…";
       const r = await apiBinary(PHOTO_PATH, { method: "DELETE" });
       if (r.status !== 204 && r.status !== 404) { $("photo_status").textContent = "Could not remove."; return; }
-      await loadPhoto();
+      const empty = $("photo_empty");
+      const img = $("photo_img");
+      if (img) img.hidden = true;
+      if (empty) empty.hidden = false;
+      if (photoObjectUrl) { URL.revokeObjectURL(photoObjectUrl); photoObjectUrl = null; }
+      syncPhotoButtons("empty");
       $("photo_status").textContent = "Removed";
     }
     async function loadNotes() {
@@ -1755,6 +1784,7 @@
       await Promise.all([loadPhoto(), loadNotes(), loadNotifyConfig()]);
     }
     function bindSoon() {
+      if ($("photo_restore")) $("photo_restore").onclick = restorePhoto;
       if ($("photo_replace")) $("photo_replace").onclick = () => $("photo_file") && $("photo_file").click();
       if ($("photo_file")) $("photo_file").onchange = () => {
         const f = $("photo_file").files && $("photo_file").files[0];
