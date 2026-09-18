@@ -188,3 +188,7 @@ Locked 30 Aug 2026: Escape dismisses the current mapping overlay, innermost firs
 ## Search pick + skip duplicate (0.4.21)
 
 Locked 30 Aug 2026: Search by name is keyboard-complete. ArrowDown/ArrowUp move a highlight among current hits (wrap; class `is-active`; scrollIntoView nearest). Return adds the highlighted hit (hitIndex), not always the first; if lastHits is empty, flush the 180ms search first and restore hitIndex when the entity_id list is unchanged, else reset to 0. Hits already mapped on the open card show a quiet gold `On this card` mark. addFromSearch skips duplicates: weather only adds missing Outdoor/Condition (both present → status `Already on this card`); guest Wi-Fi bool already on card selects it and status; default line already on card with no state_attribute selects it and status. afterAdd clears search, keeps Add open, refocuses #q, resets hitIndex. Schema 1.0, kinds custom. No window.prompt.
+
+## Restore default photograph (0.4.45)
+
+Locked 18 Sep 2026: Soon Photograph can put the bundled product still back without a file picker. Empty / after Remove shows **Restore default** (Replace stays). POST `/api/patrimony_collection/photo` writes `assets/default.jpg` to `config/patrimony_collection/face.jpg`. GET serves that stored file, or falls back to the bundled still (`X-Patrimony-Photo-Source: default`) when the file is gone. No house names in customer copy.

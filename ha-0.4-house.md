@@ -6,11 +6,16 @@ Tabs stay Cards | People | Soon. Soon is these four, not a "later" placeholder. 
 
 ## Photograph
 
-GET/PUT `/api/patrimony_collection/photo` (same HA Bearer as state). `image/jpeg` or `image/webp`, max 2 MB. Store `/config/patrimony_collection/face.jpg`. GET 404 if missing.
+GET/PUT/DELETE/POST `/api/patrimony_collection/photo` (same HA Bearer as state). `image/jpeg` or `image/webp`, max 2 MB. Store `/config/patrimony_collection/face.jpg`.
 
-iOS: wallet still is this file (full-bleed, dusk wash). Change from the house card (Photos picker) and from Soon. PUT then GET to confirm. Never base64 on the state document.
+- GET: stored still if present, else the bundled product still. Header `X-Patrimony-Photo-Source: custom|default`. 404 only if both are missing.
+- PUT: replace with a house jpeg/webp.
+- DELETE: remove the stored file. GET then falls back to the bundled still.
+- POST: write the bundled still back to `face.jpg` (Restore default). No upload.
 
-HA Soon: current still, Replace, Remove.
+iOS: wallet still is this GET (full-bleed, dusk wash). Change from the house card (Photos picker) and from Soon. PUT then GET to confirm. Never base64 on the state document.
+
+HA Soon: current still, Replace, Remove, and Restore default when there is no stored photograph.
 
 ## Notepad
 

@@ -4,4 +4,5 @@ WORKDIR /app
 COPY web.py /app/web.py
 COPY static /app/static
 COPY seed_demo.json /app/seed_demo.json
+COPY default.jpg /app/default.jpg
 CMD ["python3", "/app/web.py"]

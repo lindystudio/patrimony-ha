@@ -16,6 +16,7 @@ OPTIONS_PATH = Path("/data/options.json")
 MAPPING_PATH = Path("/config/patrimony_collection/mapping.json")
 CONTACTS_PATH = Path("/config/patrimony_collection/contacts.json")
 PHOTO_PATH = Path("/config/patrimony_collection/face.jpg")
+DEFAULT_PHOTO_PATH = Path(__file__).resolve().parent / "default.jpg"
 NOTES_PATH = Path("/config/patrimony_collection/notes.json")
 NOTIFY_PATH = Path("/config/patrimony_collection/notify.json")
 CONTACTS_METHODS = ("cellular", "viber", "whatsapp")
@@ -517,6 +518,39 @@ def sniff_photo_type(data: bytes):
     return None
 
 
+def load_default_photo():
+    try:
+        if not DEFAULT_PHOTO_PATH.is_file():
+            return None
+        data = DEFAULT_PHOTO_PATH.read_bytes()
+    except Exception:
+        return None
+    if not data or len(data) > PHOTO_MAX_BYTES:
+        return None
+    if sniff_photo_type(data) is None:
+        return None
+    return data
+
+
+def resolve_photo():
+    if PHOTO_PATH.is_file():
+        data = PHOTO_PATH.read_bytes()
+        return data, sniff_photo_type(data) or "image/jpeg", "custom"
+    bundled = load_default_photo()
+    if bundled:
+        return bundled, sniff_photo_type(bundled) or "image/jpeg", "default"
+    return None
+
+
+def restore_default_photo() -> bool:
+    data = load_default_photo()
+    if not data:
+        return False
+    PHOTO_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PHOTO_PATH.write_bytes(data)
+    return True
+
+
 def load_notes_doc():
     opts = load_options()
     pid = opts.get("property_id")
@@ -651,14 +685,16 @@ class Handler(BaseHTTPRequestHandler):
                 rows = [r for r in rows if q in str(r.get("name") or "").lower()]
             return self._json(200, {"entities": rows, "kinds": list(KINDS)})
         if path in ("/api/photo", "api/photo"):
-            if not PHOTO_PATH.is_file():
+            resolved = resolve_photo()
+            if resolved is None:
                 self.send_error(404)
                 return
-            data = PHOTO_PATH.read_bytes()
-            ctype = sniff_photo_type(data) or "image/jpeg"
+            data, ctype, source = resolved
             self.send_response(200)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Patrimony-Photo-Source", source)
             self.end_headers()
             self.wfile.write(data)
             return
@@ -719,6 +755,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
+        if path in ("/api/photo", "api/photo"):
+            if not restore_default_photo():
+                return self._json(404, {
+                    "error": {"code": "no_default", "message": "No bundled default photograph"}
+                })
+            self.send_response(204)
+            self.end_headers()
+            return
         if path in ("/api/notify", "api/notify"):
             length = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(length)
