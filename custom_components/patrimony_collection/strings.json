@@ -1,0 +1,81 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Patrimony Collection",
+        "description": "Map this Home Assistant instance to one house. property_id must match the backend registry and the iOS Keychain account. Do not enter coordinates or an access token.",
+        "data": {
+          "property_id": "Property ID (UUID)",
+          "display_name": "Display name",
+          "location_label": "Location (optional free text, not a street address)",
+          "timezone": "Timezone (IANA)"
+        }
+      }
+    },
+    "error": {
+      "empty": "Display name cannot be empty.",
+      "invalid_timezone": "Use an IANA timezone such as UTC.",
+      "invalid_uuid": "Must be the property UUID from the operator registry."
+    },
+    "abort": {
+      "already_configured": "Patrimony Collection is already configured on this Home Assistant."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure Patrimony Collection",
+        "description": "Integrator mapping only. The principal never uses this UI.",
+        "menu_options": {
+          "add_card": "Add card",
+          "add_item": "Add item",
+          "remove_item": "Remove item",
+          "house_event_key": "House event key (optional)"
+        }
+      },
+      "add_card": {
+        "title": "Add card",
+        "description": "Closed kinds: security, climate, network, cellar, arrivals, custom. energy is not a kind.",
+        "data": {
+          "kind": "Kind",
+          "title": "Title",
+          "priority": "Priority (lower first)"
+        }
+      },
+      "add_item": {
+        "title": "Add item",
+        "description": "Pick an entity and a card. entity_id stays in HA storage and never appears on the wire.",
+        "data": {
+          "card_id": "Card",
+          "entity_id": "Entity",
+          "label": "Label",
+          "value_type": "Value type",
+          "state_attribute": "State attribute (optional)",
+          "severity_mode": "Severity mode",
+          "unit": "Unit (numbers only)"
+        }
+      },
+      "remove_item": {
+        "title": "Remove item",
+        "description": "Remove by item UUID. The UI shows the label and entity for the integrator only.",
+        "data": {
+          "item_id": "Item"
+        }
+      },
+      "house_event_key": {
+        "title": "House event key",
+        "description": "Optional hek_ key minted by the operator CLI for APNs ingest. Never paste a Home Assistant long-lived token.",
+        "data": {
+          "house_event_key": "House event key (hek_…)"
+        }
+      }
+    },
+    "error": {
+      "looks_like_ha_token": "That looks like a Home Assistant token. Paste a house event key (hek_…) only."
+    },
+    "abort": {
+      "no_cards": "Add a card before mapping items.",
+      "no_items": "No mapped items to remove."
+    }
+  }
+}
