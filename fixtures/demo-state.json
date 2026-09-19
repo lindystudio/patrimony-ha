@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-23T14:20:00Z",
+  "lastHeard": "2026-08-23T14:20:00Z",
+  "property": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "displayName": "Demo Home",
+    "locationLabel": "Example",
+    "timezone": "UTC",
+    "lastHeard": "2026-08-23T14:20:00Z"
+  },
+  "cards": [
+    {
+      "id": "bb2e5bc9-d780-4721-8884-71c7ad2de495",
+      "kind": "custom",
+      "title": "Network",
+      "priority": 10,
+      "lastUpdated": "2026-08-23T14:20:00Z",
+      "items": [
+        {
+          "id": "1497ff6e-f94b-466d-a1ae-ab5b2c2b8590",
+          "label": "Guest Wi-Fi",
+          "value": true,
+          "valueType": "bool",
+          "unit": null,
+          "severity": "ok",
+          "updatedAt": "2026-08-23T14:20:00Z"
+        }
+      ]
+    },
+    {
+      "id": "978e4347-d65d-4421-8f98-4d9ef5cc6398",
+      "kind": "custom",
+      "title": "Climate",
+      "priority": 20,
+      "lastUpdated": "2026-08-23T14:20:00Z",
+      "items": [
+        {
+          "id": "713a1316-a312-4132-bd42-4a0432ccf85a",
+          "label": "Indoor",
+          "value": 21.5,
+          "valueType": "number",
+          "unit": "\u00b0C",
+          "severity": "ok",
+          "updatedAt": "2026-08-23T14:20:00Z"
+        }
+      ]
+    },
+    {
+      "id": "43ed4b93-19a9-46d8-8ff7-bf896a8954f9",
+      "kind": "custom",
+      "title": "Alarm",
+      "priority": 5,
+      "lastUpdated": "2026-08-23T14:20:00Z",
+      "items": [
+        {
+          "id": "769ba028-4477-451c-8a2e-b6e3472ee898",
+          "label": "Alarm",
+          "value": "Armed away",
+          "valueType": "enum",
+          "unit": null,
+          "severity": "ok",
+          "updatedAt": "2026-08-23T14:20:00Z"
+        }
+      ]
+    },
+    {
+      "id": "2cc3fed2-74b7-42fe-8e4f-4bed95b7fb46",
+      "kind": "custom",
+      "title": "Weather",
+      "priority": 25,
+      "lastUpdated": "2026-08-23T14:20:00Z",
+      "items": [
+        {
+          "id": "cb1a007e-ed80-498f-ba16-396c13235ee3",
+          "label": "Outdoor",
+          "value": 18.0,
+          "valueType": "number",
+          "unit": "\u00b0C",
+          "severity": "ok",
+          "updatedAt": "2026-08-23T14:20:00Z"
+        },
+        {
+          "id": "d6d9147d-6018-48de-9a29-71a4a5744421",
+          "label": "Condition",
+          "value": "Cloudy",
+          "valueType": "enum",
+          "unit": null,
+          "severity": "ok",
+          "updatedAt": "2026-08-23T14:20:00Z"
+        }
+      ]
+    }
+  ],
+  "events": []
+}

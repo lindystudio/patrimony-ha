@@ -1,0 +1,2535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store" />
+  <title>Patrimony</title>
+  <style>
+
+    @import url("https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400&family=Source+Sans+3:wght@400;500;600&display=swap");
+    :root {
+      --ink: #1a1714;
+      --paper: #f4efe6;
+      --cream: #f3ead7;
+      --gold: #c4a574;
+      --gold-deep: #8f7350;
+      --alert: #c4472a;
+      --muted: #8a8378;
+      --line: #2a2622;
+      --bg: #12100e;
+      --panel: #1c1916;
+      --ok: #f3ead7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 15px/1.45 "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--cream);
+    }
+    .chrome {
+      position: sticky; top: 0; z-index: 20;
+      background: var(--bg);
+    }
+    .house-bar {
+      padding: 12px 14px 10px;
+    }
+    .house-top {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px;
+    }
+    .house-brand {
+      display: flex; align-items: center; gap: 8px; min-width: 0;
+    }
+    .key-mark {
+      display: block; width: 11px; height: 20px;
+      color: var(--gold); flex: none;
+    }
+    .wordmark {
+      font-size: 10px; font-weight: 500;
+      letter-spacing: 0.34em; text-transform: uppercase;
+      color: var(--cream); white-space: nowrap;
+    }
+    .head-actions {
+      display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+    }
+    .house-name {
+      margin: 10px 0 0;
+      font-family: Fraunces, Georgia, serif;
+      font-size: 26px; font-weight: 500; letter-spacing: -0.015em;
+      line-height: 1.12; color: var(--cream);
+    }
+    .house-meta {
+      display: flex; flex-wrap: wrap; align-items: baseline;
+      gap: 4px 12px; margin: 6px 0 0;
+      color: var(--cream); opacity: .78;
+    }
+    .house-meta span[hidden], .house-meta span:empty { display: none; }
+    #house_place {
+      font-size: 10px; letter-spacing: .16em; text-transform: uppercase;
+    }
+    .house-meta span:not([hidden]):not(:empty) + span:not([hidden]):not(:empty)::before {
+      content: "·"; margin-right: 10px; opacity: .45;
+    }
+    #house_zone, #house_id {
+      font-size: 10px; letter-spacing: .04em; font-variant-numeric: tabular-nums;
+    }
+    .tab-bar {
+      display: flex; padding: 0 8px;
+      border-bottom: 1px solid var(--line);
+    }
+    .tab {
+      flex: 1; background: none; border: 0; border-radius: 0;
+      border-bottom: 2px solid transparent;
+      color: var(--cream); opacity: .5;
+      padding: 11px 6px 9px; margin-bottom: -1px;
+      font-size: 13px; font-weight: 500; letter-spacing: .08em;
+      cursor: pointer;
+    }
+    .tab:hover { opacity: .85; }
+    .tab.is-active {
+      opacity: 1; color: var(--gold); border-bottom-color: var(--gold);
+    }
+    .house-subnav {
+      display: flex; padding: 0 2px 2px;
+      border-bottom: 1px solid var(--line);
+      margin: 0 0 12px;
+      gap: 0;
+    }
+    .house-sub {
+      background: none; border: 0; border-radius: 0;
+      border-bottom: 2px solid transparent;
+      color: var(--cream); opacity: .5;
+      padding: 8px 10px 7px; margin-bottom: -1px;
+      font-size: 12px; font-weight: 500; letter-spacing: .06em;
+      cursor: pointer;
+    }
+    .house-sub:hover { opacity: .85; }
+    .house-sub.is-active {
+      opacity: 1; color: var(--gold); border-bottom-color: var(--gold);
+    }
+    .wrap {
+      display: flex; flex-direction: column; gap: 12px;
+      padding: 14px 14px 36px; width: 100%;
+    }
+    .pane[hidden] { display: none; }
+    .pass-sticky {
+      position: relative; z-index: 1;
+      background: var(--bg); padding-bottom: 6px;
+    }
+    .pass {
+      background: #0e0c0a; border-radius: 16px; overflow: hidden;
+      position: relative; padding: 14px 16px 10px;
+      border: 1px solid #2c2620;
+      box-shadow: 0 10px 24px rgba(0,0,0,.32);
+    }
+    .pass::before {
+      content: ""; position: absolute; inset: 0;
+      background: linear-gradient(165deg, rgba(196,165,116,.12), transparent 42%, #0e0c0a 88%);
+    }
+    .pass * { position: relative; }
+    .pass-title-row {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    }
+    .pass h2 {
+      margin: 4px 0 0; font-family: Fraunces, Georgia, serif;
+      font-size: 22px; font-weight: 500; color: var(--cream);
+      min-width: 0; flex: 1;
+    }
+    .pass-clock {
+      margin: 4px 0 0;
+      font-family: Fraunces, Georgia, serif;
+      font-size: 20px; font-weight: 400;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: .02em;
+      color: var(--cream); opacity: .9;
+      flex: none;
+    }
+    .pass .place { letter-spacing: .16em; text-transform: uppercase; font-size: 10px; color: var(--cream); opacity: .85; }
+    .badge { display: inline-block; margin: 8px 0 10px; padding: 2px 8px; border-radius: 4px; font-size: 12px; letter-spacing: .04em; }
+    .ok { color: var(--cream); } .attention { color: var(--gold); } .alert { color: var(--alert); }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 10px; }
+    .cell .k { font-size: 10px; letter-spacing: .1em; color: var(--cream); text-transform: uppercase; }
+    .cell .v { font-size: 15px; margin-top: 1px; }
+    .updated { margin-top: 6px; font-size: 10px; color: var(--cream); opacity: .45; letter-spacing: .12em; text-transform: uppercase; }
+    #blocks { overflow: visible; }
+    .block { background: var(--panel); border-radius: 14px; padding: 0; margin-top: 6px; border: 1px solid var(--line); overflow: hidden; cursor: pointer; }
+    .block.open { border-color: var(--gold-deep); cursor: default; }
+    .block.open .card-title { color: var(--gold); }
+    .block-face { padding: 0 12px 10px; }
+    .block-face .quiet { margin: 0; }
+    .row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; font-size: 13px; }
+    .row.active { color: var(--gold); }
+    label {
+      display: block; font-size: 13px; letter-spacing: 0;
+      text-transform: none; color: var(--cream); margin: 8px 0 4px; font-weight: 500;
+    }
+    input, select, textarea {
+      width: 100%; background: #111; color: var(--cream);
+      border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit;
+    }
+    input:focus, select:focus { outline: 1px solid var(--gold); border-color: var(--gold-deep); }
+    input:disabled { opacity: .45; }
+    .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+    button { border: 0; border-radius: 8px; padding: 8px 12px; cursor: pointer; font: inherit; }
+    button:disabled { opacity: .4; cursor: default; }
+    .primary { background: var(--gold); color: var(--ink); font-weight: 600; }
+    .ghost { background: transparent; color: var(--cream); border: 1px solid var(--line); }
+    .danger { background: transparent; color: #b0897a; border: 1px solid #4a322c; }
+    .danger:hover { color: #e4c4b8; border-color: #8a5a4e; }
+    .hit { padding: 8px 6px; border-bottom: 1px solid var(--line); cursor: pointer; }
+    .hit:hover { background: #151210; }
+    .hit.is-active { background: #151210; outline: 1px solid var(--gold-deep); border-radius: 6px; }
+    .hit .name { font-size: 15px; }
+    .hit .live { font-size: 12px; color: var(--cream); opacity: .8; margin-top: 2px; }
+    .hit .mark { font-size: 11px; letter-spacing: .04em; color: var(--gold); opacity: .85; margin-top: 2px; }
+    .hit .eid { font-size: 11px; color: var(--cream); opacity: .55; margin-top: 2px; letter-spacing: .02em; }
+    .live { font-size: 13px; color: var(--cream); }
+    .status { min-height: 1.2em; color: var(--gold); font-size: 13px; }
+    .head-actions .status { min-height: 0; text-align: right; }
+    .head-actions .primary { padding: 7px 14px; font-size: 13px; }
+    #retry_session { padding: 7px 12px; font-size: 13px; }
+    #retry_session[hidden] { display: none; }
+    .quiet { color: var(--cream); opacity: .75; font-size: 13px; margin: 0 0 10px; }
+    .card-sec {
+      background: var(--panel); border-radius: 14px; border: 1px solid var(--line);
+      margin-bottom: 8px; overflow: hidden;
+    }
+    .card-sec.open { border-color: var(--gold-deep); }
+    .card-head {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 10px 12px;
+    }
+    .card-title {
+      flex: 1; min-width: 120px; margin: 0; padding: 0; background: none; border: 0;
+      font-family: Fraunces, Georgia, serif; font-size: 18px; font-weight: 500;
+      color: var(--cream); text-align: left; cursor: pointer;
+    }
+    .card-sec.open .card-title { color: var(--gold); }
+    .count { font-size: 11px; color: var(--cream); opacity: .55; letter-spacing: .04em; white-space: nowrap; }
+    .card-head { flex-wrap: wrap; }
+    .card-tools {
+      display: flex; align-items: center; gap: 4px;
+      flex: 1 0 100%; justify-content: flex-end;
+    }
+    .card-tools .ghost, .card-tools .danger { padding: 5px 8px; font-size: 12px; }
+    .add-cta { border-color: var(--gold-deep) !important; color: var(--gold) !important; }
+    .btn-icon { padding: 6px 10px; min-width: 34px; line-height: 1; }
+    .card-body { padding: 0 12px 14px; border-top: 1px solid var(--line); }
+    .line-wrap { border-bottom: 1px solid var(--line); }
+    .line-row {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 8px 0;
+    }
+    .pass-check {
+      display: inline-flex; align-items: center; gap: 6px; margin: 0;
+      text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 400;
+      color: var(--cream); width: auto; cursor: pointer; white-space: nowrap;
+    }
+    .pass-rank { opacity:.7; font-variant-numeric:tabular-nums; letter-spacing:.02em; }
+    .pass-rank-btns { display:inline-flex; align-items:center; gap:2px; }
+    .pass-rank-btns .btn-icon { padding:4px 7px; min-width:28px; font-size:12px; }
+    input[type="checkbox"] { width: auto; margin: 0; accent-color: var(--gold); flex: none; }
+    .line-label {
+      flex: 1; min-width: 88px; width: auto; background: transparent;
+      border: 1px solid transparent; padding: 5px 8px; color: var(--cream);
+    }
+    .line-label:hover { border-color: var(--line); }
+    .line-live {
+      margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums;
+      color: var(--cream); min-width: 3em; text-align: right;
+    }
+    .adv-panel { padding: 8px 0 12px; }
+    .card-foot { margin-top: 12px; }
+    .add-toggle { margin-top: 4px; }
+    .confirm-bar {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin: 8px 12px 10px; padding: 8px 10px; border: 1px solid var(--alert);
+      border-radius: 8px; color: var(--cream);
+    }
+    .new-card-row, .rename-row {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0 0;
+    }
+    .new-card-row input, .rename-row input, .card-title-edit {
+      flex: 1; min-width: 140px;
+    }
+    .add-line-head { margin: 12px 0 6px; font-size: 13px; font-weight: 500; color: var(--cream); }
+    .add-line { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .add-line input { flex: 1; min-width: 120px; width: auto; }
+    .add-line button { flex: none; }
+    #blocks .actions { margin-top: 4px; }
+
+    .people-empty { margin: 28px 0 8px; opacity: .7; }
+    .people-card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 12px; padding: 12px 14px 14px; margin-bottom: 10px;
+    }
+    .people-card-head {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
+    }
+    .people-fn {
+      flex: 1; min-width: 0; width: auto;
+      background: transparent; border: 1px solid transparent; border-radius: 6px;
+      padding: 2px 6px 2px 0;
+      font-family: Fraunces, Georgia, serif; font-size: 18px; font-weight: 500;
+      color: var(--cream);
+    }
+    .people-fn:hover { border-color: var(--line); }
+    .people-fn:focus { outline: none; border-color: var(--gold-deep); }
+    .people-tools { display: flex; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
+    .people-field {
+      display: grid; grid-template-columns: 4.4em 1fr;
+      align-items: center; gap: 8px; margin-top: 8px;
+    }
+    .people-field .k {
+      margin: 0; font-size: 10px; letter-spacing: .12em;
+      text-transform: uppercase; font-weight: 500; color: var(--cream); opacity: .65;
+    }
+    .people-actions { margin-top: 4px; }
+    #people_save { display: none; }
+    .soon-card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 12px; padding: 12px 14px 14px; margin-bottom: 10px;
+    }
+    .soon-card h2 {
+      margin: 0 0 4px;
+      font-family: Fraunces, Georgia, serif;
+      font-size: 18px; font-weight: 500;
+      color: var(--cream);
+    }
+    .still {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 10;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: #0e0c0a;
+    }
+    .still::before {
+      content: ""; position: absolute; inset: 0;
+      background: linear-gradient(165deg, rgba(196,165,116,.12), transparent 42%, #0e0c0a 88%);
+      pointer-events: none; z-index: 1;
+    }
+    .still img {
+      display: block; width: 100%; height: 100%;
+      object-fit: cover;
+    }
+    .still.still-empty {
+      background: var(--paper);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .still.still-empty::before { display: none; }
+    .still.still-empty img { display: none; }
+    .still-mark {
+      display: none;
+      width: 18px; height: 32px;
+      color: var(--gold); opacity: .38;
+      position: relative; z-index: 1;
+    }
+    .still.still-empty .still-mark { display: block; }
+    .soon-card .confirm-bar { margin: 10px 0 0; }
+    .soon-card h3 {
+      margin: 16px 0 4px;
+      font-family: var(--font-body, "Source Sans 3", sans-serif);
+      font-size: 11px; font-weight: 500;
+      letter-spacing: .18em; text-transform: uppercase;
+      color: var(--gold);
+    }
+    .soon-card > h3:first-of-type { margin-top: 10px; }
+    .conn-list { margin: 10px 0 0; border-top: 1px solid var(--line); }
+    .conn-row {
+      display: flex; align-items: baseline; justify-content: space-between;
+      gap: 16px; padding: 10px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .conn-row .k { font-size: 14px; color: var(--cream); }
+    .conn-row .v { font-size: 13px; opacity: .7; text-align: right; }
+    .conn-row .v.ok { color: #8fbf8a; opacity: 1; }
+    .conn-row .v.warn { color: var(--gold); opacity: 1; }
+    .soon-meta { margin-top: 14px; }
+    .soon-meta p { margin: 4px 0 0; font-size: 13px; opacity: .7; }
+    #notes_text { min-height: 10em; resize: vertical; }
+    #notes_text:focus { outline: 1px solid var(--gold); border-color: var(--gold-deep); }
+    .notes-cap { margin: 0 0 0 auto; font-size: 12px; opacity: .55; }
+    .qr-paper {
+      display: inline-block;
+      background: var(--paper);
+      padding: 14px;
+      border-radius: 12px;
+      margin: 4px 0 0;
+    }
+    .qr-paper canvas { display: block; }
+    #pair_qr[hidden], #pair_box[hidden] { display: none; }
+    .head-actions .ghost { padding: 7px 12px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="chrome">
+    <header class="house-bar">
+      <div class="house-top">
+        <div class="house-brand">
+          <svg class="key-mark" viewBox="0 0 12 22" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M6 0C3.79 0 2 1.7 2 3.8c0 .74.24 1.42.64 1.98L2.2 6.6V7.5h1.3V20.2c0 .99.86 1.8 1.9 1.8h2.2c1.04 0 1.9-.81 1.9-1.8V14h2.15c.47 0 .85-.36.85-.8v-1.3c0-.44-.38-.8-.85-.8H9.5v-.85h2.15c.47 0 .85-.36.85-.8V8.15c0-.44-.38-.8-.85-.8H9.5V7.5h1.3V6.6l-.44-.82C10.76 5.22 11 4.54 11 3.8 11 1.7 9.21 0 7 0H6zm0 1.45A2.4 2.4 0 0 1 8.45 3.8 2.4 2.4 0 0 1 6 6.15 2.4 2.4 0 0 1 3.55 3.8 2.4 2.4 0 0 1 6 1.45z"/></svg>
+          <span class="wordmark">Patrimony</span>
+        </div>
+        <div class="head-actions">
+          <span class="status" id="status"></span>
+          <button class="ghost" type="button" id="retry_session" hidden>Retry</button>
+          <button class="primary" type="button" id="save">Save</button>
+        </div>
+      </div>
+      <h1 class="house-name" id="house_name">House</h1>
+      <p class="house-meta">
+        <span id="house_place"></span>
+        <span id="house_zone"></span>
+        <span id="house_id"></span>
+      </p>
+    </header>
+    <nav class="tab-bar" id="tab_bar" role="tablist">
+      <button type="button" class="tab is-active" id="tab_cards" data-tab="cards" role="tab" aria-selected="true">Cards</button>
+      <button type="button" class="tab" id="tab_people" data-tab="people" role="tab" aria-selected="false">People</button>
+      <button type="button" class="tab" id="tab_soon" data-tab="soon" role="tab" aria-selected="false">House</button>
+    </nav>
+  </div>
+  <div class="wrap">
+    <div id="pane_cards" class="pane" role="tabpanel">
+      <section class="preview">
+        <div class="pass-sticky">
+          <div class="pass" id="pass"></div>
+        </div>
+        <div id="blocks"></div>
+      </section>
+    </div>
+    <div id="pane_people" class="pane" role="tabpanel" hidden>
+      <div id="people_list"></div>
+      <div class="actions people-actions">
+        <button class="ghost add-cta" type="button" id="people_add">Add person</button>
+        <button class="primary" type="button" id="people_save" hidden>Save people</button>
+      </div>
+      <p class="status" id="people_status"></p>
+    </div>
+    <div id="pane_soon" class="pane" role="tabpanel" hidden>
+      <nav class="house-subnav" id="house_subnav" role="tablist" aria-label="House">
+        <button type="button" class="house-sub is-active" id="sub_home" data-house-sub="home" role="tab" aria-selected="true">Home settings</button>
+        <button type="button" class="house-sub" id="sub_conn" data-house-sub="conn" role="tab" aria-selected="false">Connections</button>
+      </nav>
+      <section class="soon-card" id="soon_home">
+        <h2>Home settings</h2>
+        <p class="quiet">The face of the pass, the house file, and who may join.</p>
+        <h3>Photograph</h3>
+        <p class="quiet">The face of the pass.</p>
+        <div class="still still-empty" id="photo_still">
+          <img id="photo_img" alt="" />
+          <svg class="key-mark still-mark" viewBox="0 0 12 22" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M6 0C3.79 0 2 1.7 2 3.8c0 .74.24 1.42.64 1.98L2.2 6.6V7.5h1.3V20.2c0 .99.86 1.8 1.9 1.8h2.2c1.04 0 1.9-.81 1.9-1.8V14h2.15c.47 0 .85-.36.85-.8v-1.3c0-.44-.38-.8-.85-.8H9.5v-.85h2.15c.47 0 .85-.36.85-.8V8.15c0-.44-.38-.8-.85-.8H9.5V7.5h1.3V6.6l-.44-.82C10.76 5.22 11 4.54 11 3.8 11 1.7 9.21 0 7 0H6zm0 1.45A2.4 2.4 0 0 1 8.45 3.8 2.4 2.4 0 0 1 6 6.15 2.4 2.4 0 0 1 3.55 3.8 2.4 2.4 0 0 1 6 1.45z"/></svg>
+        </div>
+        <p class="quiet" id="photo_empty">No photograph yet.</p>
+        <div class="actions">
+          <button class="primary" type="button" id="photo_restore">Restore default</button>
+          <button class="ghost" type="button" id="photo_replace">Replace</button>
+          <button class="danger" type="button" id="photo_remove" hidden>Remove</button>
+          <input type="file" id="photo_file" accept="image/jpeg,image/webp" hidden />
+        </div>
+        <div class="confirm-bar" id="photo_confirm" hidden>
+          <span>Remove this photograph?</span>
+          <button type="button" class="danger" id="photo_confirm_yes">Remove</button>
+          <button type="button" class="ghost" id="photo_keep">Keep</button>
+        </div>
+        <p class="status" id="photo_status"></p>
+        <h3>Notepad</h3>
+        <p class="quiet">The same page on the phone.</p>
+        <textarea id="notes_text" maxlength="8000" aria-label="Notepad"></textarea>
+        <div class="actions">
+          <span class="status" id="notes_status"></span>
+          <span class="quiet notes-cap" id="notes_cap">0/8000</span>
+        </div>
+        <h3>Invitation</h3>
+        <p class="quiet" id="pair_quiet">Show once. The phone keeps it.</p>
+        <div class="actions" id="pair_actions">
+          <button class="primary" type="button" id="pair_show">Show a pairing code</button>
+        </div>
+        <div id="pair_box" hidden>
+          <div class="qr-paper"><canvas id="pair_qr" width="0" height="0"></canvas></div>
+          <div class="actions">
+            <button class="ghost" type="button" id="pair_dismiss">Dismiss</button>
+          </div>
+        </div>
+        <p class="status" id="pair_status"></p>
+        <div class="soon-meta">
+          <p>Time zone <span id="soon_zone">—</span></p>
+        </div>
+      </section>
+      <section class="soon-card" id="soon_conn" hidden>
+        <h2>Connections</h2>
+        <p class="quiet">This house to the collection, and a banner on the phone.</p>
+        <div class="conn-list">
+          <div class="conn-row"><span class="k">Home Assistant</span><span class="v" id="conn_ha">—</span></div>
+          <div class="conn-row"><span class="k">Collection ingest</span><span class="v" id="conn_cf">—</span></div>
+          <div class="conn-row"><span class="k">House event key</span><span class="v" id="conn_hek">—</span></div>
+          <div class="conn-row"><span class="k">Component</span><span class="v" id="conn_ver">—</span></div>
+        </div>
+        <div class="actions">
+          <button class="ghost" type="button" id="conn_check">Check links</button>
+          <span class="status" id="conn_status"></span>
+        </div>
+        <h3>Push</h3>
+        <p class="quiet">A banner on the phone. Attention.</p>
+        <input id="notify_title" maxlength="120" aria-label="Banner text" />
+        <div class="actions">
+          <button class="primary" type="button" id="notify_send">Send</button>
+          <span class="status" id="notify_status"></span>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const MODE = "panel";
+    function tokenFromHass(hass) {
+      if (!hass) return "";
+      try {
+        const auth = hass.auth || (hass.connection && hass.connection.options && hass.connection.options.auth);
+        const data = auth && auth.data;
+        const t = (data && data.access_token) || (auth && auth.accessToken) || "";
+        return t ? String(t) : "";
+      } catch (e) {
+        return "";
+      }
+    }
+    function haAccessToken() {
+      const docs = [];
+      try { docs.push(parent.document); } catch (e) {}
+      try { if (typeof top !== "undefined") docs.push(top.document); } catch (e) {}
+      docs.push(document);
+      for (const doc of docs) {
+        if (!doc || !doc.querySelector) continue;
+        try {
+          const el = doc.querySelector("home-assistant") || doc.querySelector("hc-main");
+          const t = tokenFromHass(el && el.hass);
+          if (t) return t;
+        } catch (e) {}
+      }
+      try {
+        const raw = localStorage.getItem("hassTokens") || sessionStorage.getItem("hassTokens");
+        if (raw) {
+          const data = JSON.parse(raw);
+          if (data && data.access_token) return String(data.access_token);
+        }
+      } catch (e) {}
+      return "";
+    }
+    function haAuthed() {
+      return !!haAccessToken();
+    }
+    function haHeaders(extra) {
+      const headers = Object.assign({}, extra || {});
+      const token = haAccessToken();
+      if (token) headers.Authorization = "Bearer " + token;
+      return headers;
+    }
+    function isAuthStatus(status) {
+      return status === 401 || status === 403;
+    }
+    function isAuthError(err) {
+      const msg = String((err && err.message) || err || "");
+      return /\b401\b/.test(msg) || /\b403\b/.test(msg);
+    }
+    function showRetry() {
+      const el = $("retry_session");
+      if (el) el.hidden = false;
+    }
+    function hideRetry() {
+      const el = $("retry_session");
+      if (el) el.hidden = true;
+    }
+    function stopPoll() {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+    function startPoll() {
+      if (pollTimer || sessionExpired || loadFailed) return;
+      pollTimer = setInterval(async () => {
+        if (saveTimer) return;
+        if (sessionExpired || loadFailed) return;
+        if (!haAuthed()) return;
+        try { await MODE_REFRESH(); } catch (e) {
+          if (isAuthError(e)) markSessionExpired();
+        }
+      }, 4000);
+    }
+    function markSessionExpired() {
+      sessionExpired = true;
+      loadFailed = true;
+      houseLoaded = false;
+      stopPoll();
+      const el = $("status");
+      if (el) {
+        el.textContent = "Session ended — reload Home Assistant";
+        el.style.color = "var(--alert)";
+      }
+      showRetry();
+    }
+    async function retrySession() {
+      sessionExpired = false;
+      loadFailed = false;
+      houseLoaded = false;
+      hideRetry();
+      const el = $("status");
+      if (el) { el.textContent = ""; el.style.color = ""; }
+      await load();
+      if (houseLoaded && !sessionExpired) startPoll();
+    }
+    async function api(path, opts) {
+      if (sessionExpired) throw new Error(path + " 401");
+      async function once() {
+        const headers = haHeaders((opts && opts.headers) || {});
+        if (!headers.Authorization) throw new Error("no auth");
+        return fetch(path, Object.assign({ credentials: "same-origin" }, opts || {}, { headers }));
+      }
+      let r = await once();
+      if (isAuthStatus(r.status)) r = await once();
+      if (isAuthStatus(r.status)) {
+        markSessionExpired();
+        throw new Error(path + " " + r.status);
+      }
+      if (!r.ok) throw new Error(path + " " + r.status);
+      return r.json();
+    }
+    async function bin(path, opts) {
+      if (sessionExpired) return new Response("", { status: 401 });
+      async function once() {
+        const headers = haHeaders((opts && opts.headers) || {});
+        if (!headers.Authorization) return new Response("", { status: 401 });
+        return fetch(path, Object.assign({ credentials: "same-origin" }, opts || {}, { headers }));
+      }
+      let r = await once();
+      if (isAuthStatus(r.status)) r = await once();
+      if (isAuthStatus(r.status)) markSessionExpired();
+      return r;
+    }
+    async function MODE_LOAD() {
+      const [p, m, e] = await Promise.all([
+        api("/api/patrimony_collection/editor/preview"),
+        api("/api/patrimony_collection/editor/mapping"),
+        api("/api/patrimony_collection/editor/entities"),
+      ]);
+      preview = p;
+      mapping.cards = m.cards || [];
+      mapping.mappings = m.mappings || [];
+      houseMeta = m.property || {};
+      lastEntities = e.entities || [];
+    }
+    async function MODE_SAVE() {
+      return api("/api/patrimony_collection/editor/mapping", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cards: cardsForWire(), mappings: mapping.mappings }),
+      });
+    }
+    async function MODE_SEARCH(q) {
+      const e = await api("/api/patrimony_collection/editor/entities?q=" + encodeURIComponent(q));
+      const hits = e.entities || [];
+      const byId = {};
+      lastEntities.forEach(x => { byId[x.entity_id] = x; });
+      hits.forEach(x => { byId[x.entity_id] = x; });
+      lastEntities = Object.keys(byId).map(k => byId[k]);
+      return filterHits(hits, q);
+    }
+    async function MODE_REFRESH() {
+      if (sessionExpired || loadFailed) return;
+      if (!haAuthed()) return;
+      if (!houseLoaded) return;
+      preview = await api("/api/patrimony_collection/editor/preview");
+      renderPass();
+      fillHouseBar();
+    }
+
+    const $ = (id) => document.getElementById(id);
+    let preview = { property: {}, cards: [] };
+    let mapping = { cards: [], mappings: [] };
+    let houseMeta = {};
+    let selected = null;
+    let selectedCardId = null;
+    let openAdvId = null;
+    let loadFailed = false;
+    let sessionExpired = false;
+    let houseLoaded = false;
+    let pollTimer = null;
+    let saveTimer = null;
+    let peopleSaveTimer = null;
+    let lastEntities = [];
+    let searchTimer = null;
+    let addingCard = false;
+    let addingLines = false;
+    let renamingId = null;
+    let pendingConfirm = null;
+
+    function newUuid() {
+      if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+      const b = new Uint8Array(16);
+      crypto.getRandomValues(b);
+      b[6] = (b[6] & 0x0f) | 0x40;
+      b[8] = (b[8] & 0x3f) | 0x80;
+      const h = [...b].map(x => x.toString(16).padStart(2, "0")).join("");
+      return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+    }
+    function esc(s) {
+      return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+    const badgeText = { ok: "All secure", attention: "Needs a look", alert: "Alert" };
+    const rank = { ok: 0, attention: 1, alert: 2 };
+    function maxSev(items) {
+      return items.reduce((a, i) => (rank[i.severity]||0) > (rank[a]||0) ? i.severity : a, "ok");
+    }
+    function fmt(item) {
+      if (item.value === null || item.value === undefined) return "—";
+      if (item.valueType === "bool") return item.value ? "Yes" : "No";
+      if (item.valueType === "number") return `${item.value}${item.unit || ""}`;
+      return String(item.value);
+    }
+    function featuredItems(cards) {
+      const list = cards || [];
+      const featured = [];
+      list.forEach(c => (c.items || []).forEach(i => {
+        const r = Number(i.featuredRank);
+        if (Number.isInteger(r) && r >= 1 && r <= 6) featured.push(i);
+      }));
+      if (featured.length) {
+        featured.sort((a,b) => a.featuredRank - b.featuredRank);
+        return featured.slice(0, 6);
+      }
+      const sorted = [...list].sort((a,b) => (a.priority-b.priority) || String(a.title||"").localeCompare(String(b.title||"")));
+      return sorted.flatMap(c => c.items || []).slice(0, 6);
+    }
+    function sortedCards() {
+      return [...(mapping.cards || [])].sort((a,b) => (a.priority-b.priority) || String(a.title||"").localeCompare(String(b.title||"")));
+    }
+    function currentCard() {
+      return (mapping.cards || []).find(c => c.id === selectedCardId) || null;
+    }
+    function cardsForWire() {
+      return (mapping.cards || []).map(c => ({
+        id: c.id,
+        kind: "custom",
+        title: c.title,
+        priority: c.priority,
+      }));
+    }
+    function lastHeardText() {
+      const p = (preview && preview.property) || {};
+      const raw = String((preview && preview.lastHeard) || p.lastHeard || (preview && preview.generatedAt) || "").trim();
+      if (!raw) return "Last heard unknown";
+      const zone = String(p.timezone || (houseMeta && houseMeta.timezone) || "").trim();
+      try {
+        const dt = new Date(raw);
+        if (!Number.isNaN(dt.getTime())) {
+          const opts = { hour: "2-digit", minute: "2-digit", hour12: false };
+          if (zone) opts.timeZone = zone;
+          return "Last heard " + dt.toLocaleTimeString("en-GB", opts);
+        }
+      } catch (e) {}
+      return "Last heard";
+    }
+    function houseClockText() {
+      const p = (preview && preview.property) || {};
+      const zone = String(p.timezone || (houseMeta && houseMeta.timezone) || "").trim();
+      const opts = { hour: "2-digit", minute: "2-digit", hour12: false };
+      try {
+        if (zone) return new Date().toLocaleTimeString("en-GB", Object.assign({}, opts, { timeZone: zone }));
+      } catch (e) {}
+      const snap = String(p.localTime || "").trim();
+      if (/^\d{1,2}:\d{2}$/.test(snap)) {
+        const parts = snap.split(":");
+        return parts[0].padStart(2, "0") + ":" + parts[1];
+      }
+      return "";
+    }
+    function paintPassClock() {
+      const el = $("pass_clock");
+      if (!el) return;
+      const t = houseClockText();
+      el.textContent = t;
+      el.hidden = !t;
+    }
+    let clockTimer = null;
+    function startPassClock() {
+      paintPassClock();
+      if (clockTimer) return;
+      clockTimer = setInterval(paintPassClock, 15000);
+    }
+    function renderPass() {
+      const p = preview.property || {};
+      const items = featuredItems(preview.cards || []);
+      const sev = maxSev((preview.cards || []).flatMap(c => c.items || []));
+      const clock = houseClockText();
+      $("pass").innerHTML = `
+        <div class="place">${esc(p.locationLabel || "")}</div>
+        <div class="pass-title-row">
+          <h2>${esc(p.displayName || "House")}</h2>
+          <div class="pass-clock" id="pass_clock"${clock ? "" : " hidden"} aria-label="House time">${esc(clock)}</div>
+        </div>
+        <div class="badge ${esc(sev)}">${esc(badgeText[sev] || "Needs a look")}</div>
+        <div class="grid">${items.map(i => `
+          <div class="cell">
+            <div class="k">${esc((i.label||"").toUpperCase())}</div>
+            <div class="v ${esc(i.severity)}">${esc(fmt(i))}</div>
+          </div>`).join("")}</div>
+        <div class="updated">${esc(lastHeardText())}</div>`;
+      startPassClock();
+    }
+    function liveRowsHtml(card) {
+      const pc = (preview.cards || []).find(c => c.id === card.id);
+      const items = (pc && pc.items) || [];
+      if (!items.length) return `<p class="quiet">Nothing on this card yet.</p>`;
+      return items.map(i => `
+        <div class="row" data-act="toggle" data-id="${esc(card.id)}">
+          <span>${esc(i.label)}</span><span class="${esc(i.severity)}">${esc(fmt(i))}</span>
+        </div>`).join("");
+    }
+    function selectItem(id) {
+      selected = mapping.mappings.find(m => m.item_id === id) || null;
+      if (selected) selectedCardId = selected.card_id;
+      writeOpenCardId(selectedCardId);
+      openAdvId = null;
+      addingLines = false;
+      drawAll();
+    }
+    function toggleCard(id) {
+      selectedCardId = selectedCardId === id ? null : id;
+      writeOpenCardId(selectedCardId);
+      if (selected && selected.card_id !== selectedCardId) selected = null;
+      openAdvId = null;
+      openAddIfEmpty(selectedCardId);
+      drawAll();
+      if (addingLines && $("q")) $("q").focus();
+    }
+    function isPlaceholder(m) {
+      return !(m && String(m.entity_id || "").trim());
+    }
+    function isOnPass(m) {
+      if (!m) return false;
+      if (m.on_pass === true) return true;
+      if (m.on_pass === false) return false;
+      const r = Number(m.featured_rank);
+      return Number.isInteger(r) && r >= 1 && r <= 6;
+    }
+    function passCount() {
+      return mapping.mappings.filter(isOnPass).length;
+    }
+    function cardLineCount(cardId) {
+      return mapping.mappings.filter(m => m.card_id === cardId).length;
+    }
+    function openAddIfEmpty(cardId) {
+      addingLines = !!(cardId && cardLineCount(cardId) === 0);
+    }
+    function compactPassRanks() {
+      const checked = mapping.mappings.filter(isOnPass).slice().sort((a,b) => {
+        const ra = Number(a.featured_rank), rb = Number(b.featured_rank);
+        const aOk = Number.isInteger(ra) && ra >= 1 && ra <= 6;
+        const bOk = Number.isInteger(rb) && rb >= 1 && rb <= 6;
+        if (aOk && bOk && ra !== rb) return ra - rb;
+        if (aOk && !bOk) return -1;
+        if (!aOk && bOk) return 1;
+        return mapping.mappings.indexOf(a) - mapping.mappings.indexOf(b);
+      });
+      mapping.mappings.forEach(m => {
+        if (!isOnPass(m)) {
+          m.on_pass = false;
+          delete m.featured_rank;
+        }
+      });
+      checked.slice(0, 6).forEach((m, i) => {
+        m.on_pass = true;
+        m.featured_rank = i + 1;
+      });
+      checked.slice(6).forEach(m => {
+        m.on_pass = false;
+        delete m.featured_rank;
+      });
+    }
+    function setOnPass(itemId, want) {
+      const m = mapping.mappings.find(x => x.item_id === itemId);
+      if (!m) return;
+      if (want) {
+        if (isOnPass(m)) return;
+        if (passCount() >= 6) return;
+        m.on_pass = true;
+        const used = mapping.mappings.filter(isOnPass).map(x => Number(x.featured_rank)).filter(r => Number.isInteger(r) && r >= 1 && r <= 6);
+        m.featured_rank = used.length ? Math.max.apply(null, used) + 1 : 1;
+      } else {
+        m.on_pass = false;
+        delete m.featured_rank;
+      }
+      compactPassRanks();
+    }
+    function moveLine(itemId, dir) {
+      const row = mapping.mappings.find(x => x.item_id === itemId);
+      if (!row) return;
+      const rows = mapping.mappings;
+      const idxs = [];
+      rows.forEach((m, i) => { if (m.card_id === row.card_id) idxs.push(i); });
+      const pos = idxs.findIndex(i => rows[i].item_id === itemId);
+      const dest = pos + dir;
+      if (pos < 0 || dest < 0 || dest >= idxs.length) return;
+      const i = idxs[pos], j = idxs[dest];
+      const a = rows[i], b = rows[j];
+      rows[i] = b;
+      rows[j] = a;
+      if (isOnPass(a) && isOnPass(b)) {
+        const tmp = a.featured_rank;
+        a.featured_rank = b.featured_rank;
+        b.featured_rank = tmp;
+      }
+      rebuildLocalPreview();
+      drawAll();
+      scheduleSave();
+    }
+    function movePassRank(itemId, dir) {
+      const checked = mapping.mappings.filter(isOnPass).slice().sort((a,b) => {
+        const ra = Number(a.featured_rank), rb = Number(b.featured_rank);
+        const aOk = Number.isInteger(ra) && ra >= 1 && ra <= 6;
+        const bOk = Number.isInteger(rb) && rb >= 1 && rb <= 6;
+        if (aOk && bOk && ra !== rb) return ra - rb;
+        if (aOk && !bOk) return -1;
+        if (!aOk && bOk) return 1;
+        return mapping.mappings.indexOf(a) - mapping.mappings.indexOf(b);
+      });
+      const pos = checked.findIndex(m => m.item_id === itemId);
+      const dest = pos + dir;
+      if (pos < 0 || dest < 0 || dest >= checked.length) return;
+      const tmp = checked[pos];
+      checked[pos] = checked[dest];
+      checked[dest] = tmp;
+      checked.forEach((m, i) => {
+        m.on_pass = true;
+        m.featured_rank = i + 1;
+      });
+      compactPassRanks();
+      rebuildLocalPreview();
+      drawAll();
+      scheduleSave();
+    }
+    function previewItemFor(m) {
+      if (!m) return null;
+      const iid = m.item_id;
+      for (const c of (preview.cards || [])) {
+        const hit = (c.items || []).find(i => i.id === iid);
+        if (hit) return hit;
+      }
+      return null;
+    }
+    function liveItem(m) {
+      const ent = lastEntities.find(e => e.entity_id === (m && m.entity_id));
+      const item = coerceItem(m, ent);
+      if (item && item.value !== null && item.value !== undefined) return item;
+      const fromPreview = previewItemFor(m);
+      if (fromPreview && fromPreview.value !== null && fromPreview.value !== undefined) return fromPreview;
+      return item;
+    }
+    function liveDisplay(m) {
+      const item = liveItem(m);
+      if (!item) return "—";
+      return fmt(item);
+    }
+    function drawAdvanced(m) {
+      if (isPlaceholder(m)) {
+        return `<div class="adv-panel">
+          <label>Value</label>
+          <input id="f_value" data-adv="static_value" value="${esc(m.static_value == null ? "" : m.static_value)}" />
+          <label>Unit</label>
+          <input id="f_unit" data-adv="unit" value="${esc(m.unit || "")}" />
+          <div class="actions">
+            <button class="danger" type="button" data-act="remove" data-id="${esc(m.item_id)}">Remove</button>
+          </div>
+        </div>`;
+      }
+      return `<div class="adv-panel">
+        <label>Source</label>
+        <input id="f_entity" data-adv="entity_id" value="${esc(m.entity_id || "")}" />
+        <label>Attribute</label>
+        <input id="f_attr" data-adv="state_attribute" value="${esc(m.state_attribute || "")}" />
+        <label>Type</label>
+        <select id="f_type" data-adv="value_type">${["auto","bool","number","enum","text"].map(t => `<option ${t===(m.value_type||"auto")?"selected":""}>${t}</option>`).join("")}</select>
+        <label>Unit</label>
+        <input id="f_unit" data-adv="unit" value="${esc(m.unit || "")}" />
+        <label>How it warns</label>
+        <select id="f_sev" data-adv="severity_mode">${["auto","ok_when_on","ok_when_off","binary_alert_on","number_range","enum_map","fixed"].map(t => `<option ${t===(m.severity_mode||"auto")?"selected":""}>${t}</option>`).join("")}</select>
+        <div class="actions">
+          <button class="danger" type="button" data-act="remove" data-id="${esc(m.item_id)}">Remove</button>
+        </div>
+      </div>`;
+    }
+    function drawLine(m, idx, len, full) {
+      const on = isOnPass(m);
+      const dis = (!on && full) ? "disabled" : "";
+      const chk = on ? "checked" : "";
+      const item = liveItem(m);
+      const live = item ? fmt(item) : "—";
+      const sev = item ? item.severity : "ok";
+      const adv = openAdvId === m.item_id;
+      const rank = Number(m.featured_rank);
+      const rankOk = on && Number.isInteger(rank) && rank >= 1 && rank <= 6;
+      const nPass = passCount();
+      const rankChip = rankOk ? `<span class="pass-rank">· ${rank}</span>` : "";
+      const passBtns = on ? `<span class="pass-rank-btns">
+            <button type="button" class="ghost btn-icon" data-act="pass-up" data-id="${esc(m.item_id)}" ${rank===1?"disabled":""} aria-label="Earlier on the pass">↑</button>
+            <button type="button" class="ghost btn-icon" data-act="pass-down" data-id="${esc(m.item_id)}" ${rank===nPass?"disabled":""} aria-label="Later on the pass">↓</button>
+          </span>` : "";
+      return `<div class="line-wrap">
+        <div class="line-row">
+          <label class="pass-check"><input type="checkbox" data-pass="${esc(m.item_id)}" ${chk} ${dis} /> On the pass${rankChip}</label>
+          ${passBtns}
+          <input class="line-label" data-label="${esc(m.item_id)}" value="${esc(m.label || "")}" aria-label="Label" />
+          <span class="line-live ${esc(sev)}" data-live="${esc(m.item_id)}">${esc(live)}</span>
+          <button type="button" class="ghost btn-icon" data-act="line-up" data-id="${esc(m.item_id)}" ${idx===0?"disabled":""} aria-label="Up">↑</button>
+          <button type="button" class="ghost btn-icon" data-act="line-down" data-id="${esc(m.item_id)}" ${idx===len-1?"disabled":""} aria-label="Down">↓</button>
+          <button type="button" class="ghost btn-icon" data-act="adv" data-id="${esc(m.item_id)}" aria-expanded="${adv?"true":"false"}" aria-label="Advanced">…</button>
+        </div>
+        ${adv ? drawAdvanced(m) : ""}
+      </div>`;
+    }
+    function drawOpenBody(card) {
+      const items = mapping.mappings.filter(m => m.card_id === card.id);
+      const full = passCount() >= 6;
+      const passHint = full
+        ? `<p class="quiet">Pass glance is full (6). Uncheck a line to free a slot.</p>`
+        : (passCount() ? `<p class="quiet">${passCount()} of 6 on the pass.</p>` : "");
+      const lines = !items.length
+        ? `<p class="quiet">Nothing on this card yet.</p>`
+        : items.map((m, idx) => {
+            const bar = (pendingConfirm && pendingConfirm.kind === "line" && pendingConfirm.id === m.item_id)
+              ? confirmBar("line", m.item_id) : "";
+            return drawLine(m, idx, items.length, full) + bar;
+          }).join("");
+      const addOpen = addingLines;
+      const addFields = addOpen ? `
+          <label for="q">Add from the house</label>
+          <input id="q" placeholder="Search by name" autocomplete="off" />
+          <div id="hits"></div>
+          <div class="add-line-head">Add a line</div>
+          <div class="add-line">
+            <input id="ph_label" placeholder="Label" autocomplete="off" />
+            <input id="ph_value" placeholder="Value" autocomplete="off" />
+            <button class="primary" type="button" data-act="add-line" id="ph_add">Add</button>
+          </div>` : "";
+      return `<div class="card-body">
+        ${passHint}
+        ${lines}
+        ${addOpen ? `<div class="card-foot">${addFields}</div>` : ""}
+      </div>`;
+    }
+    function confirmBar(kind, id) {
+      const msg = kind === "card" ? "Remove this card and its lines from the pass?" : "Remove from the pass?";
+      return `<div class="confirm-bar" data-kind="${esc(kind)}" data-id="${esc(id)}">
+        <span>${esc(msg)}</span>
+        <button type="button" class="danger" data-act="confirm-yes">Remove</button>
+        <button type="button" class="ghost" data-act="confirm-no">Keep</button>
+      </div>`;
+    }
+    function newCardControls() {
+      if (addingCard) {
+        return `<div class="new-card-row">
+          <input id="new_card_title" placeholder="Card title" autocomplete="off" />
+          <button type="button" class="primary" data-act="commit-card">Add</button>
+          <button type="button" class="ghost" data-act="cancel-card">Cancel</button>
+        </div>`;
+      }
+      return `<div class="actions"><button class="ghost add-cta" type="button" data-act="new-card">New card</button></div>`;
+    }
+    function drawComposer() {
+      const el = $("blocks");
+      if (!el) return;
+      const cards = sortedCards();
+      const qKeep = ($("q") && $("q").value) || "";
+      const phLabelKeep = ($("ph_label") && $("ph_label").value) || "";
+      const phValueKeep = ($("ph_value") && $("ph_value").value) || "";
+      const newTitle = ($("new_card_title") && $("new_card_title").value) || "";
+      const renameVal = ($("rename_card_title") && $("rename_card_title").value) || "";
+      if (!cards.length) {
+        el.innerHTML = newCardControls();
+        if ($("new_card_title") && newTitle) $("new_card_title").value = newTitle;
+        return;
+      }
+      el.innerHTML = cards.map((card, idx) => {
+        const open = card.id === selectedCardId;
+        const n = mapping.mappings.filter(m => m.card_id === card.id).length;
+        const renaming = renamingId === card.id;
+        const titleBit = renaming
+          ? `<input id="rename_card_title" class="card-title-edit" value="${esc(renameVal || card.title)}" aria-label="Card title" />`
+          : `<button type="button" class="card-title" data-act="toggle" data-id="${esc(card.id)}">${esc(card.title)}</button>`;
+        const ask = pendingConfirm && pendingConfirm.id === card.id ? confirmBar(pendingConfirm.kind, card.id) : "";
+        const tools = open ? `<div class="card-tools">
+            <span class="count">${n} ${n===1?"line":"lines"}</span>
+            <button type="button" class="ghost btn-icon" data-act="card-up" data-id="${esc(card.id)}" ${idx===0?"disabled":""} aria-label="Up">↑</button>
+            <button type="button" class="ghost btn-icon" data-act="card-down" data-id="${esc(card.id)}" ${idx===cards.length-1?"disabled":""} aria-label="Down">↓</button>
+            <button class="ghost add-cta" type="button" data-act="toggle-add" aria-expanded="${addingLines?"true":"false"}">Add</button>
+            ${addingLines ? `<button class="ghost" type="button" data-act="toggle-add">Done</button>` : ""}
+            <button type="button" class="ghost" data-act="rename" data-id="${esc(card.id)}">Rename</button>
+            <button type="button" class="danger" data-act="del-card" data-id="${esc(card.id)}">Delete</button>
+            </div>` : "";
+        return `<article class="block${open?" open":""}" data-card="${esc(card.id)}">
+          <div class="card-head">
+            ${titleBit}
+            ${tools}
+          </div>
+          ${!open ? `<div class="block-face" data-act="toggle" data-id="${esc(card.id)}">${liveRowsHtml(card)}</div>` : ""}
+          ${ask && pendingConfirm.kind === "card" ? ask : ""}
+          ${open ? drawOpenBody(card) : ""}
+        </article>`;
+      }).join("") + newCardControls();
+      if ($("q") && qKeep) $("q").value = qKeep;
+      if ($("ph_label") && phLabelKeep) $("ph_label").value = phLabelKeep;
+      if ($("ph_value") && phValueKeep) $("ph_value").value = phValueKeep;
+      if ($("new_card_title") && newTitle) $("new_card_title").value = newTitle;
+    }
+    function looksLikeEntityId(v) {
+      if (!v || typeof v !== "string") return false;
+      if (v.indexOf(".") < 0 || /\s/.test(v)) return false;
+      const i = v.indexOf(".");
+      const domain = v.slice(0, i), objectId = v.slice(i + 1);
+      return !!(domain && objectId && /^[A-Za-z_][A-Za-z0-9_]*$/.test(domain) && /^[A-Za-z0-9_]+$/.test(objectId));
+    }
+    function isoZ() {
+      return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+    }
+    function placeholderType(value, unit) {
+      const raw = String(value == null ? "" : value).trim();
+      const u = String(unit || "").trim();
+      const n = Number(raw);
+      if (raw && u && Number.isFinite(n)) return "number";
+      return "text";
+    }
+    function removeLine(itemId) {
+      mapping.mappings = mapping.mappings.filter(m => m.item_id !== itemId);
+      if (selected && selected.item_id === itemId) selected = null;
+      if (openAdvId === itemId) openAdvId = null;
+      rebuildLocalPreview();
+      drawAll();
+      scheduleSave();
+    }
+    function drawAll() {
+      drawComposer();
+      renderPass();
+    }
+    function applyForm() {
+      document.querySelectorAll("[data-label]").forEach(el => {
+        const m = mapping.mappings.find(x => x.item_id === el.dataset.label);
+        if (m) m.label = el.value;
+      });
+      const m = openAdvId ? mapping.mappings.find(x => x.item_id === openAdvId) : null;
+      if (!m) {
+        rebuildLocalPreview();
+        return;
+      }
+      if (isPlaceholder(m)) {
+        if ($("f_value")) m.static_value = $("f_value").value;
+        if ($("f_unit")) m.unit = $("f_unit").value.trim() || null;
+        m.value_type = placeholderType(m.static_value, m.unit);
+        m.severity_mode = "fixed";
+        m.fixed_severity = "ok";
+        m.saved_at = isoZ();
+        m.entity_id = "";
+      } else {
+        if ($("f_entity")) m.entity_id = $("f_entity").value;
+        if ($("f_attr")) m.state_attribute = $("f_attr").value || null;
+        if ($("f_type")) m.value_type = $("f_type").value;
+        if ($("f_unit")) m.unit = $("f_unit").value || null;
+        if ($("f_sev")) m.severity_mode = $("f_sev").value;
+      }
+      rebuildLocalPreview();
+      refreshLive(m.item_id);
+    }
+    function refreshLive(itemId) {
+      const m = mapping.mappings.find(x => x.item_id === itemId);
+      const el = document.querySelector(`[data-live="${CSS.escape(itemId)}"]`);
+      if (!m || !el) return;
+      const item = liveItem(m);
+      el.textContent = item ? fmt(item) : "—";
+      el.className = "line-live " + (item ? item.severity : "ok");
+    }
+    function beginNewCard() {
+      addingCard = true;
+      renamingId = null;
+      pendingConfirm = null;
+      drawAll();
+      const el = $("new_card_title");
+      if (el) el.focus();
+    }
+    function commitNewCard() {
+      const title = (($("new_card_title") && $("new_card_title").value) || "").trim();
+      if (!title) return;
+      const prios = (mapping.cards || []).map(c => Number(c.priority) || 0);
+      const priority = prios.length ? Math.max(...prios) + 10 : 10;
+      const card = { id: newUuid(), kind: "custom", title, priority };
+      mapping.cards.push(card);
+      selectedCardId = card.id;
+      writeOpenCardId(selectedCardId);
+      selected = null;
+      openAdvId = null;
+      addingCard = false;
+      addingLines = true;
+      rebuildLocalPreview();
+      drawAll();
+      scheduleSave();
+      if ($("q")) $("q").focus();
+    }
+    function cancelNewCard() {
+      addingCard = false;
+      drawAll();
+    }
+    function beginRename(cardId) {
+      renamingId = cardId;
+      addingCard = false;
+      pendingConfirm = null;
+      selectedCardId = cardId;
+      writeOpenCardId(selectedCardId);
+      drawAll();
+      const el = $("rename_card_title");
+      if (el) { el.focus(); el.select(); }
+    }
+    function commitRename() {
+      const card = (mapping.cards || []).find(c => c.id === renamingId);
+      const title = (($("rename_card_title") && $("rename_card_title").value) || "").trim();
+      renamingId = null;
+      if (card && title) card.title = title;
+      rebuildLocalPreview();
+      drawAll();
+      if (card && title) scheduleSave();
+    }
+    function moveCard(cardId, dir) {
+      const cards = sortedCards();
+      const i = cards.findIndex(c => c.id === cardId);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= cards.length) return;
+      const tmp = cards[i];
+      cards[i] = cards[j];
+      cards[j] = tmp;
+      cards.forEach((c, n) => { c.priority = (n + 1) * 10; });
+      rebuildLocalPreview();
+      drawAll();
+      scheduleSave();
+    }
+    function deleteCard(cardId) {
+      const card = (mapping.cards || []).find(c => c.id === cardId);
+      if (!card) return;
+      mapping.cards = mapping.cards.filter(c => c.id !== card.id);
+      mapping.mappings = mapping.mappings.filter(m => m.card_id !== card.id);
+      if (selectedCardId === card.id) selectedCardId = null;
+      writeOpenCardId(selectedCardId);
+      if (selected && selected.card_id === card.id) selected = null;
+      openAdvId = null;
+      rebuildLocalPreview();
+      drawAll();
+      scheduleSave();
+    }
+    function looksGuest(name) {
+      const n = (name || "").toLowerCase();
+      return /guest\s*wi-?fi|guest\s*wlan|guest\s*network|\bwlan\b/.test(n);
+    }
+    function isBoolish(ent) {
+      const d = (ent.domain || (ent.entity_id || "").split(".")[0] || "").toLowerCase();
+      const st = String(ent.state || "").toLowerCase();
+      return ["binary_sensor","switch","input_boolean","light","lock"].includes(d) || ["on","off","true","false"].includes(st);
+    }
+    function alreadyHas(pred) {
+      return mapping.mappings.some(pred);
+    }
+    function addItem(row) {
+      if (!row.item_id) row.item_id = newUuid();
+      if (row.value_type == null) row.value_type = "auto";
+      if (row.severity_mode == null) row.severity_mode = "auto";
+      mapping.mappings.push(row);
+      return row;
+    }
+    function needCard() {
+      const card = currentCard();
+      if (!card) {
+        $("status").textContent = "Select or create a card first";
+        $("status").style.color = "var(--gold)";
+        return null;
+      }
+      return card;
+    }
+    function addPlaceholder() {
+      const card = needCard();
+      if (!card) return;
+      const label = (($("ph_label") && $("ph_label").value) || "").trim();
+      if (!label) {
+        $("status").textContent = "Label is required";
+        $("status").style.color = "var(--gold)";
+        return;
+      }
+      const value = ($("ph_value") && $("ph_value").value) || "";
+      selected = addItem({
+        card_id: card.id,
+        entity_id: "",
+        label,
+        static_value: value,
+        unit: null,
+        value_type: placeholderType(value, null),
+        severity_mode: "fixed",
+        fixed_severity: "ok",
+        saved_at: isoZ(),
+      });
+      if ($("ph_label")) $("ph_label").value = "";
+      if ($("ph_value")) $("ph_value").value = "";
+      afterAdd("ph");
+    }
+    function onThisCard(eid) {
+      const card = currentCard();
+      if (!card || !eid) return false;
+      return mapping.mappings.some(m => m.card_id === card.id && m.entity_id === eid);
+    }
+    function statusAlready() {
+      const el = $("status");
+      if (!el) return;
+      el.textContent = "Already on this card";
+      el.style.color = "var(--gold)";
+    }
+    function addFromSearch(ent) {
+      const card = needCard();
+      if (!card) return;
+      const eid = ent.entity_id || "";
+      if (eid.startsWith("weather.")) {
+        const hasOutdoor = alreadyHas(m => m.card_id === card.id && m.entity_id === eid && m.state_attribute === "temperature");
+        const hasCondition = alreadyHas(m => m.card_id === card.id && m.entity_id === eid && !m.state_attribute);
+        if (hasOutdoor && hasCondition) {
+          selected = mapping.mappings.find(m => m.card_id === card.id && m.entity_id === eid) || selected;
+          afterAdd(null, { skipSave: true });
+          statusAlready();
+          return;
+        }
+        if (!hasOutdoor) {
+          addItem({ card_id: card.id, entity_id: eid, state_attribute: "temperature", label: "Outdoor", value_type: "auto", severity_mode: "auto" });
+        }
+        if (!hasCondition) {
+          addItem({ card_id: card.id, entity_id: eid, state_attribute: null, label: "Condition", value_type: "auto", severity_mode: "auto" });
+        }
+        selected = mapping.mappings.filter(m => m.card_id === card.id && m.entity_id === eid).slice(-1)[0] || selected;
+        afterAdd();
+        return;
+      }
+      if (looksGuest(ent.name) && isBoolish(ent)) {
+        if (alreadyHas(m => m.card_id === card.id && m.entity_id === eid)) {
+          selected = mapping.mappings.find(m => m.card_id === card.id && m.entity_id === eid);
+          afterAdd(null, { skipSave: true });
+          statusAlready();
+          return;
+        }
+        selected = addItem({ card_id: card.id, entity_id: eid, label: "Guest Wi-Fi", value_type: "auto", severity_mode: "ok_when_on" });
+        afterAdd();
+        return;
+      }
+      if (alreadyHas(m => m.card_id === card.id && m.entity_id === eid && !m.state_attribute)) {
+        selected = mapping.mappings.find(m => m.card_id === card.id && m.entity_id === eid && !m.state_attribute);
+        afterAdd(null, { skipSave: true });
+        statusAlready();
+        return;
+      }
+      selected = addItem({
+        card_id: card.id,
+        entity_id: eid,
+        label: ent.name || "Item",
+        value_type: "auto",
+        severity_mode: "auto",
+      });
+      afterAdd();
+    }
+    function afterAdd(focus, opts) {
+      if ($("hits")) $("hits").innerHTML = "";
+      if ($("q")) $("q").value = "";
+      lastHits = [];
+      hitIndex = 0;
+      openAdvId = null;
+      rebuildLocalPreview();
+      drawAll();
+      if (!(opts && opts.skipSave)) scheduleSave();
+      if (!addingLines) return;
+      const el = (focus === "ph" ? $("ph_label") : $("q")) || $("q") || $("ph_label");
+      if (el) el.focus();
+    }
+    function liveLine(state, unit) {
+      if (state == null || state === undefined) return "—";
+      const n = Number(state);
+      return String(state) + (Number.isFinite(n) && unit ? " " + unit : "");
+    }
+    function liveFor(m) {
+      return liveDisplay(m);
+    }
+    function coerceItem(m, ent) {
+      if (isPlaceholder(m)) {
+        let raw = m.static_value;
+        const lab = (m.label || "").trim();
+        if (raw == null || String(raw).trim() === "") {
+          if (!lab || lab.toLowerCase() === "item") return null;
+          return { id: m.item_id, label: m.label, value: null, valueType: "text", unit: null, severity: "ok" };
+        }
+        const text = String(raw).trim();
+        if (looksLikeEntityId(text) || text.indexOf("://") >= 0) {
+          return { id: m.item_id, label: m.label, value: null, valueType: "text", unit: null, severity: "ok" };
+        }
+        const vt = placeholderType(text, m.unit);
+        if (vt === "number") {
+          return { id: m.item_id, label: m.label, value: Number(text), valueType: "number", unit: m.unit || null, severity: "ok" };
+        }
+        return { id: m.item_id, label: m.label, value: text, valueType: "text", unit: null, severity: "ok" };
+      }
+      let value = ent ? ent.state : null;
+      if (m.state_attribute && ent && ent.attrs) value = ent.attrs[m.state_attribute];
+      if (m.state_attribute && ent && ent.attributes) value = ent.attributes[m.state_attribute];
+      let valueType = m.value_type === "auto" || !m.value_type ? null : m.value_type;
+      const d = ((ent && ent.domain) || (m.entity_id || "").split(".")[0] || "");
+      if (!valueType) {
+        if (["binary_sensor","switch","input_boolean","light","lock"].includes(d)) valueType = "bool";
+        else if (m.state_attribute === "temperature" || d === "sensor") valueType = "number";
+        else if (d === "weather" && !m.state_attribute) valueType = "enum";
+        else valueType = "text";
+      }
+      if (value == null || value === "unknown" || value === "unavailable") {
+        return { id: m.item_id, label: m.label, value: null, valueType, unit: m.unit || null, severity: "attention" };
+      }
+      if (valueType === "bool") {
+        const on = ["on","true","yes","1"].includes(String(value).toLowerCase());
+        const sev = m.severity_mode === "ok_when_on" ? (on ? "ok" : "attention") : "ok";
+        return { id: m.item_id, label: m.label, value: on, valueType: "bool", unit: null, severity: sev };
+      }
+      if (valueType === "number") {
+        const n = Number(value);
+        return { id: m.item_id, label: m.label, value: Number.isFinite(n) ? n : null, valueType: "number", unit: m.unit || (ent && ent.unit) || null, severity: "ok" };
+      }
+      return { id: m.item_id, label: m.label, value: String(value), valueType: valueType === "auto" ? "text" : valueType, unit: null, severity: "ok" };
+    }
+    function rebuildLocalPreview() {
+      const cards = (mapping.cards || []).map(c => ({
+        id: c.id, kind: "custom", title: c.title, priority: c.priority,
+        items: mapping.mappings.filter(m => m.card_id === c.id).map(m => {
+          const ent = lastEntities.find(e => e.entity_id === m.entity_id);
+          let item = coerceItem(m, ent);
+          if (!item || item.value === null || item.value === undefined) {
+            const prev = previewItemFor(m);
+            if (prev && prev.value !== null && prev.value !== undefined) {
+              item = Object.assign({}, prev, { id: m.item_id, label: m.label || prev.label });
+            }
+          }
+          if (!item) return null;
+          if (isOnPass(m)) {
+            const r = Number(m.featured_rank);
+            if (Number.isInteger(r) && r >= 1 && r <= 6) item.featuredRank = r;
+          }
+          return item;
+        }).filter(Boolean)
+      }));
+      cards.sort((a,b) => (a.priority-b.priority) || String(a.title).localeCompare(String(b.title)));
+      const prop = preview.property || {};
+      preview = {
+        property: {
+          displayName: prop.displayName || houseMeta.display_name || houseMeta.displayName || "House",
+          locationLabel: prop.locationLabel || houseMeta.location_label || houseMeta.locationLabel || "",
+          timezone: prop.timezone || houseMeta.timezone || "",
+          localTime: prop.localTime || "",
+          lastHeard: prop.lastHeard || "",
+        },
+        generatedAt: preview.generatedAt,
+        lastHeard: preview.lastHeard || prop.lastHeard || "",
+        cards,
+      };
+      renderPass();
+      document.querySelectorAll("#blocks .block:not(.open)").forEach(el => {
+        const card = (mapping.cards || []).find(c => c.id === el.dataset.card);
+        const face = el.querySelector(".block-face");
+        if (card && face) face.innerHTML = liveRowsHtml(card);
+      });
+      fillHouseBar();
+    }
+    function scheduleSave() {
+      $("status").textContent = "";
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(doSave, 1200);
+    }
+    async function doSave() {
+      if (loadFailed || sessionExpired) {
+        $("status").textContent = sessionExpired ? "Session ended — reload Home Assistant" : "Could not load — nothing written";
+        $("status").style.color = "var(--alert)";
+        showRetry();
+        return;
+      }
+      applyForm();
+      mapping.cards = cardsForWire();
+      $("status").textContent = "Saving…";
+      $("status").style.color = "var(--gold)";
+      try {
+        const j = await MODE_SAVE();
+        if (j && j.document) preview = j.document;
+        else rebuildLocalPreview();
+        renderPass();
+        $("status").textContent = "Saved";
+      } catch (e) {
+        $("status").textContent = "Save failed";
+        $("status").style.color = "var(--alert)";
+      }
+    }
+    function filterHits(list, q) {
+      const needle = (q || "").trim().toLowerCase();
+      if (!needle) return [];
+      return (list || []).filter(x => {
+        const name = (x.name || "").toLowerCase();
+        const eid = (x.entity_id || "").toLowerCase();
+        return name.includes(needle) || eid.includes(needle);
+      }).slice(0, 40);
+    }
+    let lastHits = [];
+    let hitIndex = 0;
+    function renderHits(list) {
+      lastHits = list || [];
+      if (!lastHits.length) hitIndex = 0;
+      else if (hitIndex >= lastHits.length) hitIndex = lastHits.length - 1;
+      else if (hitIndex < 0) hitIndex = 0;
+      const box = $("hits");
+      if (!box) return;
+      const card = currentCard();
+      box.innerHTML = lastHits.map((x, i) => {
+        const eid = x.entity_id || "";
+        const onCard = !!(card && eid && mapping.mappings.some(m => m.card_id === card.id && m.entity_id === eid));
+        const live = (x.attributes && x.attributes.temperature != null) ? liveLine(x.attributes.temperature, x.unit) : liveLine(x.state, x.unit);
+        return `
+        <div class="hit${i === hitIndex ? " is-active" : ""}" data-i="${i}">
+          <div class="name">${esc(x.name)}</div>
+          <div class="live">${esc(live)}</div>
+          ${eid ? `<div class="eid">${esc(eid)}</div>` : ""}
+          ${onCard ? `<div class="mark">On this card</div>` : ""}
+        </div>`;
+      }).join("");
+      box.querySelectorAll(".hit").forEach(el => {
+        el.onclick = () => addFromSearch(lastHits[Number(el.dataset.i)]);
+      });
+      const active = box.querySelector(".hit.is-active");
+      if (active && active.scrollIntoView) active.scrollIntoView({ block: "nearest" });
+    }
+    function moveHit(dir) {
+      if (!lastHits.length) return;
+      hitIndex = (hitIndex + dir + lastHits.length) % lastHits.length;
+      renderHits(lastHits);
+    }
+    async function runSearch() {
+      const q = ($("q") && $("q").value) || "";
+      try {
+        const hits = await MODE_SEARCH(q);
+        renderHits(hits);
+      } catch (e) { lastHits = []; hitIndex = 0; }
+    }
+    async function addPickedHit() {
+      const q = (($("q") && $("q").value) || "").trim();
+      if (!q) return;
+      const prevIds = lastHits.map(x => x.entity_id || "");
+      const savedIndex = hitIndex;
+      clearTimeout(searchTimer);
+      await runSearch();
+      const nextIds = lastHits.map(x => x.entity_id || "");
+      const same = prevIds.length === nextIds.length && prevIds.every((id, i) => id === nextIds[i]);
+      if (same && lastHits.length) hitIndex = Math.min(Math.max(0, savedIndex), lastHits.length - 1);
+      else hitIndex = 0;
+      if (lastHits.length) renderHits(lastHits);
+      const pick = lastHits[hitIndex] || lastHits[0];
+      if (pick) addFromSearch(pick);
+    }
+    function onComposerClick(ev) {
+      const root = $("blocks");
+      if (!root || !root.contains(ev.target)) return;
+      const btn = ev.target.closest("[data-act]");
+      if (!btn) {
+        if (ev.target.closest("input,select,textarea,button,.hit,.adv-panel,.card-body,.confirm-bar,.new-card-row")) return;
+        const card = ev.target.closest("[data-card]");
+        if (card) toggleCard(card.dataset.card);
+        return;
+      }
+      const act = btn.dataset.act;
+      const id = btn.dataset.id;
+      if (act === "toggle") toggleCard(id);
+      else if (act === "toggle-add") {
+        addingLines = !addingLines;
+        drawComposer();
+        if (addingLines && $("q")) $("q").focus();
+      }
+      else if (act === "new-card") beginNewCard();
+      else if (act === "commit-card") commitNewCard();
+      else if (act === "cancel-card") cancelNewCard();
+      else if (act === "rename") beginRename(id);
+      else if (act === "card-up") moveCard(id, -1);
+      else if (act === "card-down") moveCard(id, 1);
+      else if (act === "del-card") {
+        pendingConfirm = { kind: "card", id };
+        addingCard = false;
+        renamingId = null;
+        drawComposer();
+      }
+      else if (act === "line-up") moveLine(id, -1);
+      else if (act === "line-down") moveLine(id, 1);
+      else if (act === "pass-up") movePassRank(id, -1);
+      else if (act === "pass-down") movePassRank(id, 1);
+      else if (act === "adv") {
+        openAdvId = openAdvId === id ? null : id;
+        drawComposer();
+      }
+      else if (act === "remove") {
+        pendingConfirm = { kind: "line", id };
+        drawComposer();
+      }
+      else if (act === "confirm-yes") {
+        const bar = btn.closest(".confirm-bar");
+        const kind = bar && bar.dataset.kind;
+        const cid = bar && bar.dataset.id;
+        pendingConfirm = null;
+        if (kind === "card") deleteCard(cid);
+        else if (kind === "line") removeLine(cid);
+        else drawComposer();
+      }
+      else if (act === "confirm-no") {
+        pendingConfirm = null;
+        drawComposer();
+      }
+      else if (act === "add-line") addPlaceholder();
+    }
+    function onComposerInput(ev) {
+      const t = ev.target;
+      if (t.id === "q") {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(runSearch, 180);
+        return;
+      }
+      if (t.dataset.label) {
+        const m = mapping.mappings.find(x => x.item_id === t.dataset.label);
+        if (m) {
+          m.label = t.value;
+          rebuildLocalPreview();
+          scheduleSave();
+        }
+        return;
+      }
+      if (t.dataset.adv) {
+        applyForm();
+        scheduleSave();
+      }
+    }
+    function onComposerChange(ev) {
+      const t = ev.target;
+      if (t.dataset.pass) {
+        setOnPass(t.dataset.pass, t.checked);
+        rebuildLocalPreview();
+        drawAll();
+        scheduleSave();
+        return;
+      }
+      if (t.dataset.adv) {
+        applyForm();
+        scheduleSave();
+      }
+    }
+    async function load() {
+      try {
+        await MODE_LOAD();
+        fillHouseBar();
+        try { await loadPeople(); } catch (e) {
+          if (sessionExpired) throw e;
+          $("people_status").textContent = "Could not load people";
+        }
+        loadFailed = false;
+        sessionExpired = false;
+        houseLoaded = true;
+        hideRetry();
+        $("status").textContent = "";
+        $("status").style.color = "";
+        const remembered = readOpenCardId();
+        if (remembered && (mapping.cards || []).some(c => c.id === remembered)) {
+          selectedCardId = remembered;
+          openAddIfEmpty(selectedCardId);
+        } else if (remembered) {
+          writeOpenCardId(null);
+        }
+        drawAll();
+        fillHouseBar();
+        startPoll();
+      } catch (err) {
+        houseLoaded = false;
+        if (sessionExpired || isAuthError(err)) {
+          markSessionExpired();
+          drawAll();
+          fillHouseBar();
+          return;
+        }
+        loadFailed = true;
+        stopPoll();
+        $("status").textContent = "Could not load the house";
+        $("status").style.color = "var(--alert)";
+        showRetry();
+        drawAll();
+        fillHouseBar();
+      }
+    }
+    $("blocks").addEventListener("click", onComposerClick);
+    $("blocks").addEventListener("input", onComposerInput);
+    $("blocks").addEventListener("change", onComposerChange);
+    $("blocks").addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") {
+        if (pendingConfirm) {
+          ev.preventDefault();
+          pendingConfirm = null;
+          drawComposer();
+        } else if (renamingId) {
+          ev.preventDefault();
+          renamingId = null;
+          drawComposer();
+        } else if (addingCard) {
+          ev.preventDefault();
+          cancelNewCard();
+        } else if (addingLines) {
+          ev.preventDefault();
+          addingLines = false;
+          drawComposer();
+        }
+        return;
+      }
+      const id = ev.target && ev.target.id;
+      if (id === "q" && (ev.key === "ArrowDown" || ev.key === "ArrowUp")) {
+        ev.preventDefault();
+        moveHit(ev.key === "ArrowDown" ? 1 : -1);
+        return;
+      }
+      if (ev.key !== "Enter") return;
+      if (id === "new_card_title") { ev.preventDefault(); commitNewCard(); }
+      else if (id === "rename_card_title") { ev.preventDefault(); commitRename(); }
+      else if (id === "q") { ev.preventDefault(); addPickedHit(); }
+      else if (id === "ph_label" || id === "ph_value") { ev.preventDefault(); addPlaceholder(); }
+    });
+    
+
+    
+    let people = [];
+    const PEOPLE_PATH = '/api/patrimony_collection/contacts';
+    const PHOTO_PATH = '/api/patrimony_collection/photo';
+    const NOTES_PATH = '/api/patrimony_collection/notes';
+    const PAIR_PATH = '/api/patrimony_collection/pair';
+    const NOTIFY_PATH = '/api/patrimony_collection/notify';
+
+    let activeTab = "cards";
+
+    function fillHouseBar() {
+      const p = (preview && preview.property) || {};
+      const m = houseMeta || {};
+      const name = p.displayName || p.display_name || m.display_name || m.displayName || "House";
+      const place = p.locationLabel || p.location_label || m.location_label || m.locationLabel || "";
+      const zone = p.timezone || m.timezone || "";
+      const rawId = p.propertyId || p.property_id || m.property_id || m.propertyId || "";
+      let id = String(rawId || "");
+      if (id.length > 12) id = id.slice(0, 8);
+      if ($("house_name")) $("house_name").textContent = name;
+      const set = (eid, val) => {
+        const el = $(eid);
+        if (!el) return;
+        el.textContent = val || "";
+        el.hidden = !val;
+      };
+      set("house_place", place);
+      set("house_zone", zone);
+      set("house_id", "");
+    }
+    function panelTabKey() { return "patrimony.panelTab"; }
+    function readPanelTab() {
+      try {
+        const v = sessionStorage.getItem(panelTabKey());
+        if (v === "people" || v === "soon" || v === "cards") return v;
+      } catch (e) {}
+      return "cards";
+    }
+    function writePanelTab(name) {
+      const v = (name === "people" || name === "soon") ? name : "cards";
+      try { sessionStorage.setItem(panelTabKey(), v); } catch (e) {}
+    }
+    function openCardKey() { return "patrimony.openCardId"; }
+    function readOpenCardId() {
+      try { return sessionStorage.getItem(openCardKey()) || null; } catch (e) { return null; }
+    }
+    function writeOpenCardId(id) {
+      try {
+        if (id) sessionStorage.setItem(openCardKey(), id);
+        else sessionStorage.removeItem(openCardKey());
+      } catch (e) {}
+    }
+    function showTab(name) {
+      activeTab = name;
+      writePanelTab(name);
+      ["cards", "people", "soon"].forEach((id) => {
+        const tab = $("tab_" + id);
+        const pane = $("pane_" + id);
+        if (tab) {
+          tab.classList.toggle("is-active", id === name);
+          tab.setAttribute("aria-selected", id === name ? "true" : "false");
+        }
+        if (pane) pane.hidden = id !== name;
+      });
+      if ($("save")) $("save").hidden = name === "soon";
+      if (name === "soon") {
+        loadSoon();
+      }
+    }
+    function drawPeople() {
+      const host = $("people_list");
+      host.innerHTML = "";
+      if (!people.length) {
+        host.innerHTML = '<p class="quiet people-empty">No one mapped yet.</p>';
+        return;
+      }
+      people.forEach((row, i) => {
+        const wrap = document.createElement("article");
+        wrap.className = "people-card";
+        wrap.innerHTML = `
+          <div class="people-card-head">
+            <input class="people-fn" data-p="function" data-i="${i}" value="${esc(row.function || "")}" placeholder="Function" aria-label="Function" />
+            <div class="people-tools">
+              <button class="ghost btn-icon" type="button" data-up="${i}" ${i === 0 ? "disabled" : ""} aria-label="Up">↑</button>
+              <button class="ghost btn-icon" type="button" data-down="${i}" ${i === people.length - 1 ? "disabled" : ""} aria-label="Down">↓</button>
+              <button class="danger" type="button" data-del="${i}">Remove</button>
+            </div>
+          </div>
+          <div class="people-field">
+            <span class="k">Name</span>
+            <input data-p="name" data-i="${i}" value="${esc(row.name || "")}" placeholder="Name" />
+          </div>
+          <div class="people-field">
+            <span class="k">Tel</span>
+            <input data-p="tel" data-i="${i}" value="${esc(row.tel || "")}" placeholder="+45" />
+          </div>
+          <div class="people-field">
+            <span class="k">Method</span>
+            <select data-p="method" data-i="${i}">
+              <option value="cellular"${row.method === "cellular" ? " selected" : ""}>Cellular</option>
+              <option value="viber"${row.method === "viber" ? " selected" : ""}>Viber</option>
+              <option value="whatsapp"${row.method === "whatsapp" ? " selected" : ""}>WhatsApp</option>
+            </select>
+          </div>`;
+        host.appendChild(wrap);
+      });
+    }
+    function readPeopleForm() {
+      $("people_list").querySelectorAll("[data-p]").forEach((el) => {
+        const i = Number(el.dataset.i);
+        if (people[i]) people[i][el.dataset.p] = el.value;
+      });
+    }
+    async function loadPeople() {
+      const doc = await api(PEOPLE_PATH);
+      people = Array.isArray(doc.contacts) ? doc.contacts : [];
+      drawPeople();
+    }
+    function schedulePeopleSave() {
+      clearTimeout(peopleSaveTimer);
+      peopleSaveTimer = setTimeout(() => {
+        savePeople().catch(() => {
+          if ($("people_status")) $("people_status").textContent = "Save failed";
+          if ($("status")) {
+            $("status").textContent = "Save failed";
+            $("status").style.color = "var(--alert)";
+          }
+        });
+      }, 1200);
+    }
+    async function savePeople() {
+      readPeopleForm();
+      $("people_status").textContent = "Saving…";
+      $("status").textContent = "Saving…";
+      $("status").style.color = "var(--gold)";
+      const doc = await api(PEOPLE_PATH, {
+        method: "PUT",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ schemaVersion: 1, contacts: people }),
+      });
+      people = Array.isArray(doc.contacts) ? doc.contacts : people;
+      const ae = document.activeElement;
+      const editing = ae && $("people_list") && $("people_list").contains(ae);
+      if (!editing) drawPeople();
+      $("people_status").textContent = "Saved on the house";
+      $("status").textContent = "Saved";
+      $("status").style.color = "";
+    }
+    $("people_add").onclick = () => {
+      readPeopleForm();
+      const id = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now());
+      people.push({ id, function: "", name: "", tel: "", method: "cellular" });
+      drawPeople();
+      schedulePeopleSave();
+    };
+    $("people_save").onclick = () => savePeople().catch(() => {
+      $("people_status").textContent = "Save failed";
+      $("status").textContent = "Save failed";
+      $("status").style.color = "var(--alert)";
+    });
+    $("people_list").addEventListener("input", () => schedulePeopleSave());
+    $("people_list").addEventListener("change", () => schedulePeopleSave());
+    $("people_list").addEventListener("click", (ev) => {
+      const t = ev.target.closest("[data-del], [data-up], [data-down]") || ev.target;
+      if (t.dataset.del != null) {
+        readPeopleForm();
+        people.splice(Number(t.dataset.del), 1);
+        drawPeople();
+        schedulePeopleSave();
+      } else if (t.dataset.up != null) {
+        readPeopleForm();
+        const i = Number(t.dataset.up);
+        if (i > 0) { const row = people.splice(i, 1)[0]; people.splice(i - 1, 0, row); drawPeople(); schedulePeopleSave(); }
+      } else if (t.dataset.down != null) {
+        readPeopleForm();
+        const i = Number(t.dataset.down);
+        if (i < people.length - 1) { const row = people.splice(i, 1)[0]; people.splice(i + 1, 0, row); drawPeople(); schedulePeopleSave(); }
+      }
+    });
+
+    function encodeQr(text) {
+      const ECC_CW = [
+        [-1,7,10,15,20,26,18,20,24,30,18,20,24,26,30,22,24,28,30,28,28,28,28,30,30,26,28,30,30,26,28,30,30,30,30,30,30,30,30,30,30],
+        [-1,10,16,26,18,24,16,18,22,22,26,30,22,22,24,24,28,28,26,26,26,26,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28]
+      ];
+      const ECC_BLOCKS = [
+        [-1,1,1,1,1,1,2,2,2,2,4,4,4,4,4,6,6,6,6,7,8,8,9,9,10,12,12,12,13,14,15,16,17,18,19,19,20,21,22,24,25],
+        [-1,1,1,1,2,2,4,4,4,5,5,5,8,9,9,10,10,11,13,14,16,17,17,18,20,21,23,25,26,28,29,31,33,35,37,38,40,43,45,47,49]
+      ];
+      const FORMAT_BITS = [1, 0];
+      const ALIGN = [
+        [],[],
+        [6,18],[6,22],[6,26],[6,30],[6,34],
+        [6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],
+        [6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],
+        [6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],
+        [6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],[6,30,58,86,114,142],[6,34,62,90,118,146],
+        [6,30,54,78,102,126,150],[6,24,50,76,102,128,154],[6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]
+      ];
+      const EXP = new Uint8Array(512), LOG = new Uint8Array(256);
+      (function () {
+        let x = 1;
+        for (let i = 0; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 256) x ^= 0x11d; }
+        for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+      })();
+      const gfMul = (a, b) => (a && b) ? EXP[LOG[a] + LOG[b]] : 0;
+      function rsEncode(data, ec) {
+        const gen = new Array(ec + 1).fill(0);
+        gen[0] = 1;
+        for (let i = 0; i < ec; i++) for (let j = i + 1; j > 0; j--) gen[j] ^= gfMul(gen[j - 1], EXP[i]);
+        const rec = data.concat(new Array(ec).fill(0));
+        for (let i = 0; i < data.length; i++) {
+          const coef = rec[i];
+          if (!coef) continue;
+          for (let j = 0; j <= ec; j++) rec[i + j] ^= gfMul(gen[j], coef);
+        }
+        return rec.slice(data.length);
+      }
+      function rawModules(ver) {
+        let n = (16 * ver + 128) * ver + 64;
+        if (ver >= 2) {
+          const a = Math.floor(ver / 7) + 2;
+          n -= (25 * a - 10) * a - 55;
+          if (ver >= 7) n -= 36;
+        }
+        return n;
+      }
+      const dataCw = (ver, ecl) => Math.floor(rawModules(ver) / 8) - ECC_CW[ecl][ver] * ECC_BLOCKS[ecl][ver];
+      const bytes = [];
+      for (let i = 0; i < text.length; i++) bytes.push(text.charCodeAt(i) & 255);
+      let ver = 0, ecl = 1;
+      outer: for (let e of [1, 0]) {
+        for (let v = 1; v <= 40; v++) {
+          const cap = dataCw(v, e) * 8;
+          const cc = v <= 9 ? 8 : 16;
+          const need = 4 + cc + 8 * bytes.length + 4;
+          if (need <= cap) { ver = v; ecl = e; break outer; }
+        }
+      }
+      if (!ver) throw new Error("pairing too long");
+      const ccBits = ver <= 9 ? 8 : 16;
+      const totalData = dataCw(ver, ecl);
+      const bits = [];
+      const push = (val, n) => { for (let i = n - 1; i >= 0; i--) bits.push((val >>> i) & 1); };
+      push(0b0100, 4);
+      push(bytes.length, ccBits);
+      bytes.forEach(b => push(b, 8));
+      const capBits = totalData * 8;
+      const term = Math.min(4, capBits - bits.length);
+      push(0, term);
+      while (bits.length % 8) bits.push(0);
+      const data = [];
+      for (let i = 0; i < bits.length; i += 8) {
+        let b = 0;
+        for (let j = 0; j < 8; j++) b = (b << 1) | bits[i + j];
+        data.push(b);
+      }
+      let pad = 0xec;
+      while (data.length < totalData) { data.push(pad); pad = pad === 0xec ? 0x11 : 0xec; }
+      const nBlocks = ECC_BLOCKS[ecl][ver];
+      const ecPer = ECC_CW[ecl][ver];
+      const shortData = Math.floor(totalData / nBlocks);
+      const nShort = nBlocks - (totalData % nBlocks);
+      const blocks = [];
+      let offset = 0;
+      for (let i = 0; i < nBlocks; i++) {
+        const n = shortData + (i < nShort ? 0 : 1);
+        const block = data.slice(offset, offset + n);
+        offset += n;
+        blocks.push({ data: block, ec: rsEncode(block, ecPer) });
+      }
+      const interleaved = [];
+      const maxD = Math.max(...blocks.map(b => b.data.length));
+      for (let i = 0; i < maxD; i++) for (const b of blocks) if (i < b.data.length) interleaved.push(b.data[i]);
+      for (let i = 0; i < ecPer; i++) for (const b of blocks) interleaved.push(b.ec[i]);
+      const size = ver * 4 + 17;
+      const modules = Array.from({ length: size }, () => new Array(size).fill(false));
+      const isFn = Array.from({ length: size }, () => new Array(size).fill(false));
+      function set(x, y, dark, fn) {
+        if (x < 0 || y < 0 || x >= size || y >= size) return;
+        modules[y][x] = !!dark;
+        if (fn) isFn[y][x] = true;
+      }
+      function finder(ox, oy) {
+        for (let dy = -1; dy <= 7; dy++) for (let dx = -1; dx <= 7; dx++) {
+          const x = ox + dx, y = oy + dy;
+          const dark = dx >= 0 && dx <= 6 && dy >= 0 && dy <= 6 &&
+            (dx === 0 || dx === 6 || dy === 0 || dy === 6 || (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4));
+          if (x >= 0 && y >= 0 && x < size && y < size) set(x, y, dark, true);
+        }
+      }
+      finder(0, 0); finder(size - 7, 0); finder(0, size - 7);
+      (ALIGN[ver] || []).forEach(y => (ALIGN[ver] || []).forEach(x => {
+        if ((x < 9 && y < 9) || (x > size - 10 && y < 9) || (x < 9 && y > size - 10)) return;
+        for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++)
+          set(x + dx, y + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1, true);
+      }));
+      for (let i = 8; i < size - 8; i++) { set(i, 6, i % 2 === 0, true); set(6, i, i % 2 === 0, true); }
+      set(8, size - 8, true, true);
+      function drawFormat(mask) {
+        let dataBits = (FORMAT_BITS[ecl] << 3) | mask;
+        let rem = dataBits;
+        for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+        const bits15 = ((dataBits << 10) | rem) ^ 0x5412;
+        const pos = [[0,8],[1,8],[2,8],[3,8],[4,8],[5,8],[7,8],[8,8],[8,7],[8,5],[8,4],[8,3],[8,2],[8,1],[8,0]];
+        const pos2 = [[8,size-1],[8,size-2],[8,size-3],[8,size-4],[8,size-5],[8,size-6],[8,size-7],[size-8,8],[size-7,8],[size-6,8],[size-5,8],[size-4,8],[size-3,8],[size-2,8],[size-1,8]];
+        for (let i = 0; i < 15; i++) {
+          const dark = ((bits15 >>> (14 - i)) & 1) === 1;
+          set(pos[i][0], pos[i][1], dark, true);
+          set(pos2[i][0], pos2[i][1], dark, true);
+        }
+      }
+      if (ver >= 7) {
+        let rem = ver;
+        for (let i = 0; i < 12; i++) rem = (rem << 1) ^ ((rem >>> 11) * 0x1F25);
+        const vbits = (ver << 12) | rem;
+        for (let i = 0; i < 18; i++) {
+          const dark = ((vbits >>> i) & 1) === 1;
+          const a = Math.floor(i / 3), b = i % 3;
+          set(a, size - 11 + b, dark, true);
+          set(size - 11 + b, a, dark, true);
+        }
+      }
+      drawFormat(0);
+      let bit = 0;
+      for (let right = size - 1; right >= 1; right -= 2) {
+        if (right === 6) right = 5;
+        for (let vert = 0; vert < size; vert++) {
+          for (let j = 0; j < 2; j++) {
+            const x = right - j;
+            const upward = ((right + 1) & 2) === 0;
+            const y = upward ? size - 1 - vert : vert;
+            if (!isFn[y][x] && bit < interleaved.length * 8) {
+              modules[y][x] = ((interleaved[bit >> 3] >>> (7 - (bit & 7))) & 1) === 1;
+              bit++;
+            }
+          }
+        }
+      }
+      function maskAt(m, x, y) {
+        switch (m) {
+          case 0: return (x + y) % 2 === 0;
+          case 1: return y % 2 === 0;
+          case 2: return x % 3 === 0;
+          case 3: return (x + y) % 3 === 0;
+          case 4: return (Math.floor(y / 2) + Math.floor(x / 3)) % 2 === 0;
+          case 5: return (x * y) % 2 + (x * y) % 3 === 0;
+          case 6: return ((x * y) % 2 + (x * y) % 3) % 2 === 0;
+          default: return ((x + y) % 2 + (x * y) % 3) % 2 === 0;
+        }
+      }
+      function applyMask(src, m) {
+        const out = src.map(row => row.slice());
+        for (let y = 0; y < size; y++) for (let x = 0; x < size; x++)
+          if (!isFn[y][x] && maskAt(m, x, y)) out[y][x] = !out[y][x];
+        return out;
+      }
+      function penalty(mod) {
+        let s = 0;
+        for (let y = 0; y < size; y++) {
+          let run = 1;
+          for (let x = 1; x < size; x++) {
+            if (mod[y][x] === mod[y][x - 1]) { run++; if (run === 5) s += 3; else if (run > 5) s++; }
+            else run = 1;
+          }
+        }
+        for (let x = 0; x < size; x++) {
+          let run = 1;
+          for (let y = 1; y < size; y++) {
+            if (mod[y][x] === mod[y - 1][x]) { run++; if (run === 5) s += 3; else if (run > 5) s++; }
+            else run = 1;
+          }
+        }
+        for (let y = 0; y < size - 1; y++) for (let x = 0; x < size - 1; x++)
+          if (mod[y][x] === mod[y][x+1] && mod[y][x] === mod[y+1][x] && mod[y][x] === mod[y+1][x+1]) s += 3;
+        const pat = [1,0,1,1,1,0,1];
+        function finderRun(get) {
+          for (let i = 0; i < size; i++) {
+            for (let j = 0; j <= size - 7; j++) {
+              let ok = true;
+              for (let k = 0; k < 7; k++) if (get(i, j + k) !== pat[k]) { ok = false; break; }
+              if (!ok) continue;
+              const left = j >= 4 && !get(i, j-1) && !get(i, j-2) && !get(i, j-3) && !get(i, j-4);
+              const right = j + 10 < size && !get(i, j+7) && !get(i, j+8) && !get(i, j+9) && !get(i, j+10);
+              if (left || right) s += 40;
+            }
+          }
+        }
+        finderRun((r, c) => mod[r][c] ? 1 : 0);
+        finderRun((r, c) => mod[c][r] ? 1 : 0);
+        let dark = 0;
+        for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (mod[y][x]) dark++;
+        s += Math.floor(Math.abs(dark * 20 - size * size * 10) / (size * size)) * 10;
+        return s;
+      }
+      let best = null, bestScore = Infinity, bestMask = 0;
+      for (let m = 0; m < 8; m++) {
+        const masked = applyMask(modules, m);
+        drawFormatOn(masked, m);
+        const sc = penalty(masked);
+        if (sc < bestScore) { bestScore = sc; best = masked; bestMask = m; }
+      }
+      function drawFormatOn(mod, mask) {
+        let dataBits = (FORMAT_BITS[ecl] << 3) | mask;
+        let rem = dataBits;
+        for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+        const bits15 = ((dataBits << 10) | rem) ^ 0x5412;
+        const coords = [];
+        const a = [[0,8],[1,8],[2,8],[3,8],[4,8],[5,8],[7,8],[8,8],[8,7],[8,5],[8,4],[8,3],[8,2],[8,1],[8,0]];
+        const b = [[8,size-1],[8,size-2],[8,size-3],[8,size-4],[8,size-5],[8,size-6],[8,size-7],[size-8,8],[size-7,8],[size-6,8],[size-5,8],[size-4,8],[size-3,8],[size-2,8],[size-1,8]];
+        for (let i = 0; i < 15; i++) {
+          const dark = ((bits15 >>> (14 - i)) & 1) === 1;
+          mod[a[i][1]][a[i][0]] = dark;
+          mod[b[i][1]][b[i][0]] = dark;
+        }
+      }
+      drawFormatOn(best, bestMask);
+      return best;
+    }
+    function drawPairQr(canvas, text) {
+      const matrix = encodeQr(text);
+      const n = matrix.length;
+      const quiet = 4;
+      const dim = n + quiet * 2;
+      const scale = Math.max(6, Math.floor(288 / dim));
+      canvas.width = dim * scale;
+      canvas.height = dim * scale;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#f4efe6";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#1a1714";
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++)
+        if (matrix[y][x]) ctx.fillRect((x + quiet) * scale, (y + quiet) * scale, scale, scale);
+    }
+
+    let photoObjectUrl = null;
+    let notesTimer = null;
+    let notesReady = false;
+    let pairingUri = null;
+
+    function syncPhotoButtons(mode) {
+      const restore = $("photo_restore");
+      const replace = $("photo_replace");
+      const remove = $("photo_remove");
+      if (restore) {
+        restore.hidden = mode === "custom";
+        restore.className = mode === "custom" ? "ghost" : "primary";
+      }
+      if (replace) replace.className = "ghost";
+      if (remove) remove.hidden = mode !== "custom";
+      if ($("photo_confirm") && mode !== "custom") $("photo_confirm").hidden = true;
+    }
+    function setStillEmpty() {
+      const still = $("photo_still");
+      if (still) still.classList.add("still-empty");
+      const img = $("photo_img");
+      if (img) { img.removeAttribute("src"); img.alt = ""; }
+      if (photoObjectUrl) { URL.revokeObjectURL(photoObjectUrl); photoObjectUrl = null; }
+      if ($("photo_empty")) $("photo_empty").hidden = false;
+      syncPhotoButtons("empty");
+    }
+    function sniffStillMime(bytes) {
+      if (bytes.length >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) return "image/jpeg";
+      if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+          && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return "image/webp";
+      return "";
+    }
+    function bytesToDataUrl(bytes, mime) {
+      let bin = "";
+      const step = 0x8000;
+      for (let i = 0; i < bytes.length; i += step) {
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
+      }
+      return "data:" + mime + ";base64," + btoa(bin);
+    }
+    function setStillDataUrl(url, source) {
+      const still = $("photo_still");
+      if (still) still.classList.remove("still-empty");
+      if (photoObjectUrl) { URL.revokeObjectURL(photoObjectUrl); photoObjectUrl = null; }
+      const img = $("photo_img");
+      if (img) { img.removeAttribute("hidden"); img.src = url; img.alt = "Photograph"; }
+      if ($("photo_empty")) $("photo_empty").hidden = true;
+      syncPhotoButtons(source === "default" ? "default" : "custom");
+      if ($("photo_status")) $("photo_status").textContent = "";
+    }
+    async function loadPhoto() {
+      if ($("photo_status")) $("photo_status").textContent = "";
+      try {
+        const r = await bin(PHOTO_PATH, { headers: { Accept: "image/jpeg,image/webp,*/*" } });
+        if (r.status === 404) { setStillEmpty(); return; }
+        if (!r.ok) {
+          setStillEmpty();
+          if ($("photo_status")) $("photo_status").textContent = "Could not load the photograph.";
+          return;
+        }
+        const buf = await r.arrayBuffer();
+        const bytes = new Uint8Array(buf || []);
+        const mime = sniffStillMime(bytes);
+        if (!mime) {
+          setStillEmpty();
+          if ($("photo_status")) $("photo_status").textContent = "Could not load the photograph.";
+          return;
+        }
+        const source = (r.headers.get("X-Patrimony-Photo-Source") || "custom").toLowerCase();
+        setStillDataUrl(bytesToDataUrl(bytes, mime), source);
+      } catch (e) {
+        setStillEmpty();
+        if ($("photo_status")) $("photo_status").textContent = "Could not load the photograph.";
+      }
+    }
+    async function restorePhoto() {
+      if ($("photo_status")) $("photo_status").textContent = "";
+      try {
+        const r = await bin(PHOTO_PATH, { method: "POST" });
+        if (!r.ok) { $("photo_status").textContent = "Could not restore"; return; }
+        await loadPhoto();
+      } catch (e) {
+        $("photo_status").textContent = "Could not restore";
+      }
+    }
+    async function putPhoto(file) {
+      if (!file) return;
+      if (file.size > 2 * 1024 * 1024) {
+        $("photo_status").textContent = "Needs to be under 2 MB.";
+        return;
+      }
+      $("photo_status").textContent = "";
+      try {
+        const buf = await file.arrayBuffer();
+        const r = await bin(PHOTO_PATH, {
+          method: "PUT",
+          headers: { "Content-Type": file.type || "image/jpeg" },
+          body: buf
+        });
+        if (!r.ok) { $("photo_status").textContent = "Could not save"; return; }
+        await loadPhoto();
+      } catch (e) {
+        $("photo_status").textContent = "Could not save";
+      }
+    }
+    async function removePhoto() {
+      if ($("photo_confirm")) $("photo_confirm").hidden = true;
+      try {
+        const r = await bin(PHOTO_PATH, { method: "DELETE" });
+        if (r.ok || r.status === 404) setStillEmpty();
+        else $("photo_status").textContent = "Could not save";
+      } catch (e) {
+        $("photo_status").textContent = "Could not save";
+      }
+    }
+    function updateNotesCap() {
+      const n = (($("notes_text") && $("notes_text").value) || "").length;
+      if ($("notes_cap")) $("notes_cap").textContent = n + "/8000";
+    }
+    async function loadNotes() {
+      notesReady = false;
+      try {
+        const doc = await api(NOTES_PATH);
+        if ($("notes_text")) $("notes_text").value = (doc && doc.text) || "";
+        updateNotesCap();
+        if ($("notes_status")) $("notes_status").textContent = "";
+      } catch (e) {
+        if ($("notes_status")) $("notes_status").textContent = "";
+      }
+      notesReady = true;
+    }
+    async function saveNotesNow() {
+      if (!notesReady) return;
+      const text = ($("notes_text") && $("notes_text").value) || "";
+      if ($("notes_status")) $("notes_status").textContent = "Saving…";
+      try {
+        await api(NOTES_PATH, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ schemaVersion: 1, text: text })
+        });
+        if ($("notes_status")) $("notes_status").textContent = "Saved";
+      } catch (e) {
+        if ($("notes_status")) $("notes_status").textContent = "Could not save";
+      }
+    }
+    function scheduleNotes() {
+      if (!notesReady) return;
+      const el = $("notes_text");
+      if (el && el.value.length > 8000) el.value = el.value.slice(0, 8000);
+      updateNotesCap();
+      if ($("notes_status")) $("notes_status").textContent = "Saving…";
+      clearTimeout(notesTimer);
+      notesTimer = setTimeout(() => { notesTimer = null; saveNotesNow(); }, 600);
+    }
+    function clearPairing() {
+      pairingUri = null;
+      if ($("pair_box")) $("pair_box").hidden = true;
+      const canvas = $("pair_qr");
+      if (canvas) {
+        canvas.hidden = true;
+        const ctx = canvas.getContext && canvas.getContext("2d");
+        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+      if ($("pair_dismiss")) $("pair_dismiss").hidden = true;
+    }
+    async function showPairing() {
+      if (!PAIR_PATH) return;
+      if ($("pair_status")) $("pair_status").textContent = "";
+      try {
+        const r = await bin(PAIR_PATH, { method: "POST" });
+        if (r.status === 403) {
+          if ($("pair_show")) $("pair_show").hidden = true;
+          if ($("pair_actions")) $("pair_actions").hidden = true;
+          if ($("pair_quiet")) $("pair_quiet").textContent = "An admin can show a pairing code.";
+          if ($("pair_status")) $("pair_status").textContent = "";
+          clearPairing();
+          return;
+        }
+        if (r.status === 501 || !r.ok) {
+          if ($("pair_status")) $("pair_status").textContent = "Pairing is unavailable.";
+          return;
+        }
+        const body = await r.json();
+        pairingUri = body && body.pairing;
+        if (!pairingUri) { if ($("pair_status")) $("pair_status").textContent = "Pairing is unavailable."; return; }
+        const canvas = $("pair_qr");
+        drawPairQr(canvas, pairingUri);
+        canvas.hidden = false;
+        if ($("pair_box")) $("pair_box").hidden = false;
+        if ($("pair_dismiss")) $("pair_dismiss").hidden = false;
+      } catch (e) {
+        if ($("pair_status")) $("pair_status").textContent = "Pairing is unavailable.";
+      }
+    }
+    function fillComponentVersion() {
+      let ver = "";
+      try { ver = (new URLSearchParams(location.search).get("v") || "").trim(); } catch (e) {}
+      if (ver) setConn("conn_ver", ver);
+    }
+    function setConn(id, text, cls) {
+      const el = $(id);
+      if (!el) return;
+      el.textContent = text;
+      el.className = "v" + (cls ? " " + cls : "");
+    }
+    function fillSoonMeta() {
+      const p = (preview && preview.property) || {};
+      const m = houseMeta || {};
+      const zone = p.timezone || m.timezone || "";
+      if ($("soon_zone")) $("soon_zone").textContent = zone || "—";
+    }
+    async function loadNotifyConfig() {
+      try {
+        const doc = await api(NOTIFY_PATH);
+        const on = !!(doc && doc.configured);
+        if ($("notify_send")) $("notify_send").disabled = !on;
+        if ($("notify_title")) $("notify_title").disabled = !on;
+        if (!on && $("notify_status")) $("notify_status").textContent = "Push needs the house event key.";
+        else if ($("notify_status") && $("notify_status").textContent === "Push needs the house event key.") $("notify_status").textContent = "";
+        setConn("conn_hek", on ? "Present" : "Missing", on ? "ok" : "warn");
+        if (doc && doc.ingestHost) setConn("conn_cf", doc.ingestHost);
+        setConn("conn_ha", "Signed in", "ok");
+      } catch (e) {
+        if ($("notify_send")) $("notify_send").disabled = true;
+        if ($("notify_status")) $("notify_status").textContent = "Push needs the house event key.";
+        setConn("conn_ha", "Unreachable", "warn");
+        setConn("conn_hek", "Unknown");
+      }
+    }
+    let connCheckBusy = false;
+    function houseSubKey() { return "patrimony.houseSub"; }
+    function readHouseSub() {
+      try {
+        const v = sessionStorage.getItem(houseSubKey());
+        return v === "conn" ? "conn" : "home";
+      } catch (e) { return "home"; }
+    }
+    function writeHouseSub(name) {
+      try { sessionStorage.setItem(houseSubKey(), name === "conn" ? "conn" : "home"); } catch (e) {}
+    }
+    function checkedAtLabel() {
+      const zone = (($("soon_zone") && $("soon_zone").textContent) || "").trim();
+      const opts = { hour: "2-digit", minute: "2-digit", hour12: false };
+      try {
+        if (zone && zone !== "—")
+          return new Date().toLocaleTimeString("en-GB", { ...opts, timeZone: zone });
+      } catch (e) {}
+      return new Date().toLocaleTimeString("en-GB", opts);
+    }
+    async function checkConnections() {
+      if (sessionExpired || connCheckBusy) return;
+      connCheckBusy = true;
+      if ($("conn_check")) $("conn_check").disabled = true;
+      if ($("conn_status")) $("conn_status").textContent = "Checking…";
+      setConn("conn_ha", "Checking…");
+      setConn("conn_cf", "Checking…");
+      let ok = false;
+      try {
+        await api(NOTIFY_PATH);
+        setConn("conn_ha", "Signed in", "ok");
+      } catch (e) {
+        setConn("conn_ha", "Unreachable", "warn");
+        if (sessionExpired) {
+          connCheckBusy = false;
+          if ($("conn_check")) $("conn_check").disabled = false;
+          return;
+        }
+      }
+      try {
+        const doc = await api(NOTIFY_PATH, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ check: true })
+        });
+        const host = (doc && doc.ingestHost) || "Collection ingest";
+        if (doc && doc.ok) { setConn("conn_cf", host + " · reachable", "ok"); ok = true; }
+        else setConn("conn_cf", host + " · no reply", "warn");
+        if (doc && typeof doc.configured === "boolean")
+          setConn("conn_hek", doc.configured ? "Present" : "Missing", doc.configured ? "ok" : "warn");
+        const when = checkedAtLabel();
+        if ($("conn_status")) $("conn_status").textContent = ok
+          ? ("Checked · " + when)
+          : ("Ingest did not answer · " + when);
+      } catch (e) {
+        setConn("conn_cf", "No reply", "warn");
+        if ($("conn_status")) $("conn_status").textContent = "Could not check · " + checkedAtLabel();
+      }
+      connCheckBusy = false;
+      if ($("conn_check")) $("conn_check").disabled = false;
+    }
+    async function sendNotify() {
+      const title = (($("notify_title") && $("notify_title").value) || "").trim();
+      if (!title) return;
+      try {
+        const doc = await api(NOTIFY_PATH, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: title })
+        });
+        if (doc && doc.ok) {
+          if ($("notify_title")) $("notify_title").value = "";
+          if ($("notify_status")) $("notify_status").textContent = "Sent";
+        } else {
+          if ($("notify_status")) $("notify_status").textContent = "Could not save";
+        }
+      } catch (e) {
+        if ($("notify_status")) $("notify_status").textContent = "Could not save";
+      }
+    }
+    function showHouseSub(name) {
+      const home = name === "home";
+      const subHome = $("sub_home");
+      const subConn = $("sub_conn");
+      const soonHome = $("soon_home");
+      const soonConn = $("soon_conn");
+      writeHouseSub(home ? "home" : "conn");
+      if (subHome) {
+        subHome.classList.toggle("is-active", home);
+        subHome.setAttribute("aria-selected", home ? "true" : "false");
+      }
+      if (subConn) {
+        subConn.classList.toggle("is-active", !home);
+        subConn.setAttribute("aria-selected", home ? "false" : "true");
+      }
+      if (soonHome) soonHome.hidden = !home;
+      if (soonConn) soonConn.hidden = home;
+      // Integrator: opening Connections runs Check links once so status is live without an extra tap.
+      if (!home && !sessionExpired && typeof checkConnections === "function") checkConnections();
+    }
+    async function loadSoon() {
+      fillSoonMeta();
+      loadPhoto();
+      if (!notesTimer) loadNotes();
+      loadNotifyConfigured();
+    }
+    function loadNotifyConfigured() { return loadNotifyConfig(); }
+    function bindSoon() {
+      document.querySelectorAll("[data-house-sub]").forEach((btn) => {
+        btn.onclick = () => showHouseSub(btn.dataset.houseSub);
+      });
+      showHouseSub(readHouseSub());
+      if ($("photo_restore")) $("photo_restore").onclick = restorePhoto;
+      if ($("photo_replace")) $("photo_replace").onclick = () => $("photo_file") && $("photo_file").click();
+      if ($("photo_file")) $("photo_file").onchange = () => {
+        const f = $("photo_file").files && $("photo_file").files[0];
+        $("photo_file").value = "";
+        if (f) putPhoto(f);
+      };
+      if ($("photo_remove")) $("photo_remove").onclick = () => { if ($("photo_confirm")) $("photo_confirm").hidden = false; };
+      if ($("photo_confirm_yes")) $("photo_confirm_yes").onclick = removePhoto;
+      if ($("photo_keep")) $("photo_keep").onclick = () => { if ($("photo_confirm")) $("photo_confirm").hidden = true; };
+      if ($("photo_confirm_no")) $("photo_confirm_no").onclick = () => { if ($("photo_confirm")) $("photo_confirm").hidden = true; };
+      if ($("notes_text")) $("notes_text").addEventListener("input", scheduleNotes);
+      if ($("pair_show")) $("pair_show").onclick = showPairing;
+      if ($("pair_dismiss")) $("pair_dismiss").onclick = () => { clearPairing(); if ($("pair_status")) $("pair_status").textContent = ""; };
+      fillComponentVersion();
+      if ($("conn_check")) $("conn_check").onclick = checkConnections;
+      if ($("notify_send")) $("notify_send").onclick = sendNotify;
+      if ($("notify_title")) $("notify_title").addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") { ev.preventDefault(); sendNotify(); }
+      });
+    }
+
+    bindSoon();
+
+    document.querySelectorAll(".tab").forEach((btn) => {
+      btn.onclick = () => showTab(btn.dataset.tab);
+    });
+    $("save").onclick = () => {
+      if (activeTab === "soon") return;
+      if (sessionExpired) {
+        markSessionExpired();
+        return;
+      }
+      if (activeTab === "people") {
+        savePeople().catch(() => {
+          $("people_status").textContent = "Save failed";
+          $("status").textContent = "Save failed";
+          $("status").style.color = "var(--alert)";
+        });
+      } else if (activeTab === "cards") {
+        doSave();
+      }
+    };
+    if ($("retry_session")) $("retry_session").onclick = retrySession;
+    showTab(readPanelTab());
+    load();
+  </script>
+</body>
+</html>
