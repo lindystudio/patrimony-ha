@@ -54,7 +54,7 @@ Activity (additive, schemaVersion 1): root `events` is a mapped-only ring buffer
 
 After reload, the HA sidebar has **Patrimony**. That is the mapping UI: live pass preview (first six items, then titled cards), search entities, edit in place, save. Config flow still works as a fallback.
 
-Before **Soon → Invitation → Show a pairing code**, set **Settings → System → Network** External URL to the house public `https` host.
+Before **Soon → Invitation → Show a pairing code**, turn on Home Assistant Cloud or set **Settings → System → Network** External URL to the house public `https` host. Pairing errors show the resolved URL (or `(empty)`) rather than a generic line.
 
 ## Mapping (Configure)
 

@@ -20,8 +20,10 @@ from custom_components.patrimony_collection.notify import (
 )
 from custom_components.patrimony_collection.pair import (
     claim_html,
+    house_url_error_message,
     house_url_is_usable,
     https_house_url,
+    mint_error_message,
     mint_pairing,
     pairing_uri,
 )
@@ -232,12 +234,109 @@ def test_mint_refuses_missing_external_url(tmp_path):
     status, payload = asyncio.run(_mint_with_stub_auth(hass, calls))
     assert status == 503
     assert payload["error"]["code"] == "external_url_required"
-    assert payload["error"]["message"] == (
+    message = payload["error"]["message"]
+    assert "House URL unusable: (empty)." in message
+    assert "hass.config.external_url=None" in message
+    assert "hass.config.internal_url=None" in message
+    canned = (
         "Set Home Assistant External URL (Settings → System → Network) to your "
         "public https host, then show a pairing code again."
     )
+    assert message != canned
+    assert canned not in message
     assert calls.get("refresh", 0) == 0
     assert calls.get("access", 0) == 0
+
+
+def test_mint_accepts_cloud_url_when_config_external_empty(tmp_path, monkeypatch):
+    hass = _Hass(tmp_path, external_url=None)
+    cloud = "https://abcd1234.ui.nabu.casa"
+    monkeypatch.setattr(
+        "custom_components.patrimony_collection.pair._try_ha_get_url",
+        lambda _hass: cloud,
+    )
+    import asyncio
+
+    calls = {}
+    status, payload = asyncio.run(_mint_with_stub_auth(hass, calls))
+    assert status == 200
+    assert payload["pairing"].startswith(f"{cloud}/api/patrimony_collection/p/")
+    assert calls.get("refresh", 0) == 1
+    assert calls.get("access", 0) == 1
+
+
+def test_try_ha_get_url_passes_prefer_external_and_allow_cloud(monkeypatch):
+    import sys
+    from types import ModuleType
+
+    from custom_components.patrimony_collection import pair as pair_mod
+
+    seen: dict[str, object] = {}
+
+    def get_url(_hass, **kwargs):
+        seen.update(kwargs)
+        return "https://cloudstyle.ui.nabu.casa"
+
+    net = ModuleType("homeassistant.helpers.network")
+    net.get_url = get_url
+    helpers = ModuleType("homeassistant.helpers")
+    helpers.network = net
+    ha = ModuleType("homeassistant")
+    ha.helpers = helpers
+    monkeypatch.setitem(sys.modules, "homeassistant", ha)
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers", helpers)
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers.network", net)
+
+    assert pair_mod._try_ha_get_url(object()) == "https://cloudstyle.ui.nabu.casa"
+    assert seen.get("prefer_external") is True
+    assert seen.get("allow_cloud") is True
+
+
+def test_https_house_url_falls_back_when_get_url_empty(tmp_path, monkeypatch):
+    hass = _Hass(tmp_path, external_url="https://ha.example.com")
+    monkeypatch.setattr(
+        "custom_components.patrimony_collection.pair._try_ha_get_url",
+        lambda _hass: None,
+    )
+    assert https_house_url(hass) == "https://ha.example.com"
+
+
+def test_house_url_error_message_is_concrete(tmp_path):
+    hass = _Hass(tmp_path, external_url=None)
+    message = house_url_error_message(hass, "")
+    assert message.startswith("House URL unusable: (empty).")
+    assert "hass.config.external_url=None" in message
+    canned = "Set Home Assistant External URL (Settings → System → Network)"
+    assert canned not in message
+
+
+def test_mint_includes_exception_type_and_text(tmp_path):
+    hass = _Hass(tmp_path, external_url="https://ha.example.com")
+
+    class _User:
+        id = "u1"
+        is_admin = True
+        refresh_tokens = {}
+
+    class _Auth:
+        async def async_get_user(self, uid):
+            return _User()
+
+        async def async_create_refresh_token(self, *args, **kwargs):
+            raise RuntimeError("refresh store locked")
+
+        async def async_create_access_token(self, refresh):
+            raise AssertionError("should not mint access")
+
+    hass.auth = _Auth()
+    import asyncio
+
+    status, payload = asyncio.run(mint_pairing(hass, _User()))
+    assert status == 501
+    message = payload["error"]["message"]
+    assert message == "RuntimeError: refresh store locked"
+    assert message != "Pairing is unavailable"
+    assert mint_error_message(RuntimeError("refresh store locked")) == message
 
 
 def test_mint_accepts_example_https_host(tmp_path):
@@ -315,6 +414,10 @@ if __name__ == "__main__":
         test_mint_refuses_missing_external_url(Path(d))
     with tempfile.TemporaryDirectory() as d:
         test_mint_accepts_example_https_host(Path(d))
+    with tempfile.TemporaryDirectory() as d:
+        test_house_url_error_message_is_concrete(Path(d))
+    with tempfile.TemporaryDirectory() as d:
+        test_mint_includes_exception_type_and_text(Path(d))
     with tempfile.TemporaryDirectory() as d:
         test_notify_refuses_missing_and_jwt_keys(Path(d))
     with tempfile.TemporaryDirectory() as d:

@@ -46,7 +46,7 @@ One config entry per Home Assistant instance. Do **not** enter latitude/longitud
 - Sidebar **Patrimony** panel: map entities to cards/items and preview the pass.
 - Or **Settings → Devices & services → Patrimony Collection → Configure**.
 - Cards are labels: every card emits `kind: "custom"`. Title is the product name.
-- Before **Soon → Invitation → Show a pairing code**, set **Settings → System → Network → Home Assistant URL** (External URL) to the house’s public `https` host. Pairing needs that URL; the panel shows the API error if it is missing.
+- Before **Soon → Invitation → Show a pairing code**, turn on Home Assistant Cloud or set **Settings → System → Network → Home Assistant URL** (External URL) to the house’s public `https` host. The panel shows the API `error.message` (resolved URL or exception text), not a generic line.
 
 ## House health
 

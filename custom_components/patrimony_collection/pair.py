@@ -24,18 +24,84 @@ UNAVAILABLE = {
     "error": {"code": "unavailable", "message": "Pairing is unavailable"}
 }
 
+_HOSTLESS_HTTPS = frozenset({"", "https://", "http://", "https:///", "http:///"})
+
+
+def _error(code: str, message: str) -> dict[str, Any]:
+    return {"error": {"code": code, "message": message}}
+
+
+def _try_ha_get_url(hass) -> str | None:
+    """Home Assistant network helper, including Nabu Casa Cloud."""
+    try:
+        from homeassistant.helpers.network import get_url
+    except ImportError:
+        return None
+    try:
+        raw = get_url(hass, prefer_external=True, allow_cloud=True)
+    except TypeError:
+        try:
+            raw = get_url(hass, prefer_external=True)
+        except Exception:
+            return None
+    except Exception:
+        return None
+    text = str(raw or "").strip()
+    return text or None
+
+
+def _config_house_url(hass) -> str | None:
+    cfg = getattr(hass, "config", None)
+    if cfg is None:
+        return None
+    raw = getattr(cfg, "external_url", None) or getattr(cfg, "internal_url", None)
+    text = str(raw or "").strip()
+    return text or None
+
+
+def resolve_house_url(hass) -> str:
+    """Prefer HA get_url (Cloud allowed), then config external/internal."""
+    return _try_ha_get_url(hass) or _config_house_url(hass) or DEFAULT_HOUSE_URL or ""
+
+
+def _normalize_https(raw) -> str:
+    text = str(raw or "").strip().rstrip("/")
+    if not text:
+        return ""
+    if text.startswith("http://"):
+        text = "https://" + text[7:]
+    if not text.startswith("https://"):
+        text = "https://" + text.lstrip("/")
+    return text
+
 
 def https_house_url(hass) -> str:
-    raw = None
+    return _normalize_https(resolve_house_url(hass))
+
+
+def _display_resolved_url(url: str) -> str:
+    shown = str(url or "").strip()
+    if shown in _HOSTLESS_HTTPS:
+        return "(empty)"
+    return shown
+
+
+def house_url_error_message(hass, house: str) -> str:
+    """Concrete diagnostic for an unusable house URL. Short tip only as suffix."""
     cfg = getattr(hass, "config", None)
-    if cfg is not None:
-        raw = getattr(cfg, "external_url", None) or getattr(cfg, "internal_url", None)
-    raw = str(raw or DEFAULT_HOUSE_URL).strip().rstrip("/")
-    if raw.startswith("http://"):
-        raw = "https://" + raw[7:]
-    if not raw.startswith("https://"):
-        raw = "https://" + raw.lstrip("/")
-    return raw
+    ext = getattr(cfg, "external_url", None) if cfg is not None else None
+    inn = getattr(cfg, "internal_url", None) if cfg is not None else None
+    return (
+        f"House URL unusable: {_display_resolved_url(house)}. "
+        f"hass.config.external_url={ext!r} hass.config.internal_url={inn!r}. "
+        "Tip: Settings → System → Network (or Home Assistant Cloud)."
+    )
+
+
+def mint_error_message(err: BaseException) -> str:
+    detail = str(err).strip()
+    name = type(err).__name__
+    return f"{name}: {detail}" if detail else name
 
 
 def house_url_is_usable(url: str) -> bool:
@@ -172,13 +238,9 @@ async def mint_pairing(hass, user) -> tuple[int, dict[str, Any]]:
         return 501, UNAVAILABLE
     house = https_house_url(hass)
     if not house_url_is_usable(house):
-        _LOGGER.warning("pairing mint refused: Home Assistant External URL is missing or invalid")
-        return 503, {
-            "error": {
-                "code": "external_url_required",
-                "message": "Set Home Assistant External URL (Settings → System → Network) to your public https host, then show a pairing code again.",
-            }
-        }
+        message = house_url_error_message(hass, house)
+        _LOGGER.warning("pairing mint refused: %s", message)
+        return 503, _error("external_url_required", message)
     try:
         auth_user = user
         get_user = getattr(auth, "async_get_user", None)
@@ -196,9 +258,13 @@ async def mint_pairing(hass, user) -> tuple[int, dict[str, Any]]:
         )
         token = await _maybe_await(create_access(refresh))
     except Exception as err:
-        _LOGGER.warning("pairing mint failed: %s", type(err).__name__)
-        return 501, UNAVAILABLE
+        message = mint_error_message(err)
+        _LOGGER.warning("pairing mint failed: %s", message)
+        return 501, _error("unavailable", message)
     if not token or not isinstance(token, str):
-        return 501, UNAVAILABLE
+        return 501, _error(
+            "unavailable",
+            f"Access token was empty or not a string ({type(token).__name__})",
+        )
     code = put_ticket(hass, house, token)
     return 200, {"pairing": claim_url(hass, code)}
