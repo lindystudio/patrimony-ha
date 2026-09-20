@@ -4,9 +4,38 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-import voluptuous as vol
+try:
+    import voluptuous as vol
+except ImportError:  # offline tests / sketch without HA deps
+
+    class _Marker:
+        def __init__(self, schema, default=None, **_kwargs):
+            self.schema = schema
+            self.default = default
+
+        def __hash__(self):
+            return hash((type(self).__name__, self.schema))
+
+        def __eq__(self, other):
+            return isinstance(other, _Marker) and type(self) is type(other) and self.schema == other.schema
+
+    class vol:  # type: ignore[no-redef]
+        class Required(_Marker):
+            pass
+
+        class Optional(_Marker):
+            pass
+
+        class Schema:
+            def __init__(self, schema):
+                self.schema = schema
+
+        @staticmethod
+        def In(container):
+            return container
 
 from .const import (
+    CONF_ALREADY_HAVE_PROPERTY_ID,
     CONF_CARDS,
     CONF_DISPLAY_NAME,
     CONF_HOUSE_EVENT_KEY,
@@ -21,6 +50,7 @@ from .const import (
     SEVERITY_MODES,
     VALUE_TYPES,
 )
+from .mapping import is_uuid
 
 try:
     from homeassistant import config_entries
@@ -32,13 +62,13 @@ except ImportError:  # sketch without HA: keep the class shape importable-ish
         def __init_subclass__(cls, **kwargs):
             return super().__init_subclass__()
 
-        async def async_show_form(self, **kwargs):
+        def async_show_form(self, **kwargs):
             return kwargs
 
-        async def async_create_entry(self, **kwargs):
+        def async_create_entry(self, **kwargs):
             return kwargs
 
-        async def async_abort(self, **kwargs):
+        def async_abort(self, **kwargs):
             return kwargs
 
         @staticmethod
@@ -66,6 +96,13 @@ except ImportError:  # sketch without HA: keep the class shape importable-ish
                 pass
 
 
+def _timezone_ok(timezone: str) -> bool:
+    """UTC or a slash-separated IANA name (e.g. Europe/Paris)."""
+    if timezone.upper() == "UTC":
+        return True
+    return "/" in timezone
+
+
 class PatrimonyCollectionConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Single house per HA instance."""
 
@@ -82,43 +119,82 @@ class PatrimonyCollectionConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         errors: dict[str, str] = {}
         if user_input is not None:
-            property_id = str(user_input[CONF_PROPERTY_ID]).strip().lower()
             display_name = str(user_input[CONF_DISPLAY_NAME]).strip()
             timezone = str(user_input[CONF_TIMEZONE]).strip()
             location = str(user_input.get(CONF_LOCATION_LABEL) or "").strip()
+            already_have = bool(user_input.get(CONF_ALREADY_HAVE_PROPERTY_ID))
             if not display_name:
                 errors[CONF_DISPLAY_NAME] = "empty"
-            if "/" not in timezone:
+            if not _timezone_ok(timezone):
                 errors[CONF_TIMEZONE] = "invalid_timezone"
-            from .mapping import is_uuid
-
-            if not is_uuid(property_id):
-                errors[CONF_PROPERTY_ID] = "invalid_uuid"
             if not errors:
-                await self.async_set_unique_id(property_id)
-                self._abort_if_unique_id_configured()
-                data = {
-                    CONF_PROPERTY_ID: property_id,
-                    CONF_DISPLAY_NAME: display_name,
-                    CONF_TIMEZONE: timezone,
-                }
-                if location:
-                    data[CONF_LOCATION_LABEL] = location
-                return self.async_create_entry(
-                    title=display_name,
-                    data=data,
-                    options={CONF_CARDS: [], CONF_MAPPINGS: [], CONF_HOUSE_EVENT_KEY: None},
-                )
+                self._display_name = display_name
+                self._timezone = timezone
+                self._location = location
+                if already_have:
+                    return await self.async_step_existing()
+                if not getattr(self, "_property_id", None):
+                    self._property_id = str(uuid4()).lower()
+                return await self.async_step_confirm()
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_PROPERTY_ID): str,
                 vol.Required(CONF_DISPLAY_NAME): str,
                 vol.Optional(CONF_LOCATION_LABEL, default=""): str,
                 vol.Required(CONF_TIMEZONE, default="UTC"): str,
+                vol.Optional(CONF_ALREADY_HAVE_PROPERTY_ID, default=False): bool,
             }
         )
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+
+    async def async_step_existing(self, user_input: dict | None = None):
+        """Reconnect a house that already has a registry / Keychain property ID."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            property_id = str(user_input.get(CONF_PROPERTY_ID) or "").strip().lower()
+            if not is_uuid(property_id):
+                errors[CONF_PROPERTY_ID] = "invalid_uuid"
+            else:
+                self._property_id = property_id
+                return await self._async_create_house()
+
+        schema = vol.Schema({vol.Required(CONF_PROPERTY_ID): str})
+        return self.async_show_form(step_id="existing", data_schema=schema, errors=errors)
+
+    async def async_step_confirm(self, user_input: dict | None = None):
+        """Show the minted property ID so the integrator can copy it."""
+        property_id = getattr(self, "_property_id", "") or str(uuid4()).lower()
+        self._property_id = property_id
+        if user_input is not None:
+            return await self._async_create_house()
+        return self.async_show_form(
+            step_id="confirm",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                CONF_PROPERTY_ID: property_id,
+                CONF_DISPLAY_NAME: getattr(self, "_display_name", ""),
+            },
+        )
+
+    async def _async_create_house(self):
+        property_id = str(getattr(self, "_property_id", "")).strip().lower()
+        display_name = str(getattr(self, "_display_name", "")).strip()
+        timezone = str(getattr(self, "_timezone", "")).strip()
+        location = str(getattr(self, "_location", "")).strip()
+        await self.async_set_unique_id(property_id)
+        self._abort_if_unique_id_configured()
+        data = {
+            CONF_PROPERTY_ID: property_id,
+            CONF_DISPLAY_NAME: display_name,
+            CONF_TIMEZONE: timezone,
+        }
+        if location:
+            data[CONF_LOCATION_LABEL] = location
+        return self.async_create_entry(
+            title=f"{display_name} ({property_id})",
+            data=data,
+            options={CONF_CARDS: [], CONF_MAPPINGS: [], CONF_HOUSE_EVENT_KEY: None},
+        )
 
     async def async_set_unique_id(self, unique_id: str, **kwargs):
         setter = getattr(super(), "async_set_unique_id", None)

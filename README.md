@@ -30,14 +30,14 @@ https://my.home-assistant.io/create-link/?redirect=hacs_repository
 
 ## Setup
 
-When adding the integration, enter:
+When adding the integration, enter display name, optional location label, and IANA timezone (e.g. `UTC`). For a **new house** we mint `property_id` on submit — copy it from the confirmation screen (it is also in the integration title) and use that same UUID later for the backend registry and the iOS Keychain account. Check **I already have a property ID** only when reconnecting an existing registry house.
 
 | Field | Notes |
 | --- | --- |
-| `property_id` | UUID that must equal the backend `properties.id` and the iOS Keychain account |
 | `display_name` | Wallet title (e.g. Demo Home) |
 | `location_label` | Optional short place label — not a street address |
 | `timezone` | IANA timezone (e.g. `UTC`) |
+| `property_id` | Auto-generated for a new house. Paste an existing UUID only when reconnecting |
 
 One config entry per Home Assistant instance. Do **not** enter latitude/longitude or any iOS / HA token in this flow.
 
@@ -58,7 +58,7 @@ Root `events` is an optional curated Activity feed (schemaVersion stays 1): up t
 Create a Home Assistant **long-lived access token** for a user that can read the mapped entities. Store it in the principal’s iOS Keychain:
 
 - service: `collection.patrimony.house`
-- account: the same `property.id` UUID
+- account: the same `property.id` UUID (the ID this integration created, or the existing registry UUID you pasted)
 
 **Never** paste that token into the Patrimony backend, UserDefaults, source control, or this integration’s options.
 

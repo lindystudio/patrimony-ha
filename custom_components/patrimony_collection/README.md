@@ -18,10 +18,10 @@ Then: **Settings → Devices & services → Add integration → Patrimony Collec
 
 Enter:
 
-- `property_id` — UUID that **must equal** backend `properties.id` and the iOS Keychain account
 - `display_name` — wallet title (e.g. Demo Home)
 - `location_label` — optional short place (e.g. Example), not an address
 - `timezone` — IANA (e.g. `UTC`)
+- For a **new house**, we mint `property_id` on submit. Copy it from the confirmation screen (and the integration title) for the backend registry and the iOS Keychain account. Check **I already have a property ID** only when reconnecting an existing registry house.
 
 One instance per HA. A second add is aborted as already configured.
 
@@ -34,7 +34,7 @@ Create a Home Assistant long-lived access token (**Profile → Long-lived access
 Store it on the house and in the principal’s iOS Keychain:
 
 - service: `collection.patrimony.house`
-- account: the same `property.id` UUID
+- account: the same `property.id` UUID (the ID this integration created, or the existing registry UUID you pasted)
 
 **Never** paste that token into the Patrimony backend, UserDefaults, source control, or this integration’s options. Backend HTTP must refuse HA-shaped field names. If Keychain is empty, the app fails closed.
 

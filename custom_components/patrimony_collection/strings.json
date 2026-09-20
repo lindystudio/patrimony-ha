@@ -3,19 +3,30 @@
     "step": {
       "user": {
         "title": "Patrimony Collection",
-        "description": "Map this Home Assistant instance to one house. property_id must match the backend registry and the iOS Keychain account. Do not enter coordinates or an access token.",
+        "description": "Map this Home Assistant instance to one house. For a new house we create the property ID here — you will see it on the next screen to copy for the backend registry and iOS Keychain. Check “I already have a property ID” only when reconnecting an existing registry house. Do not enter coordinates or an access token.",
         "data": {
-          "property_id": "Property ID (UUID)",
           "display_name": "Display name",
           "location_label": "Location (optional free text, not a street address)",
-          "timezone": "Timezone (IANA)"
+          "timezone": "Timezone (IANA)",
+          "already_have_property_id": "I already have a property ID"
         }
+      },
+      "existing": {
+        "title": "Existing property ID",
+        "description": "Paste the property UUID for a house that already exists in the backend registry or a previous Home Assistant config. Use this only when reconnecting — do not invent a new id.",
+        "data": {
+          "property_id": "Property ID (UUID)"
+        }
+      },
+      "confirm": {
+        "title": "Copy this property ID",
+        "description": "This house’s property ID is {property_id}. Copy it for pairing, the backend registry, and the iOS Keychain account. It is stored on this config entry and shown in the integration title."
       }
     },
     "error": {
       "empty": "Display name cannot be empty.",
       "invalid_timezone": "Use an IANA timezone such as UTC.",
-      "invalid_uuid": "Must be the property UUID from the operator registry."
+      "invalid_uuid": "Enter a valid property UUID."
     },
     "abort": {
       "already_configured": "Patrimony Collection is already configured on this Home Assistant."

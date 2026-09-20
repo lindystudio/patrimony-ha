@@ -42,13 +42,23 @@ def test_validate_workflow_keeps_hacs_job_with_private_ignores() -> None:
     ignore_line = next(line for line in text.splitlines() if line.strip().startswith("ignore:"))
     for check in ("hacsjson", "integration_manifest", "license", "topics"):
         assert check in ignore_line
+    # Offline job is pytest-only; config_flow must stay importable without voluptuous.
+    assert "pip install -q pytest" in text
+    assert "voluptuous" not in text
 
 
 def test_manifest_hacs_required_keys() -> None:
     manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["domain"] == "patrimony_collection"
     assert manifest["name"] == "Patrimony Collection"
-    assert manifest["version"] == "0.4.53"
+    assert manifest["version"] == "0.4.54"
+    addon_config = (ROOT / "addons" / "patrimony_collection" / "config.yaml").read_text(
+        encoding="utf-8"
+    )
+    addon_version = next(
+        line for line in addon_config.splitlines() if line.startswith("version:")
+    ).split(":", 1)[1].strip().strip('"')
+    assert addon_version == manifest["version"]
     assert manifest["documentation"] == PUBLIC_REPO
     assert manifest["issue_tracker"] == PUBLIC_ISSUES
     assert manifest["codeowners"] == ["@lindystudio"]
