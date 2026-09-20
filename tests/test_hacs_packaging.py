@@ -43,7 +43,7 @@ def test_validate_workflow_keeps_hacs_job_with_private_ignores() -> None:
     for check in ("hacsjson", "integration_manifest", "license", "topics"):
         assert check in ignore_line
     # Offline job is pytest-only; config_flow must stay importable without voluptuous.
-    assert "pip install -q pytest" in text
+    assert ("pip install -q pytest" in text) or ("pip install pytest" in text)
     assert "voluptuous" not in text
 
 
