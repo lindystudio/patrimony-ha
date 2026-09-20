@@ -2323,8 +2323,15 @@
           clearPairing();
           return;
         }
-        if (r.status === 501 || !r.ok) {
-          if ($("pair_status")) $("pair_status").textContent = "Pairing is unavailable.";
+        if (!r.ok) {
+          let message = "Pairing is unavailable.";
+          try {
+            const errBody = await r.json();
+            if (errBody && errBody.error && errBody.error.message) {
+              message = String(errBody.error.message);
+            }
+          } catch (parseErr) {}
+          if ($("pair_status")) $("pair_status").textContent = message;
           return;
         }
         const body = await r.json();

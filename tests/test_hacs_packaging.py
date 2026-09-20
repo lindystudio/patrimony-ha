@@ -51,7 +51,7 @@ def test_manifest_hacs_required_keys() -> None:
     manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["domain"] == "patrimony_collection"
     assert manifest["name"] == "Patrimony Collection"
-    assert manifest["version"] == "0.4.55"
+    assert manifest["version"] == "0.4.56"
     addon_config = (ROOT / "addons" / "patrimony_collection" / "config.yaml").read_text(
         encoding="utf-8"
     )
@@ -68,6 +68,18 @@ def test_manifest_hacs_required_keys() -> None:
     panel = (COMPONENT / "panel.py").read_text(encoding="utf-8")
     assert 'sidebar_icon="mdi:key"' in panel
     assert "mdi:wallet-travel" not in panel
+
+
+def test_panel_show_pairing_reads_error_message() -> None:
+    """Soon Invitation must surface API error.message (e.g. 503 External URL)."""
+    for rel in (
+        COMPONENT / "www" / "index.html",
+        ROOT / "addons" / "patrimony_collection" / "static" / "index.html",
+    ):
+        html = rel.read_text(encoding="utf-8")
+        assert "error.message" in html
+        assert "r.status === 501 || !r.ok" not in html
+        assert "Pairing is unavailable." in html
 
 
 def test_customer_docs_point_at_public_org_and_stay_scrubbed() -> None:

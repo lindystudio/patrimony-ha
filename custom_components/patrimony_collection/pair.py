@@ -170,6 +170,15 @@ async def mint_pairing(hass, user) -> tuple[int, dict[str, Any]]:
     create_access = getattr(auth, "async_create_access_token", None)
     if create_refresh is None or create_access is None:
         return 501, UNAVAILABLE
+    house = https_house_url(hass)
+    if not house_url_is_usable(house):
+        _LOGGER.warning("pairing mint refused: Home Assistant External URL is missing or invalid")
+        return 503, {
+            "error": {
+                "code": "external_url_required",
+                "message": "Set Home Assistant External URL (Settings → System → Network) to your public https host, then show a pairing code again.",
+            }
+        }
     try:
         auth_user = user
         get_user = getattr(auth, "async_get_user", None)
@@ -191,14 +200,5 @@ async def mint_pairing(hass, user) -> tuple[int, dict[str, Any]]:
         return 501, UNAVAILABLE
     if not token or not isinstance(token, str):
         return 501, UNAVAILABLE
-    house = https_house_url(hass)
-    if not house_url_is_usable(house):
-        _LOGGER.warning("pairing mint refused: Home Assistant External URL is missing or invalid")
-        return 503, {
-            "error": {
-                "code": "external_url_required",
-                "message": "Set Home Assistant External URL (Settings → System → Network) to your public https host, then show a pairing code again.",
-            }
-        }
     code = put_ticket(hass, house, token)
     return 200, {"pairing": claim_url(hass, code)}

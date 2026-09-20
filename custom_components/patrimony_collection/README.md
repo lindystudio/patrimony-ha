@@ -54,6 +54,8 @@ Activity (additive, schemaVersion 1): root `events` is a mapped-only ring buffer
 
 After reload, the HA sidebar has **Patrimony**. That is the mapping UI: live pass preview (first six items, then titled cards), search entities, edit in place, save. Config flow still works as a fallback.
 
+Before **Soon → Invitation → Show a pairing code**, set **Settings → System → Network** External URL to the house public `https` host.
+
 ## Mapping (Configure)
 
 

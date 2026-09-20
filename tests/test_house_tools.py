@@ -200,7 +200,7 @@ def test_house_url_is_usable_rejects_hostless_and_single_label():
     assert house_url_is_usable("https://127.0.0.1") is True
 
 
-async def _mint_with_stub_auth(hass):
+async def _mint_with_stub_auth(hass, calls=None):
     class _User:
         id = "u1"
         is_admin = True
@@ -211,9 +211,13 @@ async def _mint_with_stub_auth(hass):
             return _User()
 
         async def async_create_refresh_token(self, *args, **kwargs):
+            if calls is not None:
+                calls["refresh"] = calls.get("refresh", 0) + 1
             return object()
 
         async def async_create_access_token(self, refresh):
+            if calls is not None:
+                calls["access"] = calls.get("access", 0) + 1
             return SECRET_TOKEN
 
     hass.auth = _Auth()
@@ -224,18 +228,28 @@ def test_mint_refuses_missing_external_url(tmp_path):
     hass = _Hass(tmp_path, external_url=None)
     import asyncio
 
-    status, payload = asyncio.run(_mint_with_stub_auth(hass))
+    calls = {}
+    status, payload = asyncio.run(_mint_with_stub_auth(hass, calls))
     assert status == 503
     assert payload["error"]["code"] == "external_url_required"
+    assert payload["error"]["message"] == (
+        "Set Home Assistant External URL (Settings → System → Network) to your "
+        "public https host, then show a pairing code again."
+    )
+    assert calls.get("refresh", 0) == 0
+    assert calls.get("access", 0) == 0
 
 
 def test_mint_accepts_example_https_host(tmp_path):
     hass = _Hass(tmp_path, external_url="https://ha.example.com")
     import asyncio
 
-    status, payload = asyncio.run(_mint_with_stub_auth(hass))
+    calls = {}
+    status, payload = asyncio.run(_mint_with_stub_auth(hass, calls))
     assert status == 200
     assert payload["pairing"].startswith("https://ha.example.com/api/patrimony_collection/p/")
+    assert calls.get("refresh", 0) == 1
+    assert calls.get("access", 0) == 1
 
 
 def test_notify_refuses_missing_and_jwt_keys(tmp_path):
