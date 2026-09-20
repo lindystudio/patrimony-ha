@@ -478,6 +478,13 @@
           <button class="ghost" type="button" id="conn_check">Check links</button>
           <span class="status" id="conn_status"></span>
         </div>
+        <h3>Latest iOS connection</h3>
+        <div class="conn-list">
+          <div class="conn-row"><span class="k">IP address</span><span class="v" id="conn_ios_ip">—</span></div>
+          <div class="conn-row"><span class="k">iPhone device name</span><span class="v" id="conn_ios_name">—</span></div>
+          <div class="conn-row"><span class="k">Patrimony iOS app version</span><span class="v" id="conn_ios_ver">—</span></div>
+          <div class="conn-row"><span class="k">Time of last interaction</span><span class="v" id="conn_ios_at">—</span></div>
+        </div>
         <h3>Push</h3>
         <p class="quiet">Sends an Apple push notification (APNs). It shows as a banner on the principal’s iOS devices.</p>
         <input id="notify_title" maxlength="120" aria-label="Banner text" />
@@ -1718,6 +1725,7 @@
     const NOTES_PATH = '/api/patrimony_collection/notes';
     const PAIR_PATH = '/api/patrimony_collection/pair';
     const NOTIFY_PATH = '/api/patrimony_collection/notify';
+    const IOS_SESSION_PATH = '/api/patrimony_collection/ios_session';
 
     let activeTab = "cards";
 
@@ -2367,6 +2375,31 @@
       const ok = !!(doc && doc.usable === true && url);
       setConn("conn_url", ok ? url : "Missing", ok ? "ok" : "warn");
     }
+    function applyIosSession(doc) {
+      const seen = !!(doc && doc.seen);
+      if (!seen) {
+        setConn("conn_ios_ip", "Missing", "warn");
+        setConn("conn_ios_name", "Missing", "warn");
+        setConn("conn_ios_ver", "Missing", "warn");
+        setConn("conn_ios_at", "Missing", "warn");
+        return;
+      }
+      setConn("conn_ios_ip", String(doc.ip || "—"));
+      setConn("conn_ios_name", String(doc.deviceName || "—"));
+      setConn("conn_ios_ver", String(doc.appVersion || "—"));
+      setConn("conn_ios_at", String(doc.lastInteractionAt || "—"));
+    }
+    async function refreshIosSession(hint) {
+      if (hint && hint.iosSession) {
+        applyIosSession(hint.iosSession);
+        return;
+      }
+      try {
+        applyIosSession(await api(IOS_SESSION_PATH));
+      } catch (e) {
+        applyIosSession({ seen: false });
+      }
+    }
     function fillSoonMeta() {
       const p = (preview && preview.property) || {};
       const m = houseMeta || {};
@@ -2385,12 +2418,14 @@
         if (doc && doc.ingestHost) setConn("conn_cf", doc.ingestHost);
         applyHouseUrl(doc);
         setConn("conn_ha", "Signed in", "ok");
+        await refreshIosSession(doc);
       } catch (e) {
         if ($("notify_send")) $("notify_send").disabled = true;
         if ($("notify_status")) $("notify_status").textContent = "Push needs the house event key.";
         setConn("conn_ha", "Unreachable", "warn");
         setConn("conn_hek", "Unknown");
         setConn("conn_url", "Unknown");
+        applyIosSession({ seen: false });
       }
     }
     let connCheckBusy = false;
@@ -2426,6 +2461,7 @@
         const signed = await api(NOTIFY_PATH);
         setConn("conn_ha", "Signed in", "ok");
         applyHouseUrl(signed);
+        await refreshIosSession(signed);
       } catch (e) {
         setConn("conn_ha", "Unreachable", "warn");
         setConn("conn_url", "Unknown");
@@ -2447,6 +2483,7 @@
         if (doc && typeof doc.configured === "boolean")
           setConn("conn_hek", doc.configured ? "Present" : "Missing", doc.configured ? "ok" : "warn");
         applyHouseUrl(doc);
+        await refreshIosSession(doc);
         const when = checkedAtLabel();
         if ($("conn_status")) $("conn_status").textContent = ok
           ? ("Checked · " + when)

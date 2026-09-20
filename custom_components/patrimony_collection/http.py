@@ -10,6 +10,7 @@ from .const import (
     CONTACTS_PATH,
     DOMAIN,
     EVENT_KEY_PATH,
+    IOS_SESSION_PATH,
     NOTES_PATH,
     NOTIFY_PATH,
     PAIR_PATH,
@@ -20,6 +21,7 @@ from .const import (
     REST_PATH,
 )
 from . import contacts as house_contacts
+from . import ios_session as house_ios_session
 from . import notes as house_notes
 from . import notify as house_notify
 from . import pair as house_pair
@@ -411,12 +413,48 @@ class PatrimonyEventKeyView(HomeAssistantView):
         return web.json_response(body, status=status)
 
 
+class PatrimonyIosSessionView(HomeAssistantView):
+    """Latest phone↔house session. Off PresentationDocument. Same Bearer as state."""
+
+    url = IOS_SESSION_PATH
+    name = "api:patrimony_collection:ios_session"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def get(self, request):
+        from aiohttp import web
+
+        if _first_entry(self.hass) is None:
+            return _not_configured()
+        return web.json_response(house_ios_session.document(self.hass))
+
+    async def post(self, request):
+        from aiohttp import web
+
+        if _first_entry(self.hass) is None:
+            return _not_configured()
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response(
+                {"error": {"code": "bad_json", "message": "ios_session body must be JSON"}},
+                status=400,
+            )
+        body, status = house_ios_session.apply_ios_session_payload(
+            self.hass, payload, house_ios_session.request_peer_ip(request)
+        )
+        return web.json_response(body, status=status)
+
+
 def notify_status_payload(hass, hek, *, reachable: bool | None = None) -> dict[str, Any]:
     """Connections / Check links JSON. House URL is the pairing resolver."""
     payload: dict[str, Any] = {
         "configured": house_notify.is_usable_house_event_key(hek),
         "ingestHost": house_notify.ingest_host(),
         **house_pair.house_url_status(hass),
+        "iosSession": house_ios_session.document(hass),
     }
     if reachable is not None:
         payload["ok"] = bool(reachable)
@@ -447,5 +485,6 @@ async def async_setup_http(hass: HomeAssistant) -> None:
     hass.http.register_view(PatrimonyPairClaimView(hass))
     hass.http.register_view(PatrimonyNotifyView(hass))
     hass.http.register_view(PatrimonyEventKeyView(hass))
+    hass.http.register_view(PatrimonyIosSessionView(hass))
     from .panel import async_setup_panel
     await async_setup_panel(hass)

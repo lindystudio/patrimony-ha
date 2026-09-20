@@ -51,7 +51,7 @@ def test_manifest_hacs_required_keys() -> None:
     manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["domain"] == "patrimony_collection"
     assert manifest["name"] == "Patrimony Collection"
-    assert manifest["version"] == "0.4.60"
+    assert manifest["version"] == "0.4.61"
     addon_config = (ROOT / "addons" / "patrimony_collection" / "config.yaml").read_text(
         encoding="utf-8"
     )
@@ -72,6 +72,23 @@ def test_manifest_hacs_required_keys() -> None:
     panel = (COMPONENT / "panel.py").read_text(encoding="utf-8")
     assert 'sidebar_icon="mdi:key"' in panel
     assert "mdi:wallet-travel" not in panel
+
+
+def test_connections_panel_shows_latest_ios_connection() -> None:
+    html = (COMPONENT / "www" / "index.html").read_text(encoding="utf-8")
+    assert ">Latest iOS connection<" in html
+    assert ">IP address<" in html
+    assert ">iPhone device name<" in html
+    assert ">Patrimony iOS app version<" in html
+    assert ">Time of last interaction<" in html
+    assert 'id="conn_ios_ip"' in html
+    assert 'id="conn_ios_name"' in html
+    assert 'id="conn_ios_ver"' in html
+    assert 'id="conn_ios_at"' in html
+    assert "function applyIosSession" in html
+    assert "/api/patrimony_collection/ios_session" in html
+    assert 'setConn("conn_ios_ip", "Missing", "warn")' in html
+    assert "street address" not in html.lower()
 
 
 def test_connections_panel_shows_external_url() -> None:
