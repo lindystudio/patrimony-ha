@@ -18,10 +18,12 @@ from custom_components.patrimony_collection.notify import (
     is_usable_house_event_key,
     load_card_id,
 )
+from custom_components.patrimony_collection.http import notify_status_payload
 from custom_components.patrimony_collection.pair import (
     claim_html,
     house_url_error_message,
     house_url_is_usable,
+    house_url_status,
     https_house_url,
     mint_error_message,
     mint_pairing,
@@ -299,6 +301,77 @@ def test_https_house_url_falls_back_when_get_url_empty(tmp_path, monkeypatch):
         lambda _hass: None,
     )
     assert https_house_url(hass) == "https://ha.example.com"
+
+
+def test_house_url_status_matches_pairing_when_usable(tmp_path, monkeypatch):
+    hass = _Hass(tmp_path, external_url="https://ha.example.com")
+    monkeypatch.setattr(
+        "custom_components.patrimony_collection.pair._try_ha_get_url",
+        lambda _hass: None,
+    )
+    status = house_url_status(hass)
+    assert status["externalUrl"] == https_house_url(hass)
+    assert status["houseUrl"] == status["externalUrl"]
+    assert status["externalUrl"] == "https://ha.example.com"
+    assert status["usable"] is True
+
+
+def test_house_url_status_unusable_when_external_missing(tmp_path, monkeypatch):
+    hass = _Hass(tmp_path, external_url=None)
+    monkeypatch.setattr(
+        "custom_components.patrimony_collection.pair._try_ha_get_url",
+        lambda _hass: None,
+    )
+    status = house_url_status(hass)
+    assert status["usable"] is False
+    assert house_url_is_usable(status["externalUrl"]) is False
+    assert status["houseUrl"] == status["externalUrl"]
+
+
+def test_house_url_status_uses_cloud_get_url(tmp_path, monkeypatch):
+    hass = _Hass(tmp_path, external_url=None)
+    cloud = "https://abcd1234.ui.nabu.casa"
+    monkeypatch.setattr(
+        "custom_components.patrimony_collection.pair._try_ha_get_url",
+        lambda _hass: cloud,
+    )
+    status = house_url_status(hass)
+    assert status["externalUrl"] == cloud
+    assert status["houseUrl"] == cloud
+    assert status["usable"] is True
+    assert https_house_url(hass) == cloud
+
+
+def test_notify_status_payload_includes_pairing_house_url(tmp_path, monkeypatch):
+    hass = _Hass(tmp_path, external_url="https://ha.example.com")
+    monkeypatch.setattr(
+        "custom_components.patrimony_collection.pair._try_ha_get_url",
+        lambda _hass: None,
+    )
+    get_doc = notify_status_payload(hass, None)
+    assert get_doc["configured"] is False
+    assert get_doc["ingestHost"]
+    assert "ok" not in get_doc
+    assert get_doc["externalUrl"] == "https://ha.example.com"
+    assert get_doc["houseUrl"] == "https://ha.example.com"
+    assert get_doc["usable"] is True
+    check_doc = notify_status_payload(hass, "hek_house_ok", reachable=True)
+    assert check_doc["ok"] is True
+    assert check_doc["configured"] is True
+    assert check_doc["externalUrl"] == get_doc["externalUrl"]
+    assert check_doc["usable"] is True
+
+
+def test_notify_status_payload_marks_missing_house_url(tmp_path, monkeypatch):
+    hass = _Hass(tmp_path, external_url=None)
+    monkeypatch.setattr(
+        "custom_components.patrimony_collection.pair._try_ha_get_url",
+        lambda _hass: None,
+    )
+    doc = notify_status_payload(hass, None, reachable=False)
+    assert doc["ok"] is False
+    assert doc["usable"] is False
+    assert house_url_is_usable(doc["externalUrl"]) is False
 
 
 def test_house_url_error_message_is_concrete(tmp_path):

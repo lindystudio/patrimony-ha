@@ -315,12 +315,7 @@ class PatrimonyNotifyView(HomeAssistantView):
     async def get(self, request):
         from aiohttp import web
 
-        return web.json_response(
-            {
-                "configured": house_notify.is_usable_house_event_key(self._hek()),
-                "ingestHost": house_notify.ingest_host(),
-            }
-        )
+        return web.json_response(notify_status_payload(self.hass, self._hek()))
 
     async def post(self, request):
         from aiohttp import web
@@ -345,11 +340,7 @@ class PatrimonyNotifyView(HomeAssistantView):
             except Exception:
                 reachable = False
             return web.json_response(
-                {
-                    "ok": bool(reachable),
-                    "configured": house_notify.is_usable_house_event_key(self._hek()),
-                    "ingestHost": house_notify.ingest_host(),
-                }
+                notify_status_payload(self.hass, self._hek(), reachable=reachable)
             )
         key = self._hek()
         if not house_notify.is_usable_house_event_key(key):
@@ -383,6 +374,18 @@ class PatrimonyNotifyView(HomeAssistantView):
             {"error": {"code": "backend_error", "message": "Push failed"}},
             status=502,
         )
+
+
+def notify_status_payload(hass, hek, *, reachable: bool | None = None) -> dict[str, Any]:
+    """Connections / Check links JSON. House URL is the pairing resolver."""
+    payload: dict[str, Any] = {
+        "configured": house_notify.is_usable_house_event_key(hek),
+        "ingestHost": house_notify.ingest_host(),
+        **house_pair.house_url_status(hass),
+    }
+    if reachable is not None:
+        payload["ok"] = bool(reachable)
+    return payload
 
 
 def _first_entry(hass: HomeAssistant):

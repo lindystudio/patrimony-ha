@@ -51,7 +51,7 @@ def test_manifest_hacs_required_keys() -> None:
     manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["domain"] == "patrimony_collection"
     assert manifest["name"] == "Patrimony Collection"
-    assert manifest["version"] == "0.4.57"
+    assert manifest["version"] == "0.4.58"
     addon_config = (ROOT / "addons" / "patrimony_collection" / "config.yaml").read_text(
         encoding="utf-8"
     )
@@ -68,6 +68,19 @@ def test_manifest_hacs_required_keys() -> None:
     panel = (COMPONENT / "panel.py").read_text(encoding="utf-8")
     assert 'sidebar_icon="mdi:key"' in panel
     assert "mdi:wallet-travel" not in panel
+
+
+def test_connections_panel_shows_external_url() -> None:
+    html = (COMPONENT / "www" / "index.html").read_text(encoding="utf-8")
+    assert ">External URL<" in html
+    assert 'id="conn_url"' in html
+    ha = html.find('id="conn_ha"')
+    url = html.find('id="conn_url"')
+    hek = html.find('id="conn_hek"')
+    assert 0 <= ha < url < hek
+    assert "function applyHouseUrl" in html
+    assert "doc.externalUrl || doc.houseUrl" in html
+    assert 'setConn("conn_url", ok ? url : "Missing"' in html
 
 
 def test_panel_show_pairing_reads_error_message() -> None:

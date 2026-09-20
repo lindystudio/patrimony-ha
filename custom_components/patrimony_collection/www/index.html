@@ -344,8 +344,11 @@
       gap: 16px; padding: 10px 0;
       border-bottom: 1px solid var(--line);
     }
-    .conn-row .k { font-size: 14px; color: var(--cream); }
-    .conn-row .v { font-size: 13px; opacity: .7; text-align: right; }
+    .conn-row .k { font-size: 14px; color: var(--cream); flex: none; }
+    .conn-row .v {
+      font-size: 13px; opacity: .7; text-align: right;
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
     .conn-row .v.ok { color: #8fbf8a; opacity: 1; }
     .conn-row .v.warn { color: var(--gold); opacity: 1; }
     .soon-meta { margin-top: 14px; }
@@ -465,6 +468,7 @@
         <p class="quiet">This house to the collection, and a banner on the phone.</p>
         <div class="conn-list">
           <div class="conn-row"><span class="k">Home Assistant</span><span class="v" id="conn_ha">—</span></div>
+          <div class="conn-row"><span class="k">External URL</span><span class="v" id="conn_url">—</span></div>
           <div class="conn-row"><span class="k">Push notification server</span><span class="v" id="conn_cf">—</span></div>
           <p class="conn-note muted" id="conn_cf_note">Optional — used only for push notifications. No other traffic.</p>
           <div class="conn-row"><span class="k">House event key</span><span class="v" id="conn_hek">—</span></div>
@@ -2356,6 +2360,12 @@
       if (!el) return;
       el.textContent = text;
       el.className = "v" + (cls ? " " + cls : "");
+      if (id === "conn_url") el.title = (cls === "ok" && text && text !== "—") ? text : "";
+    }
+    function applyHouseUrl(doc) {
+      const url = String((doc && (doc.externalUrl || doc.houseUrl)) || "").trim();
+      const ok = !!(doc && doc.usable === true && url);
+      setConn("conn_url", ok ? url : "Missing", ok ? "ok" : "warn");
     }
     function fillSoonMeta() {
       const p = (preview && preview.property) || {};
@@ -2373,12 +2383,14 @@
         else if ($("notify_status") && $("notify_status").textContent === "Push needs the house event key.") $("notify_status").textContent = "";
         setConn("conn_hek", on ? "Present" : "Missing", on ? "ok" : "warn");
         if (doc && doc.ingestHost) setConn("conn_cf", doc.ingestHost);
+        applyHouseUrl(doc);
         setConn("conn_ha", "Signed in", "ok");
       } catch (e) {
         if ($("notify_send")) $("notify_send").disabled = true;
         if ($("notify_status")) $("notify_status").textContent = "Push needs the house event key.";
         setConn("conn_ha", "Unreachable", "warn");
         setConn("conn_hek", "Unknown");
+        setConn("conn_url", "Unknown");
       }
     }
     let connCheckBusy = false;
@@ -2408,12 +2420,15 @@
       if ($("conn_status")) $("conn_status").textContent = "Checking…";
       setConn("conn_ha", "Checking…");
       setConn("conn_cf", "Checking…");
+      setConn("conn_url", "Checking…");
       let ok = false;
       try {
-        await api(NOTIFY_PATH);
+        const signed = await api(NOTIFY_PATH);
         setConn("conn_ha", "Signed in", "ok");
+        applyHouseUrl(signed);
       } catch (e) {
         setConn("conn_ha", "Unreachable", "warn");
+        setConn("conn_url", "Unknown");
         if (sessionExpired) {
           connCheckBusy = false;
           if ($("conn_check")) $("conn_check").disabled = false;
@@ -2431,6 +2446,7 @@
         else setConn("conn_cf", host + " · no reply", "warn");
         if (doc && typeof doc.configured === "boolean")
           setConn("conn_hek", doc.configured ? "Present" : "Missing", doc.configured ? "ok" : "warn");
+        applyHouseUrl(doc);
         const when = checkedAtLabel();
         if ($("conn_status")) $("conn_status").textContent = ok
           ? ("Checked · " + when)

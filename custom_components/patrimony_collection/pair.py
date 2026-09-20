@@ -79,6 +79,16 @@ def https_house_url(hass) -> str:
     return _normalize_https(resolve_house_url(hass))
 
 
+def house_url_status(hass) -> dict[str, Any]:
+    """Same resolved house URL pairing uses, plus whether it is usable."""
+    url = https_house_url(hass)
+    return {
+        "externalUrl": url,
+        "houseUrl": url,
+        "usable": house_url_is_usable(url),
+    }
+
+
 def _display_resolved_url(url: str) -> str:
     shown = str(url or "").strip()
     if shown in _HOSTLESS_HTTPS:
