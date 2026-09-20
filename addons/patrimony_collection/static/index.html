@@ -468,9 +468,23 @@
     function maxSev(items) {
       return items.reduce((a, i) => (rank[i.severity]||0) > (rank[a]||0) ? i.severity : a, "ok");
     }
+    function looksLockLine(item) {
+      const label = String((item && item.label) || "").toLowerCase();
+      if (/lock|deadbolt|latch/.test(label)) return true;
+      return /\bdoor\b/.test(label) && !/window|garage/.test(label);
+    }
+    function lockEnumValue(raw) {
+      const tok = String(raw == null ? "" : raw).trim().toLowerCase();
+      if (tok === "locked") return "Locked";
+      if (tok === "unlocked") return "Unlocked";
+      return null;
+    }
     function fmt(item) {
       if (item.value === null || item.value === undefined) return "—";
-      if (item.valueType === "bool") return item.value ? "Yes" : "No";
+      if (item.valueType === "bool") {
+        if (looksLockLine(item)) return item.value ? "Unlocked" : "Locked";
+        return item.value ? "Yes" : "No";
+      }
       if (item.valueType === "number") return `${item.value}${item.unit || ""}`;
       return String(item.value);
     }
@@ -906,7 +920,7 @@
     function isBoolish(ent) {
       const d = (ent.domain || (ent.entity_id || "").split(".")[0] || "").toLowerCase();
       const st = String(ent.state || "").toLowerCase();
-      return ["binary_sensor","switch","input_boolean","light","lock"].includes(d) || ["on","off","true","false"].includes(st);
+      return ["binary_sensor","switch","input_boolean","light"].includes(d) || ["on","off","true","false"].includes(st);
     }
     function alreadyHas(pred) {
       return mapping.mappings.some(pred);
@@ -1024,14 +1038,19 @@
       if (m.state_attribute && ent && ent.attributes) value = ent.attributes[m.state_attribute];
       let valueType = m.value_type === "auto" || !m.value_type ? null : m.value_type;
       const d = ((ent && ent.domain) || (m.entity_id || "").split(".")[0] || "");
+      if (d === "lock" && !m.state_attribute) valueType = "enum";
       if (!valueType) {
-        if (["binary_sensor","switch","input_boolean","light","lock"].includes(d)) valueType = "bool";
+        if (["binary_sensor","switch","input_boolean","light"].includes(d)) valueType = "bool";
         else if (m.state_attribute === "temperature" || d === "sensor") valueType = "number";
         else if (d === "weather" && !m.state_attribute) valueType = "enum";
         else valueType = "text";
       }
       if (value == null || value === "unknown" || value === "unavailable") {
         return { id: m.item_id, label: m.label, value: null, valueType, unit: m.unit || null, severity: "attention" };
+      }
+      if (d === "lock" && !m.state_attribute) {
+        const mapped = lockEnumValue(value);
+        return { id: m.item_id, label: m.label, value: mapped, valueType: "enum", unit: null, severity: mapped ? "ok" : "attention" };
       }
       if (valueType === "bool") {
         const on = ["on","true","yes","1"].includes(String(value).toLowerCase());

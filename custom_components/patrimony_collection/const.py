@@ -148,6 +148,12 @@ UNAVAILABLE_STATES: Final = frozenset({"unavailable", "unknown", "none", ""})
 BOOL_TRUE: Final = frozenset({"on", "true", "1", "yes", "unlocked", "open", "connected"})
 BOOL_FALSE: Final = frozenset({"off", "false", "0", "no", "locked", "closed", "disconnected"})
 
+# lock.* entity state → schema enum display. Do not invent a fifth valueType.
+LOCK_ENUM_VALUES: Final = {
+    "locked": "Locked",
+    "unlocked": "Unlocked",
+}
+
 # HA weather.* condition states. Severity decided here; phone does not call a weather API.
 WEATHER_ALERT_CONDITIONS: Final = frozenset(
     {"exceptional", "lightning", "lightning-rainy", "hail"}

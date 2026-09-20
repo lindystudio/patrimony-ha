@@ -22,6 +22,7 @@ from .const import (
     FORBIDDEN_WIRE_KEYS,
     KIND_DEFAULT_TITLES,
     KINDS,
+    LOCK_ENUM_VALUES,
     MAX_CARDS,
     MAX_ITEMS_PER_CARD,
     MAX_ON_PASS,
@@ -557,6 +558,9 @@ def humanize_enum(state: str) -> str:
     token = state.strip().lower().replace("_", "-")
     if token in WEATHER_LABELS:
         return WEATHER_LABELS[token]
+    lock_token = state.strip().lower()
+    if lock_token in LOCK_ENUM_VALUES:
+        return LOCK_ENUM_VALUES[lock_token]
     return state.replace("_", " ").replace("-", " ").strip().title()
 
 
@@ -782,12 +786,15 @@ def infer_value_type(
     declared: str | None,
     attribute: str | None = None,
 ) -> str:
+    domain = _domain(entity_id)
+    # lock.* state is locked/unlocked. iOS generic bool UI is Yes/No — emit enum.
+    if domain == "lock" and not attribute:
+        return "enum"
     if declared in VALUE_TYPES:
         return declared
     if attribute in TEMP_ATTRS:
         return "number"
-    domain = _domain(entity_id)
-    if domain in {"binary_sensor", "switch", "input_boolean", "light", "lock"}:
+    if domain in {"binary_sensor", "switch", "input_boolean", "light"}:
         return "bool"
     if domain in {"alarm_control_panel", "climate", "cover"}:
         if domain == "climate":
@@ -837,6 +844,20 @@ def item_value(
     return None, False
 
 
+def lock_item_value(raw: str | None) -> tuple[Any, bool]:
+    """lock.* state → Locked/Unlocked enum. unknown/unavailable and other states → null."""
+    if raw is None or str(raw).strip().lower() in UNAVAILABLE_STATES:
+        return None, True
+    text = str(raw).strip()
+    if looks_like_entity_id(text) or "://" in text:
+        return None, True
+    mapped = LOCK_ENUM_VALUES.get(text.lower())
+    if mapped:
+        return mapped, True
+    # jammed / locking / unlocking: do not invent Locked or Unlocked.
+    return None, True
+
+
 def _auto_severity(
     *,
     entity_id: str,
@@ -850,6 +871,12 @@ def _auto_severity(
         return "attention"
     domain = _domain(entity_id)
     lowered = str(raw).strip().lower()
+    if domain == "lock":
+        if lowered == "locked":
+            return "ok"
+        if lowered == "unlocked":
+            return "ok"
+        return "attention"
     if domain == "alarm_control_panel":
         if lowered == "triggered":
             return "alert"
@@ -886,6 +913,24 @@ def _auto_severity(
     return "ok"
 
 
+def _lock_polarity(raw: str | None, json_value: Any) -> bool | None:
+    """Match BOOL polarity: unlocked=true, locked=false. Used by existing severity modes."""
+    lowered = str(raw or "").strip().lower()
+    if lowered == "unlocked" or json_value == LOCK_ENUM_VALUES["unlocked"]:
+        return True
+    if lowered == "locked" or json_value == LOCK_ENUM_VALUES["locked"]:
+        return False
+    return None
+
+
+def _bool_for_severity(entity_id: str, raw: str | None, json_value: Any) -> bool | None:
+    if isinstance(json_value, bool):
+        return json_value
+    if _domain(entity_id) == "lock":
+        return _lock_polarity(raw, json_value)
+    return None
+
+
 def decide_severity(mapping: dict[str, Any], *, entity_id: str, kind: str, state: State | None, raw: str | None, json_value: Any) -> str:
     mode = mapping.get("severity_mode") or "auto"
     device_class = None
@@ -899,17 +944,18 @@ def decide_severity(mapping: dict[str, Any], *, entity_id: str, kind: str, state
     if mode == "fixed":
         fixed = mapping.get("fixed_severity")
         return fixed if fixed in SEVERITIES else "attention"
+    polarity = _bool_for_severity(entity_id, raw, json_value)
     if mode == "ok_when_on":
-        if isinstance(json_value, bool):
-            return "ok" if json_value else "attention"
+        if polarity is not None:
+            return "ok" if polarity else "attention"
         return "attention"
     if mode == "ok_when_off":
-        if isinstance(json_value, bool):
-            return "ok" if not json_value else "attention"
+        if polarity is not None:
+            return "ok" if not polarity else "attention"
         return "attention"
     if mode == "binary_alert_on":
-        if isinstance(json_value, bool):
-            return "alert" if json_value else "ok"
+        if polarity is not None:
+            return "alert" if polarity else "ok"
         return "attention"
     if mode == "enum_map":
         token = (raw or "").strip().lower()
@@ -1116,7 +1162,11 @@ def _build_item(
         entity_id, state, mapping.get("value_type"), mapping.get("state_attribute")
     )
     raw = _raw_from_state(state, mapping.get("state_attribute"))
-    json_value, emit_ok = item_value(value_type, raw)
+    if _domain(entity_id) == "lock" and not mapping.get("state_attribute"):
+        value_type = "enum"
+        json_value, emit_ok = lock_item_value(raw)
+    else:
+        json_value, emit_ok = item_value(value_type, raw)
     if not emit_ok:
         return None
 
