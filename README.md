@@ -30,7 +30,7 @@ https://my.home-assistant.io/create-link/?redirect=hacs_repository
 
 ## Setup
 
-When adding the integration, enter display name, optional location label, and IANA timezone (e.g. `UTC`). For a **new house** we mint `property_id` on submit — copy it from the confirmation screen (it is also in the integration title) and use that same UUID later for the backend registry and the iOS Keychain account. Check **I already have a property ID** only when reconnecting an existing registry house.
+When adding the integration, enter display name, optional location label, and IANA timezone (e.g. `UTC`). For a **new house** we mint `property_id` on submit — copy it from the confirmation screen (it is also in the integration title) and use that same UUID later for the backend registry and the iOS Keychain account. Check **I already have a property_id (advanced)** only when reconnecting an existing registry house.
 
 | Field | Notes |
 | --- | --- |

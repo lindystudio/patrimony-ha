@@ -21,7 +21,7 @@ Enter:
 - `display_name` — wallet title (e.g. Demo Home)
 - `location_label` — optional short place (e.g. Example), not an address
 - `timezone` — IANA (e.g. `UTC`)
-- For a **new house**, we mint `property_id` on submit. Copy it from the confirmation screen (and the integration title) for the backend registry and the iOS Keychain account. Check **I already have a property ID** only when reconnecting an existing registry house.
+- For a **new house**, we mint `property_id` on submit. Copy it from the confirmation screen (and the integration title) for the backend registry and the iOS Keychain account. Check **I already have a property_id (advanced)** only when reconnecting an existing registry house.
 
 One instance per HA. A second add is aborted as already configured.
 

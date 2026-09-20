@@ -160,15 +160,38 @@ def test_already_configured_aborts(monkeypatch) -> None:
     assert result["reason"] == "already_configured"
 
 
+CHECKBOX_LABEL = "I already have a property_id (advanced)"
+
+
 def test_strings_do_not_tell_first_time_installers_to_invent_a_uuid() -> None:
     for name in ("strings.json", "translations/en.json"):
         payload = json.loads((COMPONENT / name).read_text(encoding="utf-8"))
         user = payload["config"]["step"]["user"]
         assert CONF_PROPERTY_ID not in user["data"]
-        assert "already_have_property_id" in user["data"]
+        assert user["data"][CONF_ALREADY_HAVE_PROPERTY_ID] == CHECKBOX_LABEL
         lowered = user["description"].lower()
         assert "we create the property id" in lowered
+        assert "i already have a property_id (advanced)" in lowered
         assert "must match the backend" not in lowered
         assert "existing" in payload["config"]["step"]
         assert "confirm" in payload["config"]["step"]
         assert "{property_id}" in payload["config"]["step"]["confirm"]["description"]
+
+
+def test_config_flow_schema_keys_have_translation_labels() -> None:
+    """HA renders the raw schema key when config.step.<id>.data.<key> is missing."""
+    flow = PatrimonyCollectionConfigFlow()
+    cases = {
+        "user": _schema_keys(_run(flow.async_step_user())["data_schema"]),
+        "existing": _schema_keys(_run(flow.async_step_existing())["data_schema"]),
+    }
+    for name in ("strings.json", "translations/en.json"):
+        payload = json.loads((COMPONENT / name).read_text(encoding="utf-8"))
+        steps = payload["config"]["step"]
+        for step_id, keys in cases.items():
+            data = steps[step_id]["data"]
+            for key in keys:
+                assert key in data, f"{name} missing config.step.{step_id}.data.{key}"
+                label = data[key]
+                assert isinstance(label, str) and label.strip()
+                assert label != key

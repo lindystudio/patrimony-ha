@@ -3,12 +3,12 @@
     "step": {
       "user": {
         "title": "Patrimony Collection",
-        "description": "Map this Home Assistant instance to one house. For a new house we create the property ID here — you will see it on the next screen to copy for the backend registry and iOS Keychain. Check “I already have a property ID” only when reconnecting an existing registry house. Do not enter coordinates or an access token.",
+        "description": "Map this Home Assistant instance to one house. For a new house we create the property ID here — you will see it on the next screen to copy for the backend registry and iOS Keychain. Check “I already have a property_id (advanced)” only when reconnecting an existing registry house. Do not enter coordinates or an access token.",
         "data": {
           "display_name": "Display name",
           "location_label": "Location (optional free text, not a street address)",
           "timezone": "Timezone (IANA)",
-          "already_have_property_id": "I already have a property ID"
+          "already_have_property_id": "I already have a property_id (advanced)"
         }
       },
       "existing": {
