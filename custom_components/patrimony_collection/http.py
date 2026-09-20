@@ -442,9 +442,13 @@ class PatrimonyIosSessionView(HomeAssistantView):
                 {"error": {"code": "bad_json", "message": "ios_session body must be JSON"}},
                 status=400,
             )
+        peer = house_ios_session.request_peer_ip(request)
         body, status = house_ios_session.apply_ios_session_payload(
-            self.hass, payload, house_ios_session.request_peer_ip(request)
+            self.hass, payload, peer
         )
+        # PTR is best-effort after accept. Never await DNS on the heartbeat.
+        if status == 200:
+            house_ios_session.schedule_reverse_lookup(self.hass, peer)
         return web.json_response(body, status=status)
 
 

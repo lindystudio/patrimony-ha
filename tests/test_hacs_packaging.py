@@ -51,7 +51,7 @@ def test_manifest_hacs_required_keys() -> None:
     manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["domain"] == "patrimony_collection"
     assert manifest["name"] == "Patrimony Collection"
-    assert manifest["version"] == "0.4.61"
+    assert manifest["version"] == "0.4.62"
     addon_config = (ROOT / "addons" / "patrimony_collection" / "config.yaml").read_text(
         encoding="utf-8"
     )
@@ -77,18 +77,31 @@ def test_manifest_hacs_required_keys() -> None:
 def test_connections_panel_shows_latest_ios_connection() -> None:
     html = (COMPONENT / "www" / "index.html").read_text(encoding="utf-8")
     assert ">Latest iOS connection<" in html
-    assert ">IP address<" in html
-    assert ">iPhone device name<" in html
-    assert ">Patrimony iOS app version<" in html
-    assert ">Time of last interaction<" in html
+    assert ">Device<" in html
+    assert ">IP / host<" in html
+    assert ">App version<" in html
+    assert ">Last interaction<" in html
     assert 'id="conn_ios_ip"' in html
     assert 'id="conn_ios_name"' in html
     assert 'id="conn_ios_ver"' in html
     assert 'id="conn_ios_at"' in html
     assert "function applyIosSession" in html
+    assert "function formatIosDevice" in html
+    assert "function formatIosHost" in html
+    assert "function isGenericDeviceName" in html
+    assert "doc.displayDevice" in html
+    assert "doc.displayHost" in html
+    assert "doc.iosVersion" in html
+    assert "doc.model" in html
+    assert "modelIdentifier" not in html
     assert "/api/patrimony_collection/ios_session" in html
     assert 'setConn("conn_ios_ip", "Missing", "warn")' in html
     assert "street address" not in html.lower()
+    name = html.find('id="conn_ios_name"')
+    host = html.find('id="conn_ios_ip"')
+    ver = html.find('id="conn_ios_ver"')
+    at = html.find('id="conn_ios_at"')
+    assert 0 <= name < host < ver < at
 
 
 def test_connections_panel_shows_external_url() -> None:

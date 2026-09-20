@@ -31,6 +31,10 @@ IOS_SESSION_PATH: Final = "/api/patrimony_collection/ios_session"
 IOS_SESSION_FILE: Final = "patrimony_collection/ios_session.json"
 IOS_DEVICE_NAME_MAX: Final = 80
 IOS_APP_VERSION_MAX: Final = 40
+IOS_IOS_VERSION_MAX: Final = 40
+IOS_MODEL_MAX: Final = 32
+IOS_HOSTNAME_MAX: Final = 253
+IOS_DNS_TIMEOUT_SECONDS: Final = 1.0
 BACKEND_BASE: Final = "https://api.patrimonycollection.com"
 NOTIFY_USER_AGENT: Final = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "

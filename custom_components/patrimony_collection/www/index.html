@@ -480,10 +480,10 @@
         </div>
         <h3>Latest iOS connection</h3>
         <div class="conn-list">
-          <div class="conn-row"><span class="k">IP address</span><span class="v" id="conn_ios_ip">—</span></div>
-          <div class="conn-row"><span class="k">iPhone device name</span><span class="v" id="conn_ios_name">—</span></div>
-          <div class="conn-row"><span class="k">Patrimony iOS app version</span><span class="v" id="conn_ios_ver">—</span></div>
-          <div class="conn-row"><span class="k">Time of last interaction</span><span class="v" id="conn_ios_at">—</span></div>
+          <div class="conn-row"><span class="k">Device</span><span class="v" id="conn_ios_name">—</span></div>
+          <div class="conn-row"><span class="k">IP / host</span><span class="v" id="conn_ios_ip">—</span></div>
+          <div class="conn-row"><span class="k">App version</span><span class="v" id="conn_ios_ver">—</span></div>
+          <div class="conn-row"><span class="k">Last interaction</span><span class="v" id="conn_ios_at">—</span></div>
         </div>
         <h3>Push</h3>
         <p class="quiet">Sends an Apple push notification (APNs). It shows as a banner on the principal’s iOS devices.</p>
@@ -2368,12 +2368,36 @@
       if (!el) return;
       el.textContent = text;
       el.className = "v" + (cls ? " " + cls : "");
-      if (id === "conn_url") el.title = (cls === "ok" && text && text !== "—") ? text : "";
+      if (id === "conn_url" || id === "conn_ios_ip" || id === "conn_ios_name") {
+        el.title = (text && text !== "—" && text !== "Missing") ? text : "";
+      }
     }
     function applyHouseUrl(doc) {
       const url = String((doc && (doc.externalUrl || doc.houseUrl)) || "").trim();
       const ok = !!(doc && doc.usable === true && url);
       setConn("conn_url", ok ? url : "Missing", ok ? "ok" : "warn");
+    }
+    function isGenericDeviceName(name) {
+      const n = String(name || "").trim().toLowerCase();
+      return !n || n === "iphone" || n === "ipad";
+    }
+    function formatIosDevice(doc) {
+      if (doc && doc.displayDevice) return String(doc.displayDevice);
+      const name = String((doc && doc.deviceName) || "").trim();
+      const ios = String((doc && doc.iosVersion) || "").trim();
+      const model = String((doc && doc.model) || "").trim();
+      if (!isGenericDeviceName(name)) return ios ? (name + " · " + ios) : name;
+      if (name && ios) return name + " · " + ios;
+      if (ios) return ios;
+      if (model) return model;
+      return name;
+    }
+    function formatIosHost(doc) {
+      if (doc && doc.displayHost) return String(doc.displayHost);
+      const ip = String((doc && doc.ip) || "").trim();
+      const host = String((doc && doc.hostname) || "").trim();
+      if (host && ip) return host + " · " + ip;
+      return ip || host;
     }
     function applyIosSession(doc) {
       const seen = !!(doc && doc.seen);
@@ -2384,8 +2408,8 @@
         setConn("conn_ios_at", "Missing", "warn");
         return;
       }
-      setConn("conn_ios_ip", String(doc.ip || "—"));
-      setConn("conn_ios_name", String(doc.deviceName || "—"));
+      setConn("conn_ios_name", formatIosDevice(doc) || "—");
+      setConn("conn_ios_ip", formatIosHost(doc) || "—");
       setConn("conn_ios_ver", String(doc.appVersion || "—"));
       setConn("conn_ios_at", String(doc.lastInteractionAt || "—"));
     }
