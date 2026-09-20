@@ -9,6 +9,7 @@ from .const import (
     CONF_PROPERTY_ID,
     CONTACTS_PATH,
     DOMAIN,
+    EVENT_KEY_PATH,
     NOTES_PATH,
     NOTIFY_PATH,
     PAIR_PATH,
@@ -376,6 +377,40 @@ class PatrimonyNotifyView(HomeAssistantView):
         )
 
 
+class PatrimonyEventKeyView(HomeAssistantView):
+    """Phone pushes hek_ after claim/rotate. Never an HA token. Never on patrimony/state."""
+
+    url = EVENT_KEY_PATH
+    name = "api:patrimony_collection:event_key"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def post(self, request):
+        from aiohttp import web
+
+        entry = _first_entry(self.hass)
+        if entry is None:
+            return _not_configured()
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response(house_notify.INVALID_EVENT_KEY, status=400)
+        options, body, status = house_notify.apply_event_key_payload(
+            dict(entry.options or {}), payload
+        )
+        if options is None:
+            # Do not persist. configured stays false (Missing) for retry/rotate.
+            return web.json_response(body, status=status)
+        updater = getattr(self.hass.config_entries, "async_update_entry", None)
+        if updater:
+            updater(entry, options=options)
+        else:
+            entry.options = options
+        return web.json_response(body, status=status)
+
+
 def notify_status_payload(hass, hek, *, reachable: bool | None = None) -> dict[str, Any]:
     """Connections / Check links JSON. House URL is the pairing resolver."""
     payload: dict[str, Any] = {
@@ -411,5 +446,6 @@ async def async_setup_http(hass: HomeAssistant) -> None:
     hass.http.register_view(PatrimonyPairView(hass))
     hass.http.register_view(PatrimonyPairClaimView(hass))
     hass.http.register_view(PatrimonyNotifyView(hass))
+    hass.http.register_view(PatrimonyEventKeyView(hass))
     from .panel import async_setup_panel
     await async_setup_panel(hass)

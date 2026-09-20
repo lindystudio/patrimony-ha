@@ -64,9 +64,8 @@ Before **Soon → Invitation → Show a pairing code**, turn on Home Assistant C
 1. **Add card** — kind from the frozen set: `security`, `climate`, `network`, `cellar`, `arrivals`, `custom`. `energy` is not a kind (map those sensors as `custom`). Title + priority (lower first).
 2. **Add item** — HA entity, existing card, label, value type, optional attribute (e.g. climate `current_temperature`), severity mode.
 3. **Remove item** — by item UUID (UI shows label + entity for the integrator only).
-4. **House event key** (optional) — `hek_…` minted by the operator CLI for APNs ingest only. Never an HA token. Never copied into the document.
 
-Card and item UUIDs are minted once and stay stable. They are not entity ids.
+Card and item UUIDs are minted once and stay stable. They are not entity ids. The house event key is not pasted here — the phone POSTs it to `/api/patrimony_collection/event_key`.
 
 Caps: 24 cards (priority, then title); 12 items per card (mapping order, then label).
 
@@ -106,4 +105,4 @@ Logs: card/item UUIDs, kind, title, severity. No entity ids at info+.
 
 ## Optional push ingest
 
-If an operator-minted `hek_…` is stored in options, the integration *may* later POST `{ cardId, severity, title }` to the backend events path. That key is not an HA token. The HA long-lived token is never attached to that request. v0 sketch does not implement the POST.
+The phone POSTs `{ "houseEventKey": "hek_…" }` to `/api/patrimony_collection/event_key` (HA Bearer). Success is 200 `{ "configured": true }`. Invalid is 400 `invalid_house_event_key` and does not persist (GET notify stays `{ "configured": false }`). The key is stored in config entry options only. Never logged, never on `patrimony/state`. If a usable `hek_…` is stored, notify POSTs `{ cardId, severity, title }` to the backend events path with `X-House-Event-Key`. That key is not an HA token. HA never mints `hek_` and never calls claim.

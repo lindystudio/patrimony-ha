@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 from custom_components.patrimony_collection.config_flow import (
+    OptionsFlowHandler,
     PatrimonyCollectionConfigFlow,
     _timezone_ok,
 )
@@ -51,6 +52,7 @@ def test_user_form_omits_property_id() -> None:
     assert CONF_TIMEZONE in keys
     assert CONF_LOCATION_LABEL in keys
     assert CONF_ALREADY_HAVE_PROPERTY_ID in keys
+    assert CONF_HOUSE_EVENT_KEY not in keys
 
 
 def test_new_house_mints_uuid_and_shows_confirm() -> None:
@@ -110,6 +112,12 @@ def test_existing_uuid_path() -> None:
     assert created["data"][CONF_PROPERTY_ID] == KNOWN_ID
     assert created["title"] == f"Demo Home ({KNOWN_ID})"
     assert CONF_LOCATION_LABEL not in created["data"]
+
+
+def test_existing_form_omits_house_event_key() -> None:
+    flow = PatrimonyCollectionConfigFlow()
+    result = _run(flow.async_step_existing())
+    assert CONF_HOUSE_EVENT_KEY not in _schema_keys(result["data_schema"])
 
 
 def test_existing_invalid_uuid() -> None:
@@ -176,6 +184,9 @@ def test_strings_do_not_tell_first_time_installers_to_invent_a_uuid() -> None:
         assert "existing" in payload["config"]["step"]
         assert "confirm" in payload["config"]["step"]
         assert "{property_id}" in payload["config"]["step"]["confirm"]["description"]
+        options_steps = payload["options"]["step"]
+        assert "house_event_key" not in options_steps["init"]["menu_options"]
+        assert "house_event_key" not in options_steps
 
 
 def test_config_flow_schema_keys_have_translation_labels() -> None:
@@ -195,3 +206,12 @@ def test_config_flow_schema_keys_have_translation_labels() -> None:
                 label = data[key]
                 assert isinstance(label, str) and label.strip()
                 assert label != key
+
+
+def test_options_menu_omits_paste_house_event_key() -> None:
+    handler = OptionsFlowHandler()
+    result = _run(handler.async_step_init())
+    assert result["step_id"] == "init"
+    assert "house_event_key" not in result["menu_options"]
+    assert result["menu_options"] == ["add_card", "add_item", "remove_item"]
+    assert not hasattr(handler, "async_step_house_event_key")

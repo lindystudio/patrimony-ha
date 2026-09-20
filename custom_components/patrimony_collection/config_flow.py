@@ -75,9 +75,22 @@ except ImportError:  # sketch without HA: keep the class shape importable-ish
         def async_get_options_flow(config_entry):
             return OptionsFlowHandler()
 
+    class _OptionsFlowBase:
+        def async_show_form(self, **kwargs):
+            return kwargs
+
+        def async_create_entry(self, **kwargs):
+            return kwargs
+
+        def async_abort(self, **kwargs):
+            return kwargs
+
+        def async_show_menu(self, **kwargs):
+            return kwargs
+
     class config_entries:  # type: ignore[no-redef]
         ConfigFlow = _ConfigFlowBase
-        OptionsFlow = object
+        OptionsFlow = _OptionsFlowBase
 
         class ConfigEntry:
             data: dict = {}
@@ -223,7 +236,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_init(self, user_input: dict | None = None):
         return self.async_show_menu(
             step_id="init",
-            menu_options=["add_card", "add_item", "remove_item", "house_event_key"],
+            menu_options=["add_card", "add_item", "remove_item"],
         )
 
     async def async_step_add_card(self, user_input: dict | None = None):
@@ -312,20 +325,4 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_create_entry(title="", data=options)
         schema = vol.Schema({vol.Required("item_id"): vol.In(choices)})
         return self.async_show_form(step_id="remove_item", data_schema=schema)
-
-    async def async_step_house_event_key(self, user_input: dict | None = None):
-        """Optional hek_ key for backend APNs ingest. Never an HA token."""
-        if user_input is not None:
-            key = (user_input.get(CONF_HOUSE_EVENT_KEY) or "").strip() or None
-            if key and (key.startswith("eyJ") or "token" in key.lower()):
-                return self.async_show_form(
-                    step_id="house_event_key",
-                    data_schema=vol.Schema({vol.Optional(CONF_HOUSE_EVENT_KEY, default=""): str}),
-                    errors={CONF_HOUSE_EVENT_KEY: "looks_like_ha_token"},
-                )
-            options = self._options()
-            options[CONF_HOUSE_EVENT_KEY] = key
-            return self.async_create_entry(title="", data=options)
-        schema = vol.Schema({vol.Optional(CONF_HOUSE_EVENT_KEY, default=""): str})
-        return self.async_show_form(step_id="house_event_key", data_schema=schema)
 

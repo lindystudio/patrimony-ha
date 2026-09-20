@@ -51,7 +51,7 @@ def test_manifest_hacs_required_keys() -> None:
     manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["domain"] == "patrimony_collection"
     assert manifest["name"] == "Patrimony Collection"
-    assert manifest["version"] == "0.4.58"
+    assert manifest["version"] == "0.4.59"
     addon_config = (ROOT / "addons" / "patrimony_collection" / "config.yaml").read_text(
         encoding="utf-8"
     )
@@ -59,6 +59,10 @@ def test_manifest_hacs_required_keys() -> None:
         line for line in addon_config.splitlines() if line.startswith("version:")
     ).split(":", 1)[1].strip().strip('"')
     assert addon_version == manifest["version"]
+    assert "house_event_key:" not in addon_config
+    strings = json.loads((COMPONENT / "strings.json").read_text(encoding="utf-8"))
+    assert "house_event_key" not in strings["options"]["step"]["init"]["menu_options"]
+    assert "house_event_key" not in strings["options"]["step"]
     assert manifest["documentation"] == PUBLIC_REPO
     assert manifest["issue_tracker"] == PUBLIC_ISSUES
     assert manifest["codeowners"] == ["@lindystudio"]

@@ -26,6 +26,7 @@ PAIR_CLIENT_NAME: Final = "Patrimony iOS"
 PAIR_TICKET_TTL_SECONDS: Final = 15 * 60
 NOTIFY_PATH: Final = "/api/patrimony_collection/notify"
 NOTIFY_FILE: Final = "patrimony_collection/notify.json"
+EVENT_KEY_PATH: Final = "/api/patrimony_collection/event_key"
 BACKEND_BASE: Final = "https://api.patrimonycollection.com"
 NOTIFY_USER_AGENT: Final = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -114,6 +115,8 @@ FORBIDDEN_WIRE_KEYS: Final = frozenset(
         "ha_token",
         "long_lived_token",
         "long_lived_access_token",
+        "house_event_key",
+        "houseEventKey",
         "internal_url",
         "external_url",
         "base_url",

@@ -40,8 +40,7 @@
         "menu_options": {
           "add_card": "Add card",
           "add_item": "Add item",
-          "remove_item": "Remove item",
-          "house_event_key": "House event key (optional)"
+          "remove_item": "Remove item"
         }
       },
       "add_card": {
@@ -72,17 +71,7 @@
         "data": {
           "item_id": "Item"
         }
-      },
-      "house_event_key": {
-        "title": "House event key",
-        "description": "Optional hek_ key minted by the operator CLI for APNs ingest. Never paste a Home Assistant long-lived token.",
-        "data": {
-          "house_event_key": "House event key (hek_…)"
-        }
       }
-    },
-    "error": {
-      "looks_like_ha_token": "That looks like a Home Assistant token. Paste a house event key (hek_…) only."
     },
     "abort": {
       "no_cards": "Add a card before mapping items.",

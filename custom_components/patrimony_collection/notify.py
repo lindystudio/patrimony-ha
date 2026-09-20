@@ -10,12 +10,26 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from uuid import uuid4
 
-from .const import BACKEND_BASE, NOTIFY_FILE, NOTIFY_TITLE_MAX, NOTIFY_USER_AGENT
+from .const import (
+    BACKEND_BASE,
+    CONF_HOUSE_EVENT_KEY,
+    NOTIFY_FILE,
+    NOTIFY_TITLE_MAX,
+    NOTIFY_USER_AGENT,
+)
 
 MISSING_KEY = {
     "error": {
         "code": "missing_house_event_key",
         "message": "Push needs the house event key",
+    }
+}
+
+# Event-key POST: one 400 code. Never include the submitted value.
+INVALID_EVENT_KEY = {
+    "error": {
+        "code": "invalid_house_event_key",
+        "message": "House event key must start with hek_",
     }
 }
 
@@ -27,17 +41,62 @@ def notify_path(hass) -> Path:
         return Path("/config") / NOTIFY_FILE
 
 
+def looks_like_ha_token(key: Any) -> bool:
+    """JWT-shaped or token-like. Never log the value."""
+    if key is None:
+        return False
+    text = str(key).strip()
+    if not text:
+        return False
+    if text.startswith("eyJ") or "eyJ" in text:
+        return True
+    if "token" in text.lower():
+        return True
+    return False
+
+
 def is_usable_house_event_key(key: Any) -> bool:
     if key is None:
         return False
     text = str(key).strip()
     if not text.startswith("hek_") or len(text) < 5:
         return False
-    if text.startswith("eyJ") or "eyJ" in text:
-        return False
-    if "token" in text.lower():
+    if looks_like_ha_token(text):
         return False
     return True
+
+
+def event_key_error(raw: Any) -> dict[str, Any] | None:
+    """400 invalid_house_event_key if unusable. Never echoes the submitted value."""
+    if is_usable_house_event_key(raw):
+        return None
+    return dict(INVALID_EVENT_KEY)
+
+
+def persist_house_event_key(options: dict | None, key: str) -> dict[str, Any]:
+    """Copy options with CONF_HOUSE_EVENT_KEY set. Never logs the key."""
+    out = dict(options or {})
+    out[CONF_HOUSE_EVENT_KEY] = str(key).strip()
+    return out
+
+
+def apply_event_key_payload(
+    options: dict | None, payload: Any
+) -> tuple[dict[str, Any] | None, dict[str, Any], int]:
+    """Validate phone POST body and return (options, body, status).
+
+    Success is 200 `{configured: true}`. Invalid is 400 `invalid_house_event_key`
+    and does not persist — configured stays false so the app can retry/rotate.
+    Never echoes the key.
+    """
+    if not isinstance(payload, dict):
+        return None, dict(INVALID_EVENT_KEY), 400
+    raw = payload.get("houseEventKey")
+    err = event_key_error(raw)
+    if err:
+        return None, err, 400
+    stored = persist_house_event_key(options, str(raw).strip())
+    return stored, {"configured": True}, 200
 
 
 def clip_title(title: Any) -> str | None:
