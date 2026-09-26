@@ -357,25 +357,30 @@ class PatrimonyNotifyView(HomeAssistantView):
         property_id = _property_id(self.hass)
         if not property_id:
             return _not_configured()
-        card_id = house_notify.load_card_id(self.hass)
         job = getattr(self.hass, "async_add_executor_job", None)
         try:
             if job:
                 status = await job(
-                    house_notify.post_house_event, property_id, key, card_id, title
+                    house_notify.load_card_id_and_post,
+                    self.hass,
+                    property_id,
+                    key,
+                    title,
                 )
             else:
-                status = house_notify.post_house_event(property_id, key, card_id, title)
+                status = house_notify.load_card_id_and_post(
+                    self.hass, property_id, key, title
+                )
         except Exception:
             return web.json_response(
-                {"error": {"code": "backend_error", "message": "Push failed"}},
-                status=502,
+                {"ok": False, "error": {"code": "backend_error", "message": "Push failed"}},
+                status=424,
             )
         if 200 <= int(status) < 300:
             return web.json_response({"ok": True})
         return web.json_response(
-            {"error": {"code": "backend_error", "message": "Push failed"}},
-            status=502,
+            {"ok": False, "error": {"code": "backend_error", "message": "Push failed"}},
+            status=424,
         )
 
 

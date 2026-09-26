@@ -129,6 +129,14 @@ def events_url(property_id: str) -> str:
     return f"{BACKEND_BASE}/v1/properties/{property_id}/events"
 
 
+def load_card_id_and_post(
+    hass, property_id: str, key: str, title: str, timeout: int = 8
+) -> int:
+    """Disk load/create cardId then POST events — safe to run in an executor."""
+    card_id = load_card_id(hass)
+    return post_house_event(property_id, key, card_id, title, timeout=timeout)
+
+
 def post_house_event(property_id: str, key: str, card_id: str, title: str, timeout: int = 8) -> int:
     payload = json.dumps(
         {"cardId": card_id, "severity": "attention", "title": title}

@@ -2542,19 +2542,23 @@
       const title = (($("notify_title") && $("notify_title").value) || "").trim();
       if (!title) return;
       try {
-        const doc = await api(NOTIFY_PATH, {
+        const r = await bin(NOTIFY_PATH, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title: title })
         });
-        if (doc && doc.ok) {
+        let doc = null;
+        const raw = await r.text();
+        try { doc = raw ? JSON.parse(raw) : null; } catch (e) { doc = null; }
+        if (r.ok && doc && doc.ok) {
           if ($("notify_title")) $("notify_title").value = "";
           if ($("notify_status")) $("notify_status").textContent = "Sent";
-        } else {
-          if ($("notify_status")) $("notify_status").textContent = "Could not save";
+          return;
         }
+        const msg = doc && doc.error && doc.error.message ? String(doc.error.message) : "";
+        if ($("notify_status")) $("notify_status").textContent = msg || (doc ? "Could not send" : "Push failed (connection)");
       } catch (e) {
-        if ($("notify_status")) $("notify_status").textContent = "Could not save";
+        if ($("notify_status")) $("notify_status").textContent = "Push failed (connection)";
       }
     }
     function showHouseSub(name) {
