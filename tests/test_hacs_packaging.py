@@ -51,7 +51,9 @@ def test_manifest_hacs_required_keys() -> None:
     manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["domain"] == "patrimony_collection"
     assert manifest["name"] == "Patrimony Collection"
-    assert manifest["version"] == "0.4.63"
+    # Manifest is the version SoT; add-on must match (checked below).
+    # Do not hardcode the patch number here — bumps only touch manifest + add-on.
+    assert isinstance(manifest["version"], str) and manifest["version"].count(".") == 2
     addon_config = (ROOT / "addons" / "patrimony_collection" / "config.yaml").read_text(
         encoding="utf-8"
     )
