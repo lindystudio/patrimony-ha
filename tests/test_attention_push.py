@@ -578,3 +578,152 @@ def test_refresh_token_id_is_truncated_and_secret_omitted(tmp_path, monkeypatch)
     assert "super-secret" not in blob
     assert "token" not in blob.lower()
     assert "hek_" not in blob
+
+
+def test_one_registered_client_keeps_its_device_name(tmp_path, monkeypatch):
+    """A single Patrimony iOS token still shows the stored device name."""
+    monkeypatch.setattr(
+        "custom_components.patrimony_collection.notify.post_house_event",
+        lambda *args, **kwargs: 200,
+    )
+    hass = _Hass(tmp_path)
+    folder = tmp_path / "patrimony_collection"
+    folder.mkdir()
+    (folder / "ios_session.json").write_text(
+        json.dumps({"deviceName": "iPhone", "appVersion": "1.0"}),
+        encoding="utf-8",
+    )
+
+    class _Tok:
+        client_name = "Patrimony iOS"
+        client_id = None
+        id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeffffab12"
+        token = "super-secret-ha-token-value"
+
+    class _Auth:
+        refresh_tokens = {"one": _Tok()}
+
+    hass.auth = _Auth()
+    assert load_card_id_and_post(hass, "property-1", "hek_house", "Guest arriving") == 200
+    assert push_log_document(hass)["rows"][0]["devices"] == ["iPhone"]
+
+
+def test_each_registered_client_is_listed_on_send_and_fire(tmp_path, monkeypatch):
+    """More than one refresh token is not collapsed to the single session name."""
+    monkeypatch.setattr(
+        "custom_components.patrimony_collection.notify.post_house_event",
+        lambda *args, **kwargs: 202,
+    )
+    hass = _Hass(tmp_path)
+    folder = tmp_path / "patrimony_collection"
+    folder.mkdir()
+    (folder / "ios_session.json").write_text(
+        json.dumps({"deviceName": "iPhone", "appVersion": "1.0"}),
+        encoding="utf-8",
+    )
+
+    class _Tok:
+        def __init__(self, ident):
+            self.client_name = "Patrimony iOS"
+            self.client_id = None
+            self.id = ident
+            self.token = "super-secret-ha-token-value"
+
+    class _Auth:
+        refresh_tokens = {
+            "a": _Tok("aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff1111"),
+            "b": _Tok("bbbbbbbb-cccc-4ddd-8eee-ffff00002222"),
+        }
+
+    hass.auth = _Auth()
+    assert load_card_id_and_post(hass, "property-1", "hek_house", "Guest arriving") == 202
+    manual = push_log_document(hass)["rows"][0]
+    assert manual["fire_class"] == "manual.send"
+    assert manual["devices"] == ["iPhone", "2222"]
+    off = _fact()
+    on = _fact(raw="on", on=True, severity="alert")
+    assert dispatch_attention_pushes(hass, [off], "property-1", "hek_house", now=10) == 0
+    assert dispatch_attention_pushes(hass, [on], "property-1", "hek_house", now=20) == 1
+    fire = push_log_document(hass)["rows"][-1]
+    assert fire["fire_class"] == "security.smoke"
+    assert fire["devices"] == ["iPhone", "2222"]
+    blob = (folder / "notify.json").read_text(encoding="utf-8")
+    assert "super-secret" not in blob
+    assert "1111" not in blob
+    assert "device list not returned by the events API" not in blob
+    assert "hek_" not in blob
+    html = (
+        ROOT / "custom_components" / "patrimony_collection" / "www" / "index.html"
+    ).read_text(encoding="utf-8")
+    assert "function pushLogDeviceList" in html
+    assert "Not only the first" in html
+
+
+def test_refresh_tokens_without_a_session_name_use_last_four(tmp_path):
+    hass = _Hass(tmp_path)
+
+    class _Tok:
+        def __init__(self, ident):
+            self.client_name = "Patrimony iOS"
+            self.client_id = None
+            self.id = ident
+            self.token = "super-secret-ha-token-value"
+
+    class _Auth:
+        refresh_tokens = {
+            "a": _Tok("aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff1111"),
+            "b": _Tok("bbbbbbbb-cccc-4ddd-8eee-ffff00002222"),
+        }
+
+    hass.auth = _Auth()
+    record_attention_push(hass, "manual.send", devices=None)
+    assert push_log_document(hass)["rows"][0]["devices"] == ["1111", "2222"]
+
+
+def test_addon_lists_each_refresh_token(tmp_path, monkeypatch):
+    spec = importlib.util.spec_from_file_location(
+        "patrimony_addon_web_multi",
+        ROOT / "addons" / "patrimony_collection" / "web.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    path = tmp_path / "notify.json"
+    path.write_text(json.dumps({"cardId": CARD}) + "\n", encoding="utf-8")
+    monkeypatch.setattr(module, "NOTIFY_PATH", path)
+    session = tmp_path / "ios_session.json"
+    session.write_text(
+        json.dumps({"deviceName": "iPhone", "appVersion": "1.0"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "IOS_SESSION_PATH", session)
+    auth = tmp_path / "auth"
+    auth.write_text(
+        json.dumps({
+            "data": {
+                "refresh_tokens": [
+                    {
+                        "client_name": "Patrimony iOS",
+                        "id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeffff1111",
+                        "token": "super-secret-ha-token-value",
+                    },
+                    {
+                        "client_name": "Patrimony iOS",
+                        "id": "bbbbbbbb-cccc-4ddd-8eee-ffff00002222",
+                        "token": "super-secret-ha-token-value",
+                    },
+                    {
+                        "client_name": "Other",
+                        "id": "cccccccccccccccccccccccccccc3333",
+                    },
+                ]
+            }
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "AUTH_STORAGE_PATH", auth)
+    module.record_manual_send(None)
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    assert stored["pushLog"][0]["devices"] == ["iPhone", "2222"]
+    blob = path.read_text(encoding="utf-8")
+    assert "super-secret" not in blob
+    assert "3333" not in blob

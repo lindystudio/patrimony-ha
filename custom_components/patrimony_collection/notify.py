@@ -452,26 +452,95 @@ def _refresh_token_label(tok: Any) -> str | None:
     )
 
 
+def _token_field(tok: Any, key: str):
+    if isinstance(tok, dict):
+        return tok.get(key)
+    return getattr(tok, key, None)
+
+
+def _session_labels(session: Any) -> list[str]:
+    """Names or ids actually stored. One ios_session object is one client.
+
+    A list, or a clients/sessions list inside the file, is enumerated in full.
+    """
+    if isinstance(session, list):
+        return _labels_from_items(session)
+    if not isinstance(session, dict):
+        return []
+    for key in ("clients", "sessions"):
+        items = session.get(key)
+        if isinstance(items, list) and items:
+            labels = _labels_from_items(items)
+            if labels:
+                return labels
+    name = _safe_name(session.get("deviceName"))
+    if name:
+        return [name]
+    label = label_for_client(session)
+    return [label] if label else []
+
+
+def _token_id_label(tok: Any) -> str | None:
+    """Stored token id, last 4 when long. Never reads the token secret."""
+    for key in ("id", "client_id"):
+        label = _id_label(_token_field(tok, key))
+        if label:
+            return label
+    return None
+
+
+def _patrimony_refresh_tokens(hass) -> list[Any]:
+    found: list[Any] = []
+    try:
+        tokens = _iter_refresh_tokens(hass)
+    except Exception:
+        return found
+    for tok in tokens:
+        if str(_token_field(tok, "client_name") or "").strip() != PAIR_CLIENT_NAME:
+            continue
+        found.append(tok)
+    return found
+
+
 def registered_ios_clients(hass) -> list[str]:
-    """iOS clients this house already stores. Name, else id. No secrets."""
-    labels: list[str] = []
+    """Every iOS client this house has registered. Name, else id. No secrets.
+
+    ios_session.json is one latest device. Refresh tokens are the list: when
+    more than one Patrimony iOS token is stored, each is listed. One client
+    still shows that one stored name.
+    """
     try:
         session = load_ios_session(hass)
     except Exception:
         session = None
-    if isinstance(session, dict):
-        label = label_for_client(session)
-        if label:
+    session_labels = _session_labels(session)
+    tokens = _patrimony_refresh_tokens(hass)
+    if len(tokens) <= 1:
+        if session_labels:
+            return session_labels
+        if not tokens:
+            return []
+        label = _refresh_token_label(tokens[0])
+        return [label] if label else []
+    if len(session_labels) == len(tokens):
+        return list(session_labels)
+    labels: list[str] = []
+    # One stored device name stands for one registration, not the whole list.
+    named = session_labels[0] if len(session_labels) == 1 else None
+    skip_named = named is not None
+    if named:
+        labels.append(named)
+    for tok in tokens:
+        if skip_named:
+            skip_named = False
+            continue
+        label = _token_id_label(tok)
+        if label and label not in labels:
             labels.append(label)
-    if labels:
-        return labels
-    try:
-        for tok in _iter_refresh_tokens(hass):
-            label = _refresh_token_label(tok)
-            if label and label not in labels:
+    if len(session_labels) > 1:
+        for label in session_labels:
+            if label not in labels:
                 labels.append(label)
-    except Exception:
-        return labels
     return labels
 
 

@@ -2609,6 +2609,15 @@
       if (/hek_/i.test(text) || /eyJ/.test(text)) return "";
       return text;
     }
+    function pushLogDeviceList(devices) {
+      // Every registered client, comma-separated. Not only the first.
+      if (Array.isArray(devices)) {
+        const names = devices.map(pushLogText).filter(Boolean);
+        return names.length ? names.join(", ") : PUSH_LOG_NO_DEVICES;
+      }
+      const text = pushLogText(devices);
+      return text || PUSH_LOG_NO_DEVICES;
+    }
     function renderPushLog(rows) {
       const empty = $("pushlog_empty");
       const host = $("pushlog_rows");
@@ -2632,15 +2641,7 @@
         const fields = [
           ["Timestamp", pushLogText(row && row.at)],
           [manual ? "Send" : "FIRE class", manual ? "Manual send" : fire],
-          ["Devices", (function () {
-            const devices = row && row.devices;
-            if (Array.isArray(devices)) {
-              const names = devices.map(pushLogText).filter(Boolean);
-              return names.length ? names.join(", ") : PUSH_LOG_NO_DEVICES;
-            }
-            const text = pushLogText(devices);
-            return text || PUSH_LOG_NO_DEVICES;
-          })()]
+          ["Devices", pushLogDeviceList(row && row.devices)]
         ];
         fields.forEach((pair) => {
           const line = document.createElement("div");
