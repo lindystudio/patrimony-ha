@@ -14,10 +14,12 @@ from .const import (
     CONF_PROPERTY_ID,
     CONF_TIMEZONE,
     DOMAIN,
+    HOUSE_PATH,
     KINDS,
     SEVERITY_MODES,
     VALUE_TYPES,
 )
+from .house_identity import apply_house_identity, ha_instance_timezone, house_identity_document
 from .mapping import build_presentation_document, live_entity_fields, load_shared_mapping, merge_options, normalize_editor_payload, seed_shared_mapping
 
 try:
@@ -228,6 +230,49 @@ class PatrimonyMappingView(HomeAssistantView):
 
 
 
+
+class PatrimonyHouseView(HomeAssistantView):
+    """Display name and timezone for this house. Not a phone-sync API."""
+
+    url = HOUSE_PATH
+    name = "api:patrimony_collection:house"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def get(self, request):
+        from aiohttp import web
+
+        deny = _deny_if_not_admin(request)
+        if deny:
+            return deny
+        entry = _first_entry(self.hass)
+        if entry is None:
+            return web.json_response({"error": {"code": "not_configured"}}, status=404)
+        body = house_identity_document(entry)
+        body["homeAssistantTimezone"] = ha_instance_timezone(self.hass)
+        return web.json_response(body)
+
+    async def post(self, request):
+        from aiohttp import web
+
+        deny = _deny_if_not_admin(request)
+        if deny:
+            return deny
+        entry = _first_entry(self.hass)
+        if entry is None:
+            return web.json_response({"error": {"code": "not_configured"}}, status=404)
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": {"code": "invalid_json"}}, status=400)
+        if not isinstance(payload, dict):
+            return web.json_response({"error": {"code": "invalid_json"}}, status=400)
+        body, status = apply_house_identity(self.hass, entry, payload)
+        return web.json_response(body, status=status)
+
+
 def _mapped_entity_ids(hass: HomeAssistant) -> set:
     entry = _first_entry(hass)
     if entry is None:
@@ -255,6 +300,7 @@ async def async_setup_panel(hass: HomeAssistant) -> None:
     hass.http.register_view(PatrimonyPreviewView(hass))
     hass.http.register_view(PatrimonyEntitiesView(hass))
     hass.http.register_view(PatrimonyMappingView(hass))
+    hass.http.register_view(PatrimonyHouseView(hass))
     ver = _component_version()
     iframe_url = f"/api/patrimony_collection/ui?v={ver}"
     try:

@@ -434,6 +434,18 @@
       <section class="soon-card" id="soon_home">
         <h2>Home settings</h2>
         <p class="quiet">The face of the pass, the house file, and who may join.</p>
+        <h3>Name and time</h3>
+        <label for="house_display_name">Display name</label>
+        <input id="house_display_name" maxlength="120" autocomplete="off" aria-label="Display name" />
+        <p class="quiet">Shown on this house in Home Assistant. Phones keep their own name.</p>
+        <label for="house_timezone">Timezone</label>
+        <input id="house_timezone" maxlength="80" autocomplete="off" aria-label="Timezone" placeholder="IANA timezone" />
+        <div class="actions">
+          <button class="primary" type="button" id="house_identity_save">Save</button>
+          <button class="ghost" type="button" id="house_tz_from_ha">Use this Home Assistant's timezone</button>
+        </div>
+        <p class="quiet" id="house_ha_zone_line">This Home Assistant's timezone is <span id="house_ha_zone">—</span>.</p>
+        <p class="status" id="house_identity_status"></p>
         <h3>Photograph</h3>
         <p class="quiet">The face of the pass.</p>
         <div class="still still-empty" id="photo_still">
@@ -1692,6 +1704,7 @@
       try {
         await MODE_LOAD();
         fillHouseBar();
+        try { await loadHouseIdentity(); } catch (e) { if (sessionExpired) throw e; }
         try { await loadPeople(); } catch (e) {
           if (sessionExpired) throw e;
           $("people_status").textContent = "Could not load people";
@@ -1780,6 +1793,7 @@
     const PUSH_LOG_NO_DEVICES = "No iOS client registered";
     const MANUAL_SEND_CLASS = "manual.send";
     const IOS_SESSION_PATH = '/api/patrimony_collection/ios_session';
+    const HOUSE_PATH = '/api/patrimony_collection/house';
 
     let activeTab = "cards";
 
@@ -2769,8 +2783,85 @@
       if (which === "conn" && !sessionExpired && typeof checkConnections === "function") checkConnections();
       if (which === "pushlog" && !sessionExpired && typeof loadPushLog === "function") loadPushLog();
     }
+
+    function fillHouseIdentity(doc) {
+      const name = (doc && (doc.displayName || doc.display_name)) || "";
+      const zone = (doc && doc.timezone) || "";
+      const ha = (doc && doc.homeAssistantTimezone) || "";
+      const nameEl = $("house_display_name");
+      const zoneEl = $("house_timezone");
+      if (nameEl && document.activeElement !== nameEl) nameEl.value = name;
+      if (zoneEl && document.activeElement !== zoneEl) zoneEl.value = zone;
+      if ($("house_ha_zone")) $("house_ha_zone").textContent = ha || "—";
+      if ($("soon_zone") && zone) $("soon_zone").textContent = zone;
+    }
+    async function loadHouseIdentity() {
+      try {
+        fillHouseIdentity(await api(HOUSE_PATH));
+      } catch (e) {
+        if (sessionExpired) return;
+        const p = (preview && preview.property) || {};
+        const m = houseMeta || {};
+        fillHouseIdentity({
+          displayName: p.displayName || m.displayName || m.display_name || "",
+          timezone: p.timezone || m.timezone || "",
+          homeAssistantTimezone: ""
+        });
+      }
+    }
+    async function saveHouseIdentity(copyTz) {
+      if (sessionExpired) { markSessionExpired(); return; }
+      const status = $("house_identity_status");
+      const saveBtn = $("house_identity_save");
+      const copyBtn = $("house_tz_from_ha");
+      if (saveBtn) saveBtn.disabled = true;
+      if (copyBtn) copyBtn.disabled = true;
+      if (status) status.textContent = "Saving…";
+      const body = copyTz
+        ? { copyTimezoneFromHomeAssistant: true }
+        : {
+            displayName: (($("house_display_name") && $("house_display_name").value) || "").trim(),
+            timezone: (($("house_timezone") && $("house_timezone").value) || "").trim()
+          };
+      try {
+        const r = await bin(HOUSE_PATH, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        let doc = null;
+        const raw = await r.text();
+        try { doc = raw ? JSON.parse(raw) : null; } catch (e) { doc = null; }
+        if (!r.ok || !doc || doc.ok !== true) {
+          const msg = doc && doc.error && doc.error.message ? String(doc.error.message) : "Could not save";
+          if (status) status.textContent = msg;
+          return;
+        }
+        fillHouseIdentity(doc);
+        preview = preview || { property: {}, cards: [] };
+        preview.property = preview.property || {};
+        if (!copyTz) preview.property.displayName = doc.displayName;
+        preview.property.timezone = doc.timezone;
+        houseMeta = houseMeta || {};
+        if (!copyTz) {
+          houseMeta.displayName = doc.displayName;
+          houseMeta.display_name = doc.displayName;
+        }
+        houseMeta.timezone = doc.timezone;
+        fillHouseBar();
+        fillSoonMeta();
+        if (status) status.textContent = copyTz ? "Timezone updated" : "Saved";
+      } catch (e) {
+        if (status) status.textContent = "Could not save";
+      } finally {
+        if (saveBtn) saveBtn.disabled = false;
+        if (copyBtn) copyBtn.disabled = false;
+      }
+    }
+
     async function loadSoon() {
       fillSoonMeta();
+      loadHouseIdentity();
       loadPhoto();
       if (!notesTimer) loadNotes();
       loadNotifyConfigured();
@@ -2799,6 +2890,8 @@
       if ($("conn_check")) $("conn_check").onclick = checkConnections;
       if ($("conn_pq_rotate")) $("conn_pq_rotate").onclick = () => runPqAction("rotate");
       if ($("conn_pq_disable")) $("conn_pq_disable").onclick = () => runPqAction("disable");
+      if ($("house_identity_save")) $("house_identity_save").onclick = () => saveHouseIdentity(false);
+      if ($("house_tz_from_ha")) $("house_tz_from_ha").onclick = () => saveHouseIdentity(true);
       if ($("notify_send")) $("notify_send").onclick = sendNotify;
       if ($("notify_title")) $("notify_title").addEventListener("keydown", (ev) => {
         if (ev.key === "Enter") { ev.preventDefault(); sendNotify(); }

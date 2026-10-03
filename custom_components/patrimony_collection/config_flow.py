@@ -151,11 +151,16 @@ class PatrimonyCollectionConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._property_id = str(uuid4()).lower()
                 return await self.async_step_confirm()
 
+        from .house_identity import ha_instance_timezone
+
         schema = vol.Schema(
             {
                 vol.Required(CONF_DISPLAY_NAME): str,
                 vol.Optional(CONF_LOCATION_LABEL, default=""): str,
-                vol.Required(CONF_TIMEZONE, default="UTC"): str,
+                vol.Required(
+                    CONF_TIMEZONE,
+                    default=ha_instance_timezone(getattr(self, "hass", None)),
+                ): str,
                 vol.Optional(CONF_ALREADY_HAVE_PROPERTY_ID, default=False): bool,
             }
         )
