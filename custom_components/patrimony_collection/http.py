@@ -520,6 +520,8 @@ async def async_setup_http(hass: HomeAssistant) -> None:
     hass.http.register_view(PatrimonyEventKeyView(hass))
     hass.http.register_view(PatrimonyIosSessionView(hass))
     hass.http.register_view(PatrimonyPushLogView(hass))
+    from .chat import register_views as register_chat_views
+    register_chat_views(hass)
     from .pq_shield import async_setup_pq_shield, register_pq_shield_views
     await async_setup_pq_shield(hass)
     register_pq_shield_views(hass)

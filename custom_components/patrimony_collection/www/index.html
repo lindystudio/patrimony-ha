@@ -109,6 +109,18 @@
     .house-sub.is-active {
       opacity: 1; color: var(--gold); border-bottom-color: var(--gold);
     }
+    .house-subnav { flex-wrap: wrap; }
+    .chat-log { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; }
+    .chat-row {
+      border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px;
+      background: #151210;
+    }
+    .chat-meta {
+      display: flex; justify-content: space-between; gap: 8px;
+      font-size: 12px; opacity: .75;
+    }
+    .chat-body { margin: 4px 0 6px; white-space: pre-wrap; word-break: break-word; }
+    .chat-row .danger { padding: 4px 8px; font-size: 12px; }
     .wrap {
       display: flex; flex-direction: column; gap: 12px;
       padding: 14px 14px 36px; width: 100%;
@@ -430,6 +442,7 @@
         <button type="button" class="house-sub is-active" id="sub_home" data-house-sub="home" role="tab" aria-selected="true">Home settings</button>
         <button type="button" class="house-sub" id="sub_conn" data-house-sub="conn" role="tab" aria-selected="false">Connections</button>
         <button type="button" class="house-sub" id="sub_pushlog" data-house-sub="pushlog" role="tab" aria-selected="false">Push log</button>
+        <button type="button" class="house-sub" id="sub_chat" data-house-sub="chat" role="tab" aria-selected="false">Chat</button>
       </nav>
       <section class="soon-card" id="soon_home">
         <h2>Home settings</h2>
@@ -533,6 +546,25 @@
         <h2>Push log</h2>
         <p class="quiet" id="pushlog_empty">No attention pushes yet.</p>
         <div id="pushlog_rows"></div>
+      </section>
+      <section class="soon-card" id="soon_chat" hidden>
+        <h2>Chat</h2>
+        <p class="quiet">Members of this house. Kept here, not in the cloud. The house can read these messages.</p>
+        <p class="quiet" id="chat_empty">No messages.</p>
+        <div class="chat-log" id="chat_log"></div>
+        <label for="chat_text">Message</label>
+        <textarea id="chat_text" maxlength="2000" aria-label="Message" autocomplete="off"></textarea>
+        <label for="chat_retention">Keep this message</label>
+        <select id="chat_retention" aria-label="Keep this message">
+          <option value="keep">Keep</option>
+          <option value="1h">1 hour</option>
+          <option value="1d">1 day</option>
+          <option value="7d">7 days</option>
+        </select>
+        <div class="actions">
+          <button class="primary" type="button" id="chat_send">Send</button>
+          <span class="status" id="chat_status"></span>
+        </div>
       </section>
     </div>
   </div>
@@ -1794,6 +1826,7 @@
     const MANUAL_SEND_CLASS = "manual.send";
     const IOS_SESSION_PATH = '/api/patrimony_collection/ios_session';
     const HOUSE_PATH = '/api/patrimony_collection/house';
+    const CHAT_PATH = '/api/patrimony_collection/chat';
 
     let activeTab = "cards";
 
@@ -2525,12 +2558,12 @@
     function readHouseSub() {
       try {
         const v = sessionStorage.getItem(houseSubKey());
-        if (v === "conn" || v === "pushlog") return v;
+        if (v === "conn" || v === "pushlog" || v === "chat") return v;
       } catch (e) {}
       return "home";
     }
     function writeHouseSub(name) {
-      const v = (name === "conn" || name === "pushlog") ? name : "home";
+      const v = (name === "conn" || name === "pushlog" || name === "chat") ? name : "home";
       try { sessionStorage.setItem(houseSubKey(), v); } catch (e) {}
     }
     function checkedAtLabel() {
@@ -2755,14 +2788,91 @@
         if ($("notify_status")) $("notify_status").textContent = "Push failed (connection)";
       }
     }
+    function chatRetentionLabel(code) {
+      if (code === "1h") return "1 hour";
+      if (code === "1d") return "1 day";
+      if (code === "7d") return "7 days";
+      return "Keep";
+    }
+    function renderChat(doc) {
+      const log = $("chat_log");
+      const empty = $("chat_empty");
+      const messages = (doc && doc.messages) || [];
+      if (empty) empty.hidden = messages.length > 0;
+      if (!log) return;
+      log.innerHTML = messages.map(function (m) {
+        const del = m.canDelete
+          ? '<button type="button" class="danger chat-del" data-id="' + esc(m.id) + '">Delete</button>'
+          : "";
+        return '<div class="chat-row"><div class="chat-meta"><span>' + esc(m.sender) + '</span><span>' + esc(chatRetentionLabel(m.retention)) + '</span></div><p class="chat-body">' + esc(m.text) + '</p>' + del + '</div>';
+      }).join("");
+      log.querySelectorAll(".chat-del").forEach(function (btn) {
+        btn.onclick = function () { deleteChat(btn.getAttribute("data-id"), btn); };
+      });
+    }
+    async function loadChat() {
+      try {
+        renderChat(await api(CHAT_PATH));
+      } catch (e) {
+        if ($("chat_status") && !sessionExpired) $("chat_status").textContent = "Could not load chat";
+      }
+    }
+    async function sendChat() {
+      const field = $("chat_text");
+      const text = ((field && field.value) || "").trim();
+      if (!text) return;
+      const retention = (($("chat_retention") && $("chat_retention").value) || "keep");
+      const sendBtn = $("chat_send");
+      if (sendBtn) sendBtn.disabled = true;
+      if ($("chat_status")) $("chat_status").textContent = "Sending…";
+      try {
+        const r = await bin(CHAT_PATH, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: text, retention: retention })
+        });
+        if (!r.ok) {
+          if ($("chat_status")) $("chat_status").textContent = "Could not send";
+          return;
+        }
+        if (field) field.value = "";
+        if ($("chat_status")) $("chat_status").textContent = "Sent";
+        await loadChat();
+      } catch (e) {
+        if ($("chat_status")) $("chat_status").textContent = "Could not send";
+      } finally {
+        if (sendBtn) sendBtn.disabled = false;
+      }
+    }
+    async function deleteChat(id, btn) {
+      if (!id) return;
+      if (!btn.dataset.armed) {
+        btn.dataset.armed = "1";
+        btn.textContent = "Delete?";
+        return;
+      }
+      try {
+        const r = await bin(CHAT_PATH + "/" + encodeURIComponent(id), { method: "DELETE" });
+        if (!r.ok) {
+          if ($("chat_status")) $("chat_status").textContent = "Could not delete";
+          return;
+        }
+        if ($("chat_status")) $("chat_status").textContent = "Deleted";
+        await loadChat();
+      } catch (e) {
+        if ($("chat_status")) $("chat_status").textContent = "Could not delete";
+      }
+    }
     function showHouseSub(name) {
-      const which = (name === "conn" || name === "pushlog") ? name : "home";
+      const which = (name === "conn" || name === "pushlog" || name === "chat") ? name : "home";
       const subHome = $("sub_home");
       const subConn = $("sub_conn");
       const subLog = $("sub_pushlog");
+      const subChat = $("sub_chat");
       const soonHome = $("soon_home");
       const soonConn = $("soon_conn");
       const soonLog = $("soon_pushlog");
+      const soonChat = $("soon_chat");
       writeHouseSub(which);
       if (subHome) {
         subHome.classList.toggle("is-active", which === "home");
@@ -2776,12 +2886,18 @@
         subLog.classList.toggle("is-active", which === "pushlog");
         subLog.setAttribute("aria-selected", which === "pushlog" ? "true" : "false");
       }
+      if (subChat) {
+        subChat.classList.toggle("is-active", which === "chat");
+        subChat.setAttribute("aria-selected", which === "chat" ? "true" : "false");
+      }
       if (soonHome) soonHome.hidden = which !== "home";
       if (soonConn) soonConn.hidden = which !== "conn";
       if (soonLog) soonLog.hidden = which !== "pushlog";
+      if (soonChat) soonChat.hidden = which !== "chat";
       // Integrator: opening Connections runs Check links once so status is live without an extra tap.
       if (which === "conn" && !sessionExpired && typeof checkConnections === "function") checkConnections();
       if (which === "pushlog" && !sessionExpired && typeof loadPushLog === "function") loadPushLog();
+      if (which === "chat" && !sessionExpired && typeof loadChat === "function") loadChat();
     }
 
     function timezoneOptionLabel(name, ha) {
@@ -2933,6 +3049,7 @@
       if ($("notify_title")) $("notify_title").addEventListener("keydown", (ev) => {
         if (ev.key === "Enter") { ev.preventDefault(); sendNotify(); }
       });
+      if ($("chat_send")) $("chat_send").onclick = sendChat;
     }
 
     bindSoon();

@@ -46,3 +46,15 @@ iOS already registers APNs device tokens with the backend. Banner title is the h
 ## Out of scope
 
 Energy, coordinates, tokens on patrimony/state, schema bump, deleting Weather/People cards.
+
+## Chat
+
+House members. On this HA only. Not on `patrimony/state`.
+
+- `GET /api/patrimony_collection/chat`
+- `POST /api/patrimony_collection/chat` with `{ "text", "retention" }`. `retention` is `keep` (default), `1h`, `1d`, or `7d`.
+- `DELETE /api/patrimony_collection/chat/{message_id}` removes the row. The sender can delete their own. The HA panel user can delete any.
+
+At rest the text is encrypted with a host key that is not in git, the presentation document, or push. Not end-to-end. Push reuses notify and the title is only `New chat message in {display_name}` or `New chat message`. No message text, sender, or preview on that path.
+
+Panel: House → Chat, same screen as Home settings.
