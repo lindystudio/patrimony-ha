@@ -22,7 +22,11 @@ from custom_components.patrimony_collection.http import (
     PatrimonyClientsView,
     PatrimonyPairingView,
 )
-from custom_components.patrimony_collection.ios_session import persist_ios_session
+from custom_components.patrimony_collection.ios_session import (
+    apply_ios_session_payload,
+    persist_ios_session,
+    store_resolved_hostname,
+)
 
 PROPERTY_ID = "00000000-0000-4000-8000-000000000099"
 T0 = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
@@ -270,3 +274,129 @@ def test_ios_session_registers_non_patrimony_client_name(tmp_path) -> None:
     assert len(doc["clients"]) == 1
     assert doc["clients"][0]["clientId"] == "rt-ha-user"
     assert doc["clients"][0]["displayName"] == "Legacy Last Write"
+
+
+def test_edited_name_survives_ios_session_and_chat(tmp_path) -> None:
+    """A saved Phones name sticks across heartbeat and chat deviceName."""
+    hass = _Hass(tmp_path)
+    before_name = hass.entry.data["display_name"]
+    before_tz = hass.entry.data["timezone"]
+    before_hek = hass.entry.options["house_event_key"]
+    # Bearer is a long-lived token, not client_name Patrimony iOS.
+    phone = _phone(hass, "rt-phone-1", user_name="admin")
+    assert hass.auth.refresh_tokens["rt-phone-1"].client_name != "Patrimony iOS"
+
+    clients_mod.upsert_client(
+        hass, "rt-phone-1", device_name="iPhone", ha_username="admin", now=T0
+    )
+    assert clients_mod.get_client(hass, "rt-phone-1")["displayName"] == "Paired phone"
+    assert clients_mod.get_client(hass, "rt-phone-1")["nameEdited"] is False
+
+    # Not-yet-edited may upgrade from the fallback once. Never the reverse.
+    body, status = apply_ios_session_payload(
+        hass,
+        {"deviceName": "Studio Handset", "appVersion": "38"},
+        "203.0.113.10",
+        now=T0,
+    )
+    assert status == 200
+    assert body == {"ok": True}
+    clients_mod.upsert_client(
+        hass,
+        "rt-phone-1",
+        device_name="Studio Handset",
+        app_version="38",
+        ha_username="admin",
+        now=T0,
+    )
+    upgraded = clients_mod.get_client(hass, "rt-phone-1")
+    assert upgraded["displayName"] == "Studio Handset"
+    assert upgraded["nameEdited"] is False
+
+    row, err = clients_mod.rename_client(hass, "rt-phone-1", "House Phone")
+    assert err is None
+    assert row["displayName"] == "House Phone"
+    assert row["nameEdited"] is True
+
+    body, status = apply_ios_session_payload(
+        hass,
+        {"deviceName": "Other Handset", "appVersion": "39"},
+        "203.0.113.10",
+        now=T0,
+    )
+    assert status == 200
+    stored = json.loads(
+        (tmp_path / "patrimony_collection" / "ios_session.json").read_text(encoding="utf-8")
+    )
+    assert stored["deviceName"] == "Other Handset"
+    assert stored["clients"][0]["displayName"] == "House Phone"
+    assert stored["clients"][0]["nameEdited"] is True
+    # Same follow-up the ios_session view does after persist.
+    clients_mod.upsert_client(
+        hass,
+        "rt-phone-1",
+        device_name="Other Handset",
+        app_version="39",
+        ha_username="admin",
+        now=T0,
+    )
+    store_resolved_hostname(hass, "203.0.113.10", "phone.example")
+    kept = clients_mod.get_client(hass, "rt-phone-1")
+    assert kept["displayName"] == "House Phone"
+    assert kept["nameEdited"] is True
+    assert kept["deviceName"] == "Other Handset"
+    assert kept["appVersion"] == "39"
+    stored = json.loads(
+        (tmp_path / "patrimony_collection" / "ios_session.json").read_text(encoding="utf-8")
+    )
+    assert stored["hostname"] == "phone.example"
+    assert stored["clients"][0]["displayName"] == "House Phone"
+    assert stored["clients"][0]["nameEdited"] is True
+
+    # A reserved deviceName must not walk an edited name back to the fallback.
+    apply_ios_session_payload(
+        hass,
+        {"deviceName": "iPhone", "appVersion": "39"},
+        "203.0.113.10",
+        now=T0,
+    )
+    clients_mod.upsert_client(
+        hass,
+        "rt-phone-1",
+        device_name="iPhone",
+        app_version="39",
+        ha_username="admin",
+        now=T0,
+    )
+    assert clients_mod.get_client(hass, "rt-phone-1")["displayName"] == "House Phone"
+    assert clients_mod.get_client(hass, "rt-phone-1")["nameEdited"] is True
+
+    msg, status = create_message(
+        hass,
+        phone,
+        {"text": "after-rename", "deviceName": "Third Name"},
+        now=T0,
+    )
+    assert status == 201
+    assert msg["sender"] == "House Phone"
+    assert msg["senderKind"] == "ios"
+    assert msg["sender"] != "Third Name"
+    assert msg["sender"] != "Paired phone"
+    assert msg["sender"] != "admin"
+    assert msg["sender"] != "iPhone"
+    chat = json.loads(
+        (tmp_path / "patrimony_collection" / "chat.json").read_text(encoding="utf-8")
+    )
+    assert chat["messages"][-1]["senderLabel"] == "House Phone"
+    assert clients_mod.get_client(hass, "rt-phone-1")["displayName"] == "House Phone"
+    assert clients_mod.get_client(hass, "rt-phone-1")["nameEdited"] is True
+
+    panel = _Req(_User("admin"))
+    panel_body, status = create_message(hass, panel, {"text": "from-panel"}, now=T0)
+    assert status == 201
+    assert panel_body["sender"] == "admin"
+    assert panel_body["senderKind"] == "panel"
+
+    assert hass.entry.data["display_name"] == before_name
+    assert hass.entry.data["timezone"] == before_tz
+    assert hass.entry.options["house_event_key"] == before_hek

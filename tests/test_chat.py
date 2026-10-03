@@ -359,13 +359,16 @@ def test_device_name_wins_when_bearer_is_not_paired_ios(tmp_path) -> None:
 
     ios = _ios_request(hass, "Stored Session Phone", user_name="admin")
     assert chat_mod.is_ios_client(hass, ios) is True
+    # The session write must keep the other credential's row. This token has
+    # no row of its own, so the label is that saved phone, not the HA user.
     missing_ios, status = create_message(
         hass, ios, {"text": "phone-line-missing-ios"}, now=T0
     )
     assert status == 201
-    assert missing_ios["sender"] == "Stored Session Phone"
+    assert missing_ios["sender"] == "Kitchen iPhone"
     assert missing_ios["senderKind"] == "ios"
     assert missing_ios["sender"] != "admin"
+    assert missing_ios["sender"] != "Paired phone"
 
 
 

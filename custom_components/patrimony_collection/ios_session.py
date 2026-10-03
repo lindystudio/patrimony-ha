@@ -174,7 +174,12 @@ def persist_ios_session(
     model: str | None = None,
     hostname: str | None = None,
 ) -> dict[str, Any]:
-    """Overwrite last session. Callers must already have validated fields."""
+    """Update last-session fields. Keep the paired-client registry.
+
+    Callers must already have validated fields. ``clients`` (displayName,
+    nameEdited, and the rest of each row) is copied from the file that is
+    already on disk. This write must not recreate a phone as "Paired phone".
+    """
     payload: dict[str, Any] = {
         "deviceName": device_name,
         "appVersion": app_version,
@@ -187,6 +192,9 @@ def persist_ios_session(
         payload["model"] = model
     if hostname:
         payload["hostname"] = hostname
+    previous = load_ios_session(hass)
+    if isinstance(previous, dict) and "clients" in previous:
+        payload["clients"] = previous["clients"]
     path = ios_session_path(hass)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n")
@@ -247,6 +255,8 @@ def store_resolved_hostname(hass, ip: str, hostname: str) -> None:
     if not host or host == str(ip or "").strip() or len(host) > IOS_HOSTNAME_MAX:
         return
     raw["hostname"] = host
+    # raw is the full document, including clients when present. Do not
+    # rebuild it: displayName and nameEdited must survive PTR.
     path = ios_session_path(hass)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(raw, indent=2) + "\n")
