@@ -11,6 +11,7 @@ from custom_components.patrimony_collection.chat import (
     CHAT_PUSH_GENERIC,
     PatrimonyChatImageView,
     PatrimonyChatMessageView,
+    PatrimonyChatReadView,
     PatrimonyChatView,
     chat_path,
     chat_push_title,
@@ -18,10 +19,12 @@ from custom_components.patrimony_collection.chat import (
     delete_message,
     handle_get,
     handle_post,
+    handle_read,
     key_path,
     notify_house_chat,
     read_chat_image,
 )
+from custom_components.patrimony_collection import clients as clients_mod
 from custom_components.patrimony_collection import chat as chat_mod
 from custom_components.patrimony_collection.const import PAIR_CLIENT_NAME
 from custom_components.patrimony_collection.ios_session import persist_ios_session
@@ -220,7 +223,7 @@ def test_sender_is_ha_user_or_device_name(tmp_path) -> None:
     persist_ios_session(hass, device_name="Kitchen iPad", app_version="1.0", ip="127.0.0.1")
     panel, status = create_message(hass, _panel("Ada Lovelace"), {"text": "panel-line-441"}, now=T0)
     assert status == 201
-    assert panel["sender"] == "Ada Lovelace"
+    assert panel["sender"] == "HA (Ada Lovelace)"
     assert panel["senderKind"] == "panel"
     assert panel["sender"] != "Kitchen iPad"
     assert panel["sender"] != "North House"
@@ -304,7 +307,7 @@ def test_ios_post_prefers_payload_device_name(tmp_path) -> None:
         now=T0,
     )
     assert status == 201
-    assert plain_panel["sender"] == "Ada Lovelace"
+    assert plain_panel["sender"] == "HA (Ada Lovelace)"
     assert plain_panel["senderKind"] == "panel"
 
 
@@ -620,3 +623,248 @@ def test_image_round_trip_hides_bytes_and_push(tmp_path, monkeypatch) -> None:
     assert "imageContentType" not in plain
     assert PatrimonyChatImageView.url == "/api/patrimony_collection/chat/{message_id}/image"
     assert PatrimonyChatImageView.requires_auth is True
+
+
+def test_panel_sender_is_ha_username_and_old_rows_stay(tmp_path) -> None:
+    """New panel posts are HA (username). A stored label is not rewritten."""
+    hass = _Hass(tmp_path, _Entry())
+    created, status = create_message(
+        hass, _panel("admin", "user-admin"), {"text": "legacy-panel-line"}, now=T0
+    )
+    assert status == 201
+    store = json.loads(_raw(hass))
+    store["messages"][0]["senderLabel"] = "admin"
+    store["messages"][0].pop("senderClientId", None)
+    chat_path(hass).write_text(json.dumps(store, indent=2) + "\n", encoding="utf-8")
+
+    listed, code = handle_get(hass, _panel("admin", "user-admin"), now=T0)
+    assert code == 200
+    assert listed["messages"][0]["sender"] == "admin"
+    assert listed["messages"][0]["senderKind"] == "panel"
+    kept = json.loads(_raw(hass))
+    assert kept["messages"][0]["senderLabel"] == "admin"
+    assert "senderClientId" not in kept["messages"][0]
+
+    fresh, status = create_message(
+        hass, _panel("admin", "user-admin"), {"text": "new-panel-line"}, now=T0
+    )
+    assert status == 201
+    assert fresh["sender"] == "HA (admin)"
+    assert fresh["senderKind"] == "panel"
+    assert fresh["deliveredToOther"] is False
+    assert fresh["readByOther"] is False
+    after = json.loads(_raw(hass))
+    assert after["messages"][0]["senderLabel"] == "admin"
+    assert after["messages"][1]["senderLabel"] == "HA (admin)"
+    assert "senderClientId" not in after["messages"][1]
+
+
+def _pair(hass, client_id, display, user_name="admin"):
+    clients_mod.upsert_client(
+        hass, client_id, device_name=display, ha_username=user_name, now=T0
+    )
+    clients_mod.rename_client(hass, client_id, display)
+    return _ios_request(hass, display, user_name=user_name, client_id=client_id)
+
+
+def test_ios_sender_stays_saved_display_name(tmp_path) -> None:
+    hass = _Hass(tmp_path, _Entry())
+    phone = _pair(hass, "rt-saved", "House Phone")
+    body, status = create_message(
+        hass,
+        phone,
+        {"text": "from-saved-name", "deviceName": "Paired phone"},
+        now=T0,
+    )
+    assert status == 201
+    assert body["sender"] == "House Phone"
+    assert body["senderKind"] == "ios"
+    assert body["sender"] != "HA (admin)"
+    assert body["sender"] != "Paired phone"
+    assert body["sender"] != "admin"
+    stored = clients_mod.get_client(hass, "rt-saved")
+    assert stored["displayName"] == "House Phone"
+    assert stored["nameEdited"] is True
+    raw = json.loads(_raw(hass))
+    assert raw["messages"][0]["senderLabel"] == "House Phone"
+    assert raw["messages"][0]["senderClientId"] == "rt-saved"
+
+
+def test_receipts_are_booleans_and_exclude_sender_and_panel(tmp_path) -> None:
+    hass = _Hass(tmp_path, _Entry())
+    phone_a = _pair(hass, "rt-a", "Phone A")
+    phone_b = _pair(hass, "rt-b", "Phone B")
+    panel = _panel("admin", "user-admin")
+
+    first, status = create_message(hass, phone_a, {"text": "from-a"}, now=T0)
+    assert status == 201
+    assert first["deliveredToOther"] is False
+    assert first["readByOther"] is False
+    assert isinstance(first["deliveredToOther"], bool)
+    assert isinstance(first["readByOther"], bool)
+
+    own, code = handle_get(hass, phone_a, now=T0)
+    assert code == 200
+    assert own["messages"][0]["deliveredToOther"] is False
+    assert own["messages"][0]["readByOther"] is False
+    raw = json.loads(_raw(hass))
+    assert raw["messages"][0].get("deliveredClientIds") in (None, [])
+
+    panel_list, code = handle_get(hass, panel, now=T0)
+    assert code == 200
+    assert panel_list["messages"][0]["deliveredToOther"] is False
+    raw = json.loads(_raw(hass))
+    assert "rt-a" not in raw["messages"][0].get("deliveredClientIds", [])
+    assert "panel" not in json.dumps(raw["messages"][0].get("deliveredClientIds", []))
+
+    other, code = handle_get(hass, phone_b, now=T0)
+    assert code == 200
+    assert other["messages"][0]["deliveredToOther"] is True
+    assert other["messages"][0]["readByOther"] is False
+    keys = set(other["messages"][0])
+    assert "deliveredClientIds" not in keys
+    assert "senderClientId" not in keys
+    assert "readCursors" not in keys
+    blob = json.dumps(other)
+    assert "hek_" not in blob
+    assert "deliveredClientIds" not in blob
+
+    again, _ = handle_get(hass, phone_a, now=T0)
+    assert again["messages"][0]["deliveredToOther"] is True
+
+    # Sender cursor does not count as read by other.
+    marked, status = handle_read(
+        hass, phone_a, {"lastSeenMessageId": first["id"]}, now=T0
+    )
+    assert status == 200
+    assert marked == {"ok": True}
+    after_own, _ = handle_get(hass, phone_b, now=T0)
+    assert after_own["messages"][0]["readByOther"] is False
+
+    second, status = create_message(
+        hass, phone_a, {"text": "from-a-2"}, now=T0 + timedelta(minutes=1)
+    )
+    assert status == 201
+    assert second["deliveredToOther"] is False
+    assert second["readByOther"] is False
+
+    # Phone B's GET delivers the later message. Their cursor is still on the first.
+    seen_second, code = handle_get(hass, phone_b, now=T0 + timedelta(minutes=1))
+    assert code == 200
+    assert seen_second["messages"][1]["deliveredToOther"] is True
+    assert seen_second["messages"][1]["readByOther"] is False
+
+    # Cursor at the first message does not cover the later one.
+    mid, status = handle_read(
+        hass, phone_b, {"lastSeenMessageId": first["id"]}, now=T0
+    )
+    assert status == 200
+    listed, _ = handle_get(hass, phone_a, now=T0)
+    by_id = {row["id"]: row for row in listed["messages"]}
+    assert by_id[first["id"]]["readByOther"] is True
+    assert by_id[second["id"]]["readByOther"] is False
+    assert by_id[second["id"]]["deliveredToOther"] is True
+
+    # At or past the later message covers both. Older id does not move back.
+    later, status = handle_read(
+        hass, phone_b, {"lastSeenMessageId": second["id"]}, now=T0
+    )
+    assert status == 200
+    stale, status = handle_read(
+        hass, phone_b, {"lastSeenMessageId": first["id"]}, now=T0
+    )
+    assert status == 200
+    assert stale == {"ok": True}
+    listed, _ = handle_get(hass, panel, now=T0)
+    by_id = {row["id"]: row for row in listed["messages"]}
+    assert by_id[first["id"]]["readByOther"] is True
+    assert by_id[second["id"]]["readByOther"] is True
+    cursors = json.loads(_raw(hass))["readCursors"]
+    assert cursors["rt-b"] == second["id"]
+
+    unknown, status = handle_read(
+        hass, phone_b, {"lastSeenMessageId": "not-a-message"}, now=T0
+    )
+    assert status == 400
+    assert unknown["error"]["code"] == "unknown_message"
+    missing, status = handle_read(hass, phone_b, {}, now=T0)
+    assert status == 400
+    assert missing["error"]["code"] == "unknown_message"
+    assert json.loads(_raw(hass))["readCursors"]["rt-b"] == second["id"]
+
+    denied, status = handle_read(
+        hass, panel, {"lastSeenMessageId": second["id"]}, now=T0
+    )
+    assert status == 403
+    assert json.loads(_raw(hass))["readCursors"]["rt-b"] == second["id"]
+    assert "user-admin" not in json.dumps(json.loads(_raw(hass))["readCursors"])
+
+    # The only phone does not flip either flag on its own message.
+    solo = _Hass(tmp_path / "solo", _Entry())
+    only = _pair(solo, "rt-only", "Only Phone")
+    mine, status = create_message(solo, only, {"text": "solo-line"}, now=T0)
+    assert status == 201
+    seen, _ = handle_get(solo, only, now=T0)
+    assert seen["messages"][0]["deliveredToOther"] is False
+    cursor, status = handle_read(
+        solo, only, {"lastSeenMessageId": mine["id"]}, now=T0
+    )
+    assert status == 200
+    seen, _ = handle_get(solo, only, now=T0)
+    assert seen["messages"][0]["deliveredToOther"] is False
+    assert seen["messages"][0]["readByOther"] is False
+
+    # Unpaired client does not count.
+    clients_mod.mark_unpaired(hass, "rt-b", now=T0)
+    listed, _ = handle_get(hass, phone_a, now=T0)
+    by_id = {row["id"]: row for row in listed["messages"]}
+    assert by_id[first["id"]]["deliveredToOther"] is False
+    assert by_id[first["id"]]["readByOther"] is False
+
+    assert PatrimonyChatReadView.url == "/api/patrimony_collection/chat/read"
+    assert PatrimonyChatReadView.requires_auth is True
+
+
+def test_old_row_without_sender_client_id_matches_display_name(tmp_path) -> None:
+    hass = _Hass(tmp_path, _Entry())
+    phone_a = _pair(hass, "rt-a", "Phone A")
+    phone_b = _pair(hass, "rt-b", "Phone B")
+    created, status = create_message(hass, phone_a, {"text": "legacy-ios"}, now=T0)
+    assert status == 201
+    store = json.loads(_raw(hass))
+    store["messages"][0]["senderLabel"] = "Phone A"
+    store["messages"][0].pop("senderClientId", None)
+    # Second row is rewritten to a label no phone currently uses.
+    chat_path(hass).write_text(json.dumps(store, indent=2) + "\n", encoding="utf-8")
+    panel_msg, status = create_message(
+        hass, _panel("admin"), {"text": "legacy-panel"}, now=T0
+    )
+    assert status == 201
+    store = json.loads(_raw(hass))
+    assert store["messages"][0]["senderLabel"] == "Phone A"
+    store["messages"][1]["senderLabel"] = "Someone Else"
+    store["messages"][1].pop("senderClientId", None)
+    chat_path(hass).write_text(json.dumps(store, indent=2) + "\n", encoding="utf-8")
+
+    # Phone A is the name-matched sender of the first row, so their GET
+    # does not deliver it. It does deliver the unmatched panel row.
+    listed, code = handle_get(hass, phone_a, now=T0)
+    assert code == 200
+    assert listed["messages"][0]["sender"] == "Phone A"
+    assert listed["messages"][0]["deliveredToOther"] is False
+    assert listed["messages"][1]["sender"] == "Someone Else"
+    assert listed["messages"][1]["deliveredToOther"] is True
+    raw = json.loads(_raw(hass))
+    assert raw["messages"][0]["senderLabel"] == "Phone A"
+    assert "senderClientId" not in raw["messages"][0]
+    assert "rt-a" not in raw["messages"][0].get("deliveredClientIds", [])
+    assert "rt-a" in raw["messages"][1]["deliveredClientIds"]
+
+    # Phone A's cursor does not read their name-matched row. It does read the other.
+    status_code = handle_read(hass, phone_a, {"lastSeenMessageId": panel_msg["id"]}, now=T0)[1]
+    assert status_code == 200
+    listed, _ = handle_get(hass, phone_b, now=T0)
+    assert listed["messages"][0]["deliveredToOther"] is True
+    assert listed["messages"][0]["readByOther"] is False
+    assert listed["messages"][1]["readByOther"] is True
+    assert listed["messages"][1]["deliveredToOther"] is True

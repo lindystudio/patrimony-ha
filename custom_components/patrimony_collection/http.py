@@ -536,7 +536,10 @@ class PatrimonyPairingView(HomeAssistantView):
 
 
 class PatrimonyClientsView(HomeAssistantView):
-    """Panel list of paired iOS clients. Admin only."""
+    """Paired iOS clients. Admin, or the calling bearer when it is an active paired client.
+
+    JSON is panel_clients_document. Rename and unpair stay admin-only.
+    """
 
     url = CLIENTS_PATH
     name = "api:patrimony_collection:clients"
@@ -548,9 +551,8 @@ class PatrimonyClientsView(HomeAssistantView):
     async def get(self, request):
         from aiohttp import web
 
-        deny = _deny_if_not_admin(request)
-        if deny:
-            return deny
+        if not house_clients.clients_list_allowed(self.hass, request):
+            return web.json_response({"error": {"code": "forbidden"}}, status=403)
         if _first_entry(self.hass) is None:
             return _not_configured()
         return web.json_response(house_clients.panel_clients_document(self.hass))

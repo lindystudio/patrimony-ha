@@ -15,12 +15,17 @@ HTTP (same HA Bearer as /api/patrimony_collection/state):
     from a real deviceName). Later POST deviceName values do not overwrite
     an edited name. A non-empty deviceName still registers / labels a
     phone bearer even when is_ios_client is false (0.4.79). The panel
-    chat window does not send deviceName and stays the HA username.
+    chat window does not send deviceName. A post that is not a paired
+    client uses sender label "HA ({username})". Old stored labels are not rewritten.
     imageBase64 and imageContentType are optional. text may be empty
     when an image is present. Both empty is rejected.
 - GET  /api/patrimony_collection/chat/{message_id}/image
     raw image bytes. 404 when that message has no image.
 - DELETE /api/patrimony_collection/chat/{message_id}
+- POST /api/patrimony_collection/chat/read
+    {"lastSeenMessageId": "<id>"}
+    Paired client only. Cursor is per client and monotonic.
+    200 {"ok": true}. Unknown id is 400 unknown_message.
 
 Message text and image bytes are encrypted at rest. The key file stays
 on the HA host. The list does not inline image bytes. Delete and expiry
@@ -55,6 +60,7 @@ from .const import (
     CHAT_KEY_FILE,
     CHAT_MESSAGE_PATH,
     CHAT_PATH,
+    CHAT_READ_PATH,
     CHAT_TEXT_MAX,
     CONF_DISPLAY_NAME,
     CONF_HOUSE_EVENT_KEY,
@@ -275,6 +281,13 @@ def _write_store(hass, store: dict[str, Any]) -> None:
         "schemaVersion": SCHEMA_VERSION,
         "messages": list(store.get("messages") or []),
     }
+    cursors = store.get("readCursors")
+    if isinstance(cursors, dict) and cursors:
+        payload["readCursors"] = {
+            str(k): str(v)
+            for k, v in cursors.items()
+            if str(k).strip() and str(v).strip()
+        }
     text = json.dumps(payload, indent=2) + "\n"
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(text, encoding="utf-8")
@@ -437,6 +450,11 @@ def ios_sender_label(hass) -> str:
     return PAIR_CLIENT_NAME
 
 
+def panel_sender_label(user) -> str:
+    """New panel posts only. Stored rows keep the label they were written with."""
+    return "HA (" + _user_name(user) + ")"
+
+
 def caller_identity(hass, request) -> dict[str, str]:
     user = request_user(request)
     client_id = house_clients.request_client_id(request)
@@ -448,7 +466,7 @@ def caller_identity(hass, request) -> dict[str, str]:
     if is_ios_client(hass, request):
         label = ios_sender_label(hass)
         return {"kind": "ios", "label": label, "key": "ios:" + (client_id or label)}
-    label = _user_name(user)
+    label = panel_sender_label(user)
     uid = _user_id(user)
     key = "panel:" + (uid or label)
     return {"kind": "panel", "label": label, "key": key}
@@ -464,10 +482,123 @@ def _can_delete(caller: dict[str, str], row: dict[str, Any]) -> bool:
     )
 
 
-def _public_row(caller: dict[str, str], row: dict[str, Any], text: str) -> dict[str, Any]:
-    """List shape. hasImage is a flag. Image bytes stay off this document."""
+def _active_clients(hass) -> list[dict[str, Any]]:
+    try:
+        rows = house_clients.load_clients(hass)
+    except Exception:
+        return []
+    return [row for row in rows if row.get("status") == house_clients.STATUS_ACTIVE]
+
+
+def _active_paired_client_id(hass, request) -> str | None:
+    """JWT iss only when it is a currently active paired client. Else panel."""
+    client_id = house_clients.request_client_id(request)
+    if not client_id:
+        return None
+    for row in _active_clients(hass):
+        if row.get("clientId") == client_id:
+            return client_id
+    return None
+
+
+def _index_by_id(rows: list[dict[str, Any]]) -> dict[str, int]:
+    found: dict[str, int] = {}
+    for index, row in enumerate(rows):
+        mid = str(row.get("id") or "")
+        if mid and mid not in found:
+            found[mid] = index
+    return found
+
+
+def _sender_client_ids(row: dict[str, Any], active: list[dict[str, Any]]) -> set[str]:
+    """Who must not count as other. New rows store senderClientId.
+
+    Old rows are not rewritten. If the stored sender string equals a
+    client's current display name, that client is the sender. No match
+    means a panel-authored row: any paired client can count.
+    """
+    stored = row.get("senderClientId")
+    if isinstance(stored, str) and stored.strip():
+        return {stored.strip()}
+    label = row.get("senderLabel")
+    if not isinstance(label, str) or not label:
+        return set()
+    return {
+        str(client.get("clientId") or "")
+        for client in active
+        if client.get("displayName") == label and client.get("clientId")
+    }
+
+
+def receipt_flags(
+    row: dict[str, Any],
+    rows: list[dict[str, Any]],
+    active: list[dict[str, Any]],
+    cursors: dict[str, Any],
+) -> tuple[bool, bool]:
+    """Booleans only. Sender never counts. Inactive clients never count."""
+    index = _index_by_id(rows)
+    senders = _sender_client_ids(row, active)
+    active_ids = {str(client.get("clientId") or "") for client in active if client.get("clientId")}
+    delivered = row.get("deliveredClientIds")
+    if not isinstance(delivered, list):
+        delivered = []
+    delivered_to_other = any(
+        isinstance(cid, str) and cid in active_ids and cid not in senders for cid in delivered
+    )
+    my_index = index.get(str(row.get("id") or ""))
+    read_by_other = False
+    if my_index is not None and isinstance(cursors, dict):
+        for cid, seen in cursors.items():
+            if not isinstance(cid, str) or cid not in active_ids or cid in senders:
+                continue
+            seen_index = index.get(str(seen))
+            if seen_index is not None and seen_index >= my_index:
+                read_by_other = True
+                break
+    return delivered_to_other, read_by_other
+
+
+def _mark_delivered(store: dict[str, Any], client_id: str, active: list[dict[str, Any]]) -> bool:
+    """This paired client received every message they did not send."""
+    changed = False
+    for row in store.get("messages") or []:
+        if client_id in _sender_client_ids(row, active):
+            continue
+        delivered = row.get("deliveredClientIds")
+        if not isinstance(delivered, list):
+            delivered = []
+        if client_id in delivered:
+            continue
+        delivered.append(client_id)
+        row["deliveredClientIds"] = delivered
+        changed = True
+    return changed
+
+
+def _cursors(store: dict[str, Any]) -> dict[str, Any]:
+    raw = store.get("readCursors")
+    return raw if isinstance(raw, dict) else {}
+
+
+def _public_row(
+    caller: dict[str, str],
+    row: dict[str, Any],
+    text: str,
+    rows: list[dict[str, Any]] | None = None,
+    active: list[dict[str, Any]] | None = None,
+    cursors: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """List shape. hasImage is a flag. Image bytes stay off this document.
+
+    deliveredToOther and readByOther are booleans. No client-id lists.
+    """
     ctype = row.get("imageContentType")
     has_image = isinstance(ctype, str) and ctype in IMAGE_TYPES and bool(row.get("imageCiphertext"))
+    if rows is None:
+        delivered, read = False, False
+    else:
+        delivered, read = receipt_flags(row, rows, active or [], cursors or {})
     out = {
         "id": row.get("id"),
         "sender": row.get("senderLabel") or "",
@@ -478,6 +609,8 @@ def _public_row(caller: dict[str, str], row: dict[str, Any], text: str) -> dict[
         "expiresAt": row.get("expiresAt"),
         "canDelete": _can_delete(caller, row),
         "hasImage": has_image,
+        "deliveredToOther": bool(delivered),
+        "readByOther": bool(read),
     }
     if has_image:
         out["imageContentType"] = ctype
@@ -492,14 +625,22 @@ def list_document(hass, request, now: datetime | None = None) -> dict[str, Any]:
     moment = _utc(now)
     store = _read_store(hass)
     changed = _purge(store, moment)
+    active = _active_clients(hass)
+    # Panel GETs must not mark delivery. Only a paired client's GET does,
+    # and only for messages that client did not send.
+    caller_id = _active_paired_client_id(hass, request)
+    if caller_id and _mark_delivered(store, caller_id, active):
+        changed = True
     key = load_chat_key(hass)
     caller = caller_identity(hass, request)
+    rows = list(store.get("messages") or [])
+    cursors = _cursors(store)
     public: list[dict[str, Any]] = []
-    for row in store.get("messages") or []:
-        text = _open(key, str(row.get("id") or ""), row.get("nonce"), row.get("ciphertext"))
-        if text is None:
+    for row in rows:
+        opened = _open(key, str(row.get("id") or ""), row.get("nonce"), row.get("ciphertext"))
+        if opened is None:
             continue
-        public.append(_public_row(caller, row, text))
+        public.append(_public_row(caller, row, opened, rows, active, cursors))
     if changed:
         _write_store(hass, store)
     return {"schemaVersion": SCHEMA_VERSION, "messages": public}
@@ -590,7 +731,7 @@ def create_message(hass, request, payload: Any, now: datetime | None = None) -> 
         posted = _safe_name(payload.get("deviceName"))
         # Prefer the paired-client registry (match by credential / JWT iss),
         # not client_name == "Patrimony iOS". Edited display names win over
-        # a later POST deviceName. Panel posts without deviceName stay HA user.
+        # a later POST deviceName. Panel posts without deviceName use HA (username).
         registered = house_clients.client_sender_label(hass, request, posted)
         if registered is not None:
             caller = registered
@@ -621,6 +762,10 @@ def create_message(hass, request, payload: Any, now: datetime | None = None) -> 
             row["imageContentType"] = image_type
             row["imageNonce"] = image_nonce
             row["imageCiphertext"] = image_ct
+        if caller.get("kind") == "ios":
+            sender_client = house_clients.request_client_id(request)
+            if sender_client:
+                row["senderClientId"] = sender_client
         rows = list(store.get("messages") or [])
         rows.append(row)
         if len(rows) > _MAX_STORED:
@@ -630,7 +775,7 @@ def create_message(hass, request, payload: Any, now: datetime | None = None) -> 
     except Exception:
         _LOGGER.error("patrimony_chat_store_failed")
         return _error("store_failed", "Could not store the message", 500)
-    return _public_row(caller, row, text), 201
+    return _public_row(caller, row, text, rows, _active_clients(hass), _cursors(store)), 201
 
 
 def notify_house_chat(hass) -> int | None:
@@ -862,7 +1007,89 @@ class PatrimonyChatImageView(HomeAssistantView):
         return web.json_response(body, status=status)
 
 
+def handle_read(hass, request, payload: Any, now: datetime | None = None) -> tuple[dict[str, Any], int]:
+    """Paired-client read cursor. Monotonic. Unknown id does not move it."""
+    if not caller_authorized(request):
+        return _error("unauthorized", "Unauthorized", 401)
+    client_id = _active_paired_client_id(hass, request)
+    if not client_id:
+        return _error("forbidden", "Only a paired phone can mark chat read", 403)
+    if not isinstance(payload, dict):
+        return _error("unknown_message", "Unknown message", 400)
+    raw_id = payload.get("lastSeenMessageId")
+    if not isinstance(raw_id, str) or not raw_id.strip():
+        return _error("unknown_message", "Unknown message", 400)
+    wanted = raw_id.strip()
+    moment = _utc(now)
+    try:
+        store = _read_store(hass)
+        changed = _purge(store, moment)
+        rows = list(store.get("messages") or [])
+        index = _index_by_id(rows)
+        if wanted not in index:
+            return _error("unknown_message", "Unknown message", 400)
+        cursors = dict(_cursors(store))
+        prev = cursors.get(client_id)
+        prev_index = index.get(str(prev)) if isinstance(prev, str) else None
+        new_index = index[wanted]
+        # Missing previous target is not a position, so a known id may land.
+        # An older known id must not move the cursor backward.
+        if prev_index is None or new_index >= prev_index:
+            if cursors.get(client_id) != wanted:
+                cursors[client_id] = wanted
+                changed = True
+        if changed:
+            store["messages"] = rows
+            if cursors:
+                store["readCursors"] = cursors
+            _write_store(hass, store)
+    except Exception:
+        _LOGGER.error("patrimony_chat_read_failed")
+        return _error("store_failed", "Could not store the read cursor", 500)
+    return {"ok": True}, 200
+
+
+class PatrimonyChatReadView(HomeAssistantView):
+    """Read cursor for one paired client. Not the panel."""
+
+    url = CHAT_READ_PATH
+    name = "api:patrimony_collection:chat_read"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def post(self, request):
+        from aiohttp import web
+
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response(
+                {"error": {"code": "unknown_message", "message": "Unknown message"}},
+                status=400,
+            )
+        job = getattr(self.hass, "async_add_executor_job", None)
+
+        def _run():
+            return handle_read(self.hass, request, payload)
+
+        try:
+            if job:
+                body, status = await job(_run)
+            else:
+                body, status = _run()
+        except Exception:
+            _LOGGER.error("patrimony_chat_read_failed")
+            return web.json_response(
+                {"error": {"code": "store_failed", "message": "Could not store the read cursor"}},
+                status=500,
+            )
+        return web.json_response(body, status=status)
+
+
 def register_views(hass: HomeAssistant) -> None:
     hass.http.register_view(PatrimonyChatView(hass))
+    hass.http.register_view(PatrimonyChatReadView(hass))
     hass.http.register_view(PatrimonyChatImageView(hass))
     hass.http.register_view(PatrimonyChatMessageView(hass))

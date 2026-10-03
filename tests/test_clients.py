@@ -240,7 +240,7 @@ def test_chat_uses_edited_display_name(tmp_path) -> None:
         hass, panel, {"text": "from-panel"}, now=T0
     )
     assert status == 201
-    assert panel_body["sender"] == "admin"
+    assert panel_body["sender"] == "HA (admin)"
     assert panel_body["senderKind"] == "panel"
 
 
@@ -394,9 +394,52 @@ def test_edited_name_survives_ios_session_and_chat(tmp_path) -> None:
     panel = _Req(_User("admin"))
     panel_body, status = create_message(hass, panel, {"text": "from-panel"}, now=T0)
     assert status == 201
-    assert panel_body["sender"] == "admin"
+    assert panel_body["sender"] == "HA (admin)"
     assert panel_body["senderKind"] == "panel"
 
     assert hass.entry.data["display_name"] == before_name
     assert hass.entry.data["timezone"] == before_tz
     assert hass.entry.options["house_event_key"] == before_hek
+
+
+def test_member_list_shape_has_no_secrets_and_phone_bearer_may_read(tmp_path) -> None:
+    """GET /clients is the member list. Same document for admin and a paired phone."""
+    hass = _Hass(tmp_path)
+    clients_mod.upsert_client(
+        hass, "rt-phone-1", device_name="Studio Handset", ha_username="admin", now=T0
+    )
+    clients_mod.rename_client(hass, "rt-phone-1", "House Phone")
+    clients_mod.upsert_client(
+        hass, "rt-gone", device_name="Old Handset", ha_username="admin", now=T0
+    )
+    clients_mod.mark_unpaired(hass, "rt-gone", now=T0)
+
+    phone = _phone(hass, "rt-phone-1", user_name="admin")
+    phone["hass_user"].is_admin = False
+    assert clients_mod.clients_list_allowed(hass, phone) is True
+    guest = _Req(_User("guest", "user-guest", is_admin=False))
+    assert clients_mod.clients_list_allowed(hass, guest) is False
+    admin = _Req(_User("admin", is_admin=True))
+    assert clients_mod.clients_list_allowed(hass, admin) is True
+
+    doc = clients_mod.panel_clients_document(hass)
+    assert set(doc) == {"clients", "timezone"}
+    assert len(doc["clients"]) == 1
+    item = doc["clients"][0]
+    assert set(item) == {
+        "clientId",
+        "displayName",
+        "pairedAt",
+        "lastAccessAt",
+        "pairedAtDisplay",
+        "lastAccessAtDisplay",
+    }
+    assert item["clientId"] == "rt-phone-1"
+    assert item["displayName"] == "House Phone"
+    assert "isThisDevice" not in doc
+    assert "isThisDevice" not in item
+    blob = json.dumps(doc).lower()
+    for secret in ("hek_", "token", "secret", "ciphertext", "eyj", "apns"):
+        assert secret not in blob
+    assert "message" not in item
+    assert PatrimonyClientsView.url == "/api/patrimony_collection/clients"

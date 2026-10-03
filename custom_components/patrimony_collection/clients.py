@@ -435,6 +435,30 @@ def pairing_document(hass, request, *, now: datetime | None = None) -> dict[str,
     }
 
 
+def clients_list_allowed(hass, request) -> bool:
+    """Phones list for an admin, or for this bearer when it is an active paired client.
+
+    Same gate shape as the panel: a missing hass_user is allowed. A present
+    non-admin is allowed only when the JWT iss is an active paired client.
+    Rename and unpair stay admin-only.
+    """
+    user = None
+    if request is not None:
+        getter = getattr(request, "get", None)
+        if callable(getter):
+            try:
+                user = getter("hass_user")
+            except Exception:
+                user = None
+        if user is None:
+            user = getattr(request, "hass_user", None)
+    if user is None or getattr(user, "is_admin", True):
+        return True
+    client_id = request_client_id(request)
+    row = get_client(hass, client_id) if client_id else None
+    return row is not None and row.get("status") == STATUS_ACTIVE
+
+
 def panel_clients_document(hass) -> dict[str, Any]:
     """Active paired phones for the panel Phones sub-tab."""
     zone = house_timezone_name(hass)

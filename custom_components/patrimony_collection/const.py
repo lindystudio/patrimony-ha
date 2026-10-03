@@ -22,6 +22,7 @@ HOUSE_PATH: Final = "/api/patrimony_collection/house"
 NOTES_FILE: Final = "patrimony_collection/notes.json"
 NOTES_MAX_CHARS: Final = 8000
 CHAT_PATH: Final = "/api/patrimony_collection/chat"
+CHAT_READ_PATH: Final = "/api/patrimony_collection/chat/read"
 CHAT_MESSAGE_PATH: Final = "/api/patrimony_collection/chat/{message_id}"
 CHAT_IMAGE_PATH: Final = "/api/patrimony_collection/chat/{message_id}/image"
 CHAT_FILE: Final = "patrimony_collection/chat.json"
