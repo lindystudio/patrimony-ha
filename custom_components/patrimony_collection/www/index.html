@@ -439,7 +439,7 @@
         <input id="house_display_name" maxlength="120" autocomplete="off" aria-label="Display name" />
         <p class="quiet">Shown on this house in Home Assistant. Phones keep their own name.</p>
         <label for="house_timezone">Timezone</label>
-        <input id="house_timezone" maxlength="80" autocomplete="off" aria-label="Timezone" placeholder="IANA timezone" />
+        <select id="house_timezone" aria-label="Timezone"></select>
         <div class="actions">
           <button class="primary" type="button" id="house_identity_save">Save</button>
           <button class="ghost" type="button" id="house_tz_from_ha">Use this Home Assistant's timezone</button>
@@ -2784,6 +2784,42 @@
       if (which === "pushlog" && !sessionExpired && typeof loadPushLog === "function") loadPushLog();
     }
 
+    function timezoneOptionLabel(name, ha) {
+      if (ha && name === ha) return name + " (this Home Assistant)";
+      return name;
+    }
+    function fillTimezoneList(zoneEl, zone, ha, listed) {
+      if (!zoneEl) return;
+      if (String(zoneEl.tagName || "").toUpperCase() !== "SELECT") {
+        if (document.activeElement !== zoneEl) zoneEl.value = zone;
+        return;
+      }
+      if (document.activeElement === zoneEl) return;
+      let zones;
+      if (Array.isArray(listed) && listed.length) zones = listed.slice();
+      else if (zoneEl.options && zoneEl.options.length) {
+        zones = Array.prototype.map.call(zoneEl.options, function (o) { return o.value; });
+      } else zones = [];
+      if (zone && zones.indexOf(zone) < 0) zones.push(zone);
+      if (ha && zones.indexOf(ha) < 0) zones.push(ha);
+      zones.sort(function (a, b) { return a < b ? -1 : (a > b ? 1 : 0); });
+      const existing = Array.prototype.map.call(zoneEl.options, function (o) { return o.value; });
+      const same = existing.length === zones.length && existing.every(function (v, i) { return v === zones[i]; });
+      if (!same) {
+        zoneEl.innerHTML = "";
+        zones.forEach(function (z) {
+          const opt = document.createElement("option");
+          opt.value = z;
+          opt.textContent = timezoneOptionLabel(z, ha);
+          zoneEl.appendChild(opt);
+        });
+      } else {
+        Array.prototype.forEach.call(zoneEl.options, function (opt) {
+          opt.textContent = timezoneOptionLabel(opt.value, ha);
+        });
+      }
+      if (zone && zones.indexOf(zone) >= 0) zoneEl.value = zone;
+    }
     function fillHouseIdentity(doc) {
       const name = (doc && (doc.displayName || doc.display_name)) || "";
       const zone = (doc && doc.timezone) || "";
@@ -2791,7 +2827,8 @@
       const nameEl = $("house_display_name");
       const zoneEl = $("house_timezone");
       if (nameEl && document.activeElement !== nameEl) nameEl.value = name;
-      if (zoneEl && document.activeElement !== zoneEl) zoneEl.value = zone;
+      const listed = (doc && Array.isArray(doc.timezones)) ? doc.timezones : null;
+      fillTimezoneList(zoneEl, zone, ha, listed);
       if ($("house_ha_zone")) $("house_ha_zone").textContent = ha || "—";
       if ($("soon_zone") && zone) $("soon_zone").textContent = zone;
     }

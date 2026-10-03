@@ -19,7 +19,7 @@ from .const import (
     SEVERITY_MODES,
     VALUE_TYPES,
 )
-from .house_identity import apply_house_identity, ha_instance_timezone, house_identity_document
+from .house_identity import apply_house_identity, house_identity_payload
 from .mapping import build_presentation_document, live_entity_fields, load_shared_mapping, merge_options, normalize_editor_payload, seed_shared_mapping
 
 try:
@@ -250,8 +250,7 @@ class PatrimonyHouseView(HomeAssistantView):
         entry = _first_entry(self.hass)
         if entry is None:
             return web.json_response({"error": {"code": "not_configured"}}, status=404)
-        body = house_identity_document(entry)
-        body["homeAssistantTimezone"] = ha_instance_timezone(self.hass)
+        body = house_identity_payload(self.hass, entry)
         return web.json_response(body)
 
     async def post(self, request):

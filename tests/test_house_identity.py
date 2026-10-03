@@ -18,6 +18,8 @@ from custom_components.patrimony_collection.house_identity import (
     apply_house_identity,
     ha_instance_timezone,
     house_identity_document,
+    house_identity_payload,
+    timezone_choices,
 )
 from custom_components.patrimony_collection import house_identity as house_identity_mod
 from custom_components.patrimony_collection.mapping import build_presentation_document
@@ -251,3 +253,52 @@ def test_house_screen_has_display_name_timezone_and_copy_button() -> None:
     assert "copyTimezoneFromHomeAssistant" in chunk
     view = PatrimonyHouseView(None)
     assert view.url == HOUSE_PATH
+
+
+def test_timezone_list_includes_ha_zone_and_stored_value(tmp_path) -> None:
+    from zoneinfo import ZoneInfo, available_timezones
+
+    stored = "Custom/NotInZoneinfo"
+    ha = "Europe/Athens"
+    choices = timezone_choices(stored, ha)
+    assert ha in choices
+    assert stored in choices
+    real = available_timezones()
+    assert "Europe/Paris" in real
+    assert "Europe/Paris" in choices
+    assert "UTC" in choices
+    ZoneInfo("Europe/Paris")
+    assert "Not/A/Real/Zone" not in choices
+    assert choices == sorted(choices)
+    hass = _Hass(tmp_path, time_zone=ha)
+    entry = _entry()
+    entry.data[CONF_TIMEZONE] = stored
+    body = house_identity_payload(hass, entry)
+    assert body["displayName"] == STORED_NAME
+    assert body["timezone"] == stored
+    assert body["homeAssistantTimezone"] == ha
+    assert ha in body["timezones"]
+    assert stored in body["timezones"]
+    assert "Europe/Paris" in body["timezones"]
+    # Saving the name keeps the unusual stored timezone instead of blanking it.
+    saved, status = apply_house_identity(
+        hass, entry, {"displayName": STORED_NAME, "timezone": stored}
+    )
+    assert status == 200
+    assert saved["timezone"] == stored
+    assert entry.data[CONF_DISPLAY_NAME] == STORED_NAME
+    assert ha in saved["timezones"]
+    assert stored in saved["timezones"]
+
+
+def test_house_screen_timezone_control_is_a_list() -> None:
+    html = (COMPONENT / "www" / "index.html").read_text(encoding="utf-8")
+    assert '<select id="house_timezone"' in html
+    assert 'aria-label="Timezone"' in html
+    assert '<input id="house_timezone"' not in html
+    assert 'placeholder="IANA timezone"' not in html
+    assert '<input id="house_display_name"' in html
+    assert "(this Home Assistant)" in html
+    assert "doc.timezones" in html
+    assert "Use this Home Assistant's timezone" in html
+    assert "copyTimezoneFromHomeAssistant" in html

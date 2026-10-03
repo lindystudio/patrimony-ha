@@ -17,6 +17,29 @@ from .const import CONF_DISPLAY_NAME, CONF_TIMEZONE, MAPPING_FILE
 DISPLAY_NAME_MAX = 120
 
 
+def iana_timezone_names() -> list[str]:
+    """The standard zoneinfo set already on this machine. Not a made-up list."""
+    names: set[str] = set()
+    try:
+        from zoneinfo import available_timezones
+
+        names = {str(name).strip() for name in available_timezones() if str(name).strip()}
+    except Exception:
+        names = set()
+    names.add("UTC")
+    return sorted(names)
+
+
+def timezone_choices(stored: str | None, ha_zone: str | None) -> list[str]:
+    """IANA names, plus the stored value and this instance's timezone if missing."""
+    names = set(iana_timezone_names())
+    for raw in (stored, ha_zone):
+        name = str(raw or "").strip()
+        if name:
+            names.add(name)
+    return sorted(names)
+
+
 def ha_instance_timezone(hass) -> str:
     """This Home Assistant instance's timezone. UTC only when it is missing."""
     config = getattr(hass, "config", None) if hass is not None else None
@@ -38,6 +61,15 @@ def house_identity_document(entry) -> dict[str, str]:
         "displayName": str(data.get(CONF_DISPLAY_NAME) or ""),
         "timezone": str(data.get(CONF_TIMEZONE) or ""),
     }
+
+
+def house_identity_payload(hass, entry) -> dict[str, Any]:
+    """Panel document: stored name and timezone, plus the timezone list."""
+    body: dict[str, Any] = dict(house_identity_document(entry))
+    ha = ha_instance_timezone(hass)
+    body["homeAssistantTimezone"] = ha
+    body["timezones"] = timezone_choices(body.get("timezone"), ha)
+    return body
 
 
 def apply_house_identity(hass, entry, payload: dict | None) -> tuple[dict[str, Any], int]:
@@ -69,7 +101,12 @@ def apply_house_identity(hass, entry, payload: dict | None) -> tuple[dict[str, A
             zone_update = ha_instance_timezone(hass)
         else:
             zone = str(payload.get("timezone") or "").strip()
-            if not _timezone_ok(zone):
+            stored = str(data.get(CONF_TIMEZONE) or "").strip()
+            # The panel posts a list value. Keep an unusual stored name so the
+            # selection is not blank, and still reject a typed string that is
+            # neither stored nor a real zone.
+            allowed = set(timezone_choices(stored, ha_instance_timezone(hass)))
+            if not zone or (zone not in allowed and not _timezone_ok(zone)):
                 return {
                     "error": {
                         "code": "invalid_timezone",
@@ -86,11 +123,13 @@ def apply_house_identity(hass, entry, payload: dict | None) -> tuple[dict[str, A
         _persist_entry_data(hass, entry, data)
         _patch_mapping_identity(hass, data)
 
+    ha = ha_instance_timezone(hass)
     body = {
         "ok": True,
         "displayName": str(data.get(CONF_DISPLAY_NAME) or ""),
         "timezone": str(data.get(CONF_TIMEZONE) or ""),
-        "homeAssistantTimezone": ha_instance_timezone(hass),
+        "homeAssistantTimezone": ha,
+        "timezones": timezone_choices(data.get(CONF_TIMEZONE), ha),
     }
     return body, 200
 
