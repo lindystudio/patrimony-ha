@@ -55,6 +55,8 @@ House members. On this HA only. Not on `patrimony/state`.
 - `POST /api/patrimony_collection/chat` with `{ "text", "retention" }`. `retention` is `keep` (default), `1h`, `1d`, or `7d`.
 - `DELETE /api/patrimony_collection/chat/{message_id}` removes the row. The sender can delete their own. The HA panel user can delete any.
 
-At rest the text is encrypted with a host key that is not in git, the presentation document, or push. Not end-to-end. Push reuses notify and the title is only `New chat message in {display_name}` or `New chat message`. No message text, sender, or preview on that path.
+At rest the text and any photo are encrypted with a host key that is not in git, the presentation document, or push. Not end-to-end. A photo is optional `imageBase64` (standard base64, no `data:` prefix) plus `imageContentType` (`image/jpeg`, `image/png`, or `image/webp`). Text may be empty when a photo is present. Decoded photos are capped at 4 MB. The list sets `hasImage` and does not inline the bytes. `GET /api/patrimony_collection/chat/{message_id}/image` returns the raw bytes. Delete and expiry remove the photo with the message.
 
-Panel: House → Chat, same screen as Home settings.
+Push reuses the events POST and is not the 20-minute attention debounce. The title is only `New chat message in {display_name}` or `New chat message`. The events body is `{ cardId, severity, title }`. No message text, sender, preview, or image bytes on that path.
+
+Panel: House → Chat, same screen as Home settings. Each row shows the message time in the stored house timezone (Home Assistant timezone, then UTC, if that is missing). The delete control stays on the right. A photo loads from the image URL.

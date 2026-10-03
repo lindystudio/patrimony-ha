@@ -112,15 +112,19 @@
     .house-subnav { flex-wrap: wrap; }
     .chat-log { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; }
     .chat-row {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
       border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px;
       background: #151210;
     }
+    .chat-main { flex: 1; min-width: 0; }
     .chat-meta {
       display: flex; justify-content: space-between; gap: 8px;
       font-size: 12px; opacity: .75;
     }
     .chat-body { margin: 4px 0 6px; white-space: pre-wrap; word-break: break-word; }
-    .chat-row .danger { padding: 4px 8px; font-size: 12px; }
+    .chat-photo { display: block; max-width: 100%; max-height: 240px; border-radius: 8px; margin: 4px 0; }
+    .chat-time { display: block; font-size: 12px; opacity: .65; }
+    .chat-row .chat-del { margin-left: auto; flex: none; align-self: center; padding: 4px 8px; font-size: 12px; }
     .wrap {
       display: flex; flex-direction: column; gap: 12px;
       padding: 14px 14px 36px; width: 100%;
@@ -2794,21 +2798,85 @@
       if (code === "7d") return "7 days";
       return "Keep";
     }
+    let chatPhotoUrls = [];
+    function chatZone() {
+      const stored = String(
+        (houseMeta && houseMeta.timezone) ||
+        (preview && preview.property && preview.property.timezone) ||
+        ""
+      ).trim();
+      if (stored) return stored;
+      const ha = String(
+        (houseMeta && houseMeta.homeAssistantTimezone) ||
+        (($("house_ha_zone") && $("house_ha_zone").textContent) || "")
+      ).trim();
+      if (ha && ha !== "—") return ha;
+      return "UTC";
+    }
+    function chatWhen(iso) {
+      const raw = String(iso || "").trim();
+      if (!raw) return "";
+      const date = new Date(raw);
+      if (isNaN(date.getTime())) return "";
+      const zone = chatZone();
+      const opts = { timeZone: zone, year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" };
+      try {
+        return new Intl.DateTimeFormat(undefined, opts).format(date);
+      } catch (e) {
+        try {
+          return new Intl.DateTimeFormat(undefined, {
+            timeZone: "UTC", year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
+          }).format(date);
+        } catch (e2) {
+          return "";
+        }
+      }
+    }
+    function clearChatPhotos() {
+      chatPhotoUrls.forEach(function (url) {
+        try { URL.revokeObjectURL(url); } catch (e) {}
+      });
+      chatPhotoUrls = [];
+    }
+    async function paintChatImages(log) {
+      const nodes = log.querySelectorAll("img.chat-photo[data-id]");
+      for (let i = 0; i < nodes.length; i++) {
+        const img = nodes[i];
+        const id = img.getAttribute("data-id");
+        if (!id) continue;
+        try {
+          const r = await bin(CHAT_PATH + "/" + encodeURIComponent(id) + "/image");
+          if (!r.ok) continue;
+          const blob = await r.blob();
+          const url = URL.createObjectURL(blob);
+          chatPhotoUrls.push(url);
+          img.src = url;
+          img.hidden = false;
+        } catch (e) {}
+      }
+    }
     function renderChat(doc) {
       const log = $("chat_log");
       const empty = $("chat_empty");
       const messages = (doc && doc.messages) || [];
       if (empty) empty.hidden = messages.length > 0;
       if (!log) return;
+      clearChatPhotos();
       log.innerHTML = messages.map(function (m) {
         const del = m.canDelete
           ? '<button type="button" class="danger chat-del" data-id="' + esc(m.id) + '">Delete</button>'
           : "";
-        return '<div class="chat-row"><div class="chat-meta"><span>' + esc(m.sender) + '</span><span>' + esc(chatRetentionLabel(m.retention)) + '</span></div><p class="chat-body">' + esc(m.text) + '</p>' + del + '</div>';
+        const when = chatWhen(m.createdAt);
+        const photo = m.hasImage
+          ? '<img class="chat-photo" alt="" hidden data-id="' + esc(m.id) + '">'
+          : "";
+        const body = m.text ? '<p class="chat-body">' + esc(m.text) + '</p>' : "";
+        return '<div class="chat-row"><div class="chat-main"><div class="chat-meta"><span>' + esc(m.sender) + '</span><span>' + esc(chatRetentionLabel(m.retention)) + '</span></div>' + body + photo + '<time class="chat-time">' + esc(when) + '</time></div>' + del + '</div>';
       }).join("");
       log.querySelectorAll(".chat-del").forEach(function (btn) {
         btn.onclick = function () { deleteChat(btn.getAttribute("data-id"), btn); };
       });
+      paintChatImages(log);
     }
     async function loadChat() {
       try {
@@ -2947,6 +3015,9 @@
       fillTimezoneList(zoneEl, zone, ha, listed);
       if ($("house_ha_zone")) $("house_ha_zone").textContent = ha || "—";
       if ($("soon_zone") && zone) $("soon_zone").textContent = zone;
+      houseMeta = houseMeta || {};
+      houseMeta.timezone = zone || "";
+      houseMeta.homeAssistantTimezone = ha || "";
     }
     async function loadHouseIdentity() {
       try {

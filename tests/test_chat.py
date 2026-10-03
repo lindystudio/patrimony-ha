@@ -9,6 +9,7 @@ from pathlib import Path
 
 from custom_components.patrimony_collection.chat import (
     CHAT_PUSH_GENERIC,
+    PatrimonyChatImageView,
     PatrimonyChatMessageView,
     PatrimonyChatView,
     chat_path,
@@ -19,7 +20,9 @@ from custom_components.patrimony_collection.chat import (
     handle_post,
     key_path,
     notify_house_chat,
+    read_chat_image,
 )
+from custom_components.patrimony_collection import chat as chat_mod
 from custom_components.patrimony_collection.const import PAIR_CLIENT_NAME
 from custom_components.patrimony_collection.ios_session import persist_ios_session
 from custom_components.patrimony_collection.mapping import build_presentation_document
@@ -328,3 +331,162 @@ def test_panel_has_chat_window() -> None:
     assert ">1 day<" in html
     assert ">7 days<" in html
     assert "end-to-end" not in html.lower()
+    assert "function chatWhen" in html
+    assert "houseMeta.timezone" in html
+    assert 'return "UTC"' in html
+    assert "homeAssistantTimezone" in html
+    assert "chat-time" in html
+    assert "margin-left: auto" in html
+    assert "chat-del" in html
+    assert "hasImage" in html
+    assert "/image" in html
+
+
+PNG_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+PNG = base64.b64decode(PNG_B64)
+
+
+def _capture_push(monkeypatch):
+    captured = []
+
+    class _Resp:
+        status = 202
+
+        def read(self):
+            return b"{}"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    def _urlopen(req, timeout=8):
+        captured.append(req.data)
+        return _Resp()
+
+    monkeypatch.setattr(notify_mod, "urlopen", _urlopen)
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("attention debounce must not run for chat")
+
+    monkeypatch.setattr(notify_mod, "plan_automatic_pushes", _boom)
+    return captured
+
+
+def test_second_chat_message_is_not_debounced(tmp_path, monkeypatch) -> None:
+    hass = _Hass(tmp_path, _Entry("North House"))
+    captured = _capture_push(monkeypatch)
+    first, status = handle_post(hass, _panel(), {"text": SECRET}, now=T0)
+    assert status == 201
+    second, status = handle_post(
+        hass, _panel(), {"text": SECRET + "-again"}, now=T0 + timedelta(minutes=1)
+    )
+    assert status == 201
+    assert first["id"] != second["id"]
+    assert len(captured) == 2
+    for raw in captured:
+        payload = json.loads(raw)
+        assert payload["title"] == "New chat message in North House"
+        assert payload["severity"] == "attention"
+        assert set(payload) == {"cardId", "severity", "title"}
+        assert SECRET not in raw.decode()
+        assert "image" not in payload
+
+
+def test_image_round_trip_hides_bytes_and_push(tmp_path, monkeypatch) -> None:
+    hass = _Hass(tmp_path, _Entry("North House"))
+    captured = _capture_push(monkeypatch)
+    empty, status = handle_post(hass, _panel(), {}, now=T0)
+    assert status == 400
+    assert empty["error"]["code"] == "empty"
+    prefixed, status = handle_post(
+        hass,
+        _panel(),
+        {"imageBase64": "data:image/png;base64," + PNG_B64, "imageContentType": "image/png"},
+        now=T0,
+    )
+    assert status == 400
+    assert prefixed["error"]["code"] == "bad_image"
+    bad_type, status = handle_post(
+        hass,
+        _panel(),
+        {"imageBase64": PNG_B64, "imageContentType": "image/gif"},
+        now=T0,
+    )
+    assert status == 400
+    monkeypatch.setattr(chat_mod, "CHAT_IMAGE_MAX", 8)
+    huge, status = handle_post(
+        hass,
+        _panel(),
+        {"imageBase64": base64.b64encode(b"x" * 9).decode("ascii"), "imageContentType": "image/png"},
+        now=T0,
+    )
+    assert status == 400
+    assert huge["error"]["code"] == "too_large"
+    monkeypatch.setattr(chat_mod, "CHAT_IMAGE_MAX", 4 * 1024 * 1024)
+
+    created, status = handle_post(
+        hass,
+        _panel(),
+        {"text": "", "imageBase64": PNG_B64, "imageContentType": "image/png", "retention": "1h"},
+        now=T0,
+    )
+    assert status == 201
+    assert created["text"] == ""
+    assert created["hasImage"] is True
+    assert created["imageContentType"] == "image/png"
+    assert "imageBase64" not in created
+    assert "imageCiphertext" not in created
+    assert PNG_B64 not in json.dumps(created)
+    raw = _raw(hass)
+    assert PNG_B64 not in raw
+    assert PNG not in chat_path(hass).read_bytes()
+    listed, status = handle_get(hass, _panel(), now=T0)
+    assert status == 200
+    row = listed["messages"][0]
+    assert row["hasImage"] is True
+    assert row["imageContentType"] == "image/png"
+    assert "imageBase64" not in row
+    assert PNG_B64 not in json.dumps(listed)
+    blob, status, ctype = read_chat_image(hass, _panel(), created["id"], now=T0)
+    assert status == 200
+    assert ctype == "image/png"
+    assert blob == PNG
+    missing, status, _ctype = read_chat_image(hass, _panel(), "no-such", now=T0)
+    assert status == 404
+    assert len(captured) == 1
+    payload = json.loads(captured[0])
+    assert set(payload) == {"cardId", "severity", "title"}
+    assert PNG_B64 not in captured[0].decode()
+    assert SECRET not in captured[0].decode()
+    gone, status = delete_message(hass, _panel(), created["id"], now=T0)
+    assert status == 200
+    after, status, _ctype = read_chat_image(hass, _panel(), created["id"], now=T0)
+    assert status == 404
+    assert created["id"] not in _raw(hass)
+    assert PNG not in chat_path(hass).read_bytes()
+
+    again, status = create_message(
+        hass,
+        _panel(),
+        {"imageBase64": PNG_B64, "imageContentType": "image/jpeg", "retention": "1h"},
+        now=T0,
+    )
+    assert status == 201
+    assert again["imageContentType"] == "image/jpeg"
+    early, status, ctype = read_chat_image(hass, _panel(), again["id"], now=T0 + timedelta(minutes=30))
+    assert status == 200
+    assert early == PNG
+    late, status, _ctype = read_chat_image(hass, _panel(), again["id"], now=T0 + timedelta(hours=1))
+    assert status == 404
+    assert again["id"] not in _raw(hass)
+
+    plain, status = create_message(hass, _panel(), {"text": "words-only"}, now=T0)
+    assert status == 201
+    assert plain["hasImage"] is False
+    assert "imageContentType" not in plain
+    assert PatrimonyChatImageView.url == "/api/patrimony_collection/chat/{message_id}/image"
+    assert PatrimonyChatImageView.requires_auth is True

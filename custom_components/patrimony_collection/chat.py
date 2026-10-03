@@ -6,16 +6,25 @@ HTTP (same HA Bearer as /api/patrimony_collection/state):
 
 - GET  /api/patrimony_collection/chat
 - POST /api/patrimony_collection/chat
-    {"text": "<plain text>", "retention": "keep"|"1h"|"1d"|"7d"}
+    {"text": "<plain text>", "retention": "keep"|"1h"|"1d"|"7d",
+     "imageBase64": "<standard base64, no data: prefix>",
+     "imageContentType": "image/jpeg"|"image/png"|"image/webp"}
     retention is optional and defaults to keep.
+    imageBase64 and imageContentType are optional. text may be empty
+    when an image is present. Both empty is rejected.
+- GET  /api/patrimony_collection/chat/{message_id}/image
+    raw image bytes. 404 when that message has no image.
 - DELETE /api/patrimony_collection/chat/{message_id}
 
-Message text is encrypted at rest. The key file stays on the HA host.
-Push reuses the existing events path and sends only
+Message text and image bytes are encrypted at rest. The key file stays
+on the HA host. The list does not inline image bytes. Delete and expiry
+remove the image with the message. Push reuses the existing events path
+and is not the 20-minute attention debounce. It sends only
 "New chat message in {display_name}", or "New chat message" when the
-stored display name is empty. The events body is not given the message
-text, the sender, or a preview. This is not end-to-end: the house can
-read messages so the panel can show them. TLS covers the phone link.
+stored display name is empty. The events body is {cardId, severity, title}.
+It is not given the message text, the sender, a preview, or image bytes.
+This is not end-to-end: the house can read messages so the panel can
+show them. TLS covers the phone link.
 """
 
 from __future__ import annotations
@@ -35,6 +44,8 @@ from uuid import uuid4
 from .attention import title_is_safe
 from .const import (
     CHAT_FILE,
+    CHAT_IMAGE_MAX,
+    CHAT_IMAGE_PATH,
     CHAT_KEY_FILE,
     CHAT_MESSAGE_PATH,
     CHAT_PATH,
@@ -68,6 +79,9 @@ CHAT_PUSH_IN = "New chat message in "
 NO_IOS_CLIENT = "No iOS client registered"
 PANEL_SENDER_FALLBACK = "Home Assistant"
 _MAX_STORED = 200
+IMAGE_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
+_TEXT_DOMAIN = b"patrimony-chat-v1\0"
+_IMAGE_DOMAIN = b"patrimony-chat-img-v1\0"
 
 try:
     from homeassistant.components.http import HomeAssistantView
@@ -153,20 +167,19 @@ def _mac_key(key: bytes) -> bytes:
     return hmac.new(key, b"mac", hashlib.sha256).digest()
 
 
-def _seal(key: bytes, message_id: str, text: str) -> tuple[str, str]:
+def _seal_raw(key: bytes, message_id: str, plain: bytes, domain: bytes) -> tuple[str, str]:
     nonce = secrets.token_bytes(16)
-    plain = text.encode("utf-8")
     stream = _keystream(_enc_key(key), nonce, len(plain))
     ct = bytes(a ^ b for a, b in zip(plain, stream))
     mac = hmac.new(
         _mac_key(key),
-        b"patrimony-chat-v1\0" + message_id.encode("utf-8") + nonce + ct,
+        domain + message_id.encode("utf-8") + nonce + ct,
         hashlib.sha256,
     ).digest()
     return base64.b64encode(nonce).decode("ascii"), base64.b64encode(mac + ct).decode("ascii")
 
 
-def _open(key: bytes, message_id: str, nonce_b64: Any, blob_b64: Any) -> str | None:
+def _open_raw(key: bytes, message_id: str, nonce_b64: Any, blob_b64: Any, domain: bytes) -> bytes | None:
     try:
         nonce = base64.b64decode(str(nonce_b64), validate=True)
         blob = base64.b64decode(str(blob_b64), validate=True)
@@ -177,17 +190,35 @@ def _open(key: bytes, message_id: str, nonce_b64: Any, blob_b64: Any) -> str | N
     mac, ct = blob[:32], blob[32:]
     expect = hmac.new(
         _mac_key(key),
-        b"patrimony-chat-v1\0" + str(message_id).encode("utf-8") + nonce + ct,
+        domain + str(message_id).encode("utf-8") + nonce + ct,
         hashlib.sha256,
     ).digest()
     if not hmac.compare_digest(mac, expect):
         return None
     stream = _keystream(_enc_key(key), nonce, len(ct))
-    plain = bytes(a ^ b for a, b in zip(ct, stream))
+    return bytes(a ^ b for a, b in zip(ct, stream))
+
+
+def _seal(key: bytes, message_id: str, text: str) -> tuple[str, str]:
+    return _seal_raw(key, message_id, text.encode("utf-8"), _TEXT_DOMAIN)
+
+
+def _open(key: bytes, message_id: str, nonce_b64: Any, blob_b64: Any) -> str | None:
+    plain = _open_raw(key, message_id, nonce_b64, blob_b64, _TEXT_DOMAIN)
+    if plain is None:
+        return None
     try:
         return plain.decode("utf-8")
     except Exception:
         return None
+
+
+def _seal_image(key: bytes, message_id: str, blob: bytes) -> tuple[str, str]:
+    return _seal_raw(key, message_id, blob, _IMAGE_DOMAIN)
+
+
+def _open_image(key: bytes, message_id: str, nonce_b64: Any, blob_b64: Any) -> bytes | None:
+    return _open_raw(key, message_id, nonce_b64, blob_b64, _IMAGE_DOMAIN)
 
 
 def load_chat_key(hass) -> bytes:
@@ -416,7 +447,10 @@ def _can_delete(caller: dict[str, str], row: dict[str, Any]) -> bool:
 
 
 def _public_row(caller: dict[str, str], row: dict[str, Any], text: str) -> dict[str, Any]:
-    return {
+    """List shape. hasImage is a flag. Image bytes stay off this document."""
+    ctype = row.get("imageContentType")
+    has_image = isinstance(ctype, str) and ctype in IMAGE_TYPES and bool(row.get("imageCiphertext"))
+    out = {
         "id": row.get("id"),
         "sender": row.get("senderLabel") or "",
         "senderKind": row.get("senderKind") or "",
@@ -425,7 +459,11 @@ def _public_row(caller: dict[str, str], row: dict[str, Any], text: str) -> dict[
         "retention": row.get("retention") or "keep",
         "expiresAt": row.get("expiresAt"),
         "canDelete": _can_delete(caller, row),
+        "hasImage": has_image,
     }
+    if has_image:
+        out["imageContentType"] = ctype
+    return out
 
 
 def _error(code: str, message: str, status: int) -> tuple[dict[str, Any], int]:
@@ -470,19 +508,57 @@ def _normalize_retention(raw: Any) -> str | None:
     return text
 
 
+def _decode_image(payload: dict) -> tuple[bytes | None, str | None, tuple | None]:
+    """Return (bytes, content_type, error). No image is (None, None, None).
+
+    Does not log the bytes. data: URLs are rejected. Decoded size is capped.
+    """
+    raw_b64 = payload.get("imageBase64")
+    raw_type = payload.get("imageContentType")
+    has_b64 = raw_b64 not in (None, "")
+    has_type = raw_type not in (None, "")
+    if not has_b64 and not has_type:
+        return None, None, None
+    if not isinstance(raw_b64, str) or not isinstance(raw_type, str):
+        return None, None, _error("bad_image", "image must be standard base64", 400)
+    ctype = raw_type.strip().lower()
+    if ctype not in IMAGE_TYPES:
+        return None, None, _error("bad_image", "image must be jpeg, png, or webp", 400)
+    encoded = raw_b64.strip()
+    if encoded.lower().startswith("data:"):
+        return None, None, _error("bad_image", "image must be standard base64", 400)
+    try:
+        blob = base64.b64decode(encoded, validate=True)
+    except Exception:
+        return None, None, _error("bad_image", "image must be standard base64", 400)
+    if not blob:
+        return None, None, _error("bad_image", "image is empty", 400)
+    if len(blob) > CHAT_IMAGE_MAX:
+        return None, None, _error("too_large", "Image is too large", 400)
+    return blob, ctype, None
+
+
 def create_message(hass, request, payload: Any, now: datetime | None = None) -> tuple[dict[str, Any], int]:
     if not caller_authorized(request):
         return _error("unauthorized", "Unauthorized", 401)
-    if not isinstance(payload, dict) or "text" not in payload:
+    if not isinstance(payload, dict):
         return _error("empty", "Message is empty", 400)
-    raw_text = payload.get("text")
-    if not isinstance(raw_text, str):
-        return _error("bad_text", "text must be a string", 400)
+    if "text" in payload:
+        raw_text = payload.get("text")
+        if raw_text is None:
+            raw_text = ""
+        if not isinstance(raw_text, str):
+            return _error("bad_text", "text must be a string", 400)
+    else:
+        raw_text = ""
     text = raw_text.strip()
-    if not text:
-        return _error("empty", "Message is empty", 400)
     if len(text) > CHAT_TEXT_MAX:
         return _error("too_long", "Message is too long", 400)
+    image, image_type, image_error = _decode_image(payload)
+    if image_error is not None:
+        return image_error
+    if not text and image is None:
+        return _error("empty", "Message is empty", 400)
     retention = _normalize_retention(payload.get("retention"))
     if retention is None:
         return _error("bad_retention", "retention must be keep, 1h, 1d, or 7d", 400)
@@ -507,6 +583,11 @@ def create_message(hass, request, payload: Any, now: datetime | None = None) -> 
             "nonce": nonce,
             "ciphertext": ciphertext,
         }
+        if image is not None:
+            image_nonce, image_ct = _seal_image(key, message_id, image)
+            row["imageContentType"] = image_type
+            row["imageNonce"] = image_nonce
+            row["imageCiphertext"] = image_ct
         rows = list(store.get("messages") or [])
         rows.append(row)
         if len(rows) > _MAX_STORED:
@@ -520,13 +601,16 @@ def create_message(hass, request, payload: Any, now: datetime | None = None) -> 
 
 
 def notify_house_chat(hass) -> int | None:
-    """Existing events POST. Fixed sentence only. Does not take message text."""
+    """Existing events POST. Fixed sentence only. Not the attention debounce.
+
+    Does not take message text or image bytes. One POST per call.
+    """
     entry = _first_entry(hass)
     if entry is None:
         return None
     data = getattr(entry, "data", None) or {}
     options = getattr(entry, "options", None) or {}
-    key = options.get(CONF_HOUSE_EVENT_KEY)
+    key = str(options.get(CONF_HOUSE_EVENT_KEY) or "").strip()
     property_id = data.get(CONF_PROPERTY_ID)
     if not property_id or not is_usable_house_event_key(key):
         return None
@@ -535,7 +619,7 @@ def notify_house_chat(hass) -> int | None:
         status = load_card_id_and_post(
             hass,
             str(property_id),
-            str(key),
+            key,
             title,
             severity="attention",
             manual=False,
@@ -593,6 +677,45 @@ def delete_message(hass, request, message_id: str, now: datetime | None = None) 
         _LOGGER.error("patrimony_chat_delete_failed")
         return _error("store_failed", "Could not delete the message", 500)
     return {"ok": True}, 200
+
+
+def read_chat_image(hass, request, message_id: str, now: datetime | None = None):
+    """Raw image bytes for one message. Same auth as chat. 404 if none."""
+    if not caller_authorized(request):
+        body, status = _error("unauthorized", "Unauthorized", 401)
+        return body, status, None
+    wanted = str(message_id or "").strip()
+    if not wanted:
+        body, status = _error("not_found", "Message not found", 404)
+        return body, status, None
+    moment = _utc(now)
+    try:
+        store = _read_store(hass)
+        changed = _purge(store, moment)
+        if changed:
+            _write_store(hass, store)
+        row = None
+        for item in store.get("messages") or []:
+            if str(item.get("id") or "") == wanted:
+                row = item
+                break
+        if row is None or not row.get("imageCiphertext"):
+            body, status = _error("not_found", "Message not found", 404)
+            return body, status, None
+        ctype = row.get("imageContentType")
+        if not isinstance(ctype, str) or ctype not in IMAGE_TYPES:
+            body, status = _error("not_found", "Message not found", 404)
+            return body, status, None
+        key = load_chat_key(hass)
+        blob = _open_image(key, wanted, row.get("imageNonce"), row.get("imageCiphertext"))
+        if not blob:
+            body, status = _error("not_found", "Message not found", 404)
+            return body, status, None
+        return blob, 200, ctype
+    except Exception:
+        _LOGGER.error("patrimony_chat_image_failed")
+        body, status = _error("store_failed", "Could not read chat", 500)
+        return body, status, None
 
 
 class PatrimonyChatView(HomeAssistantView):
@@ -672,6 +795,41 @@ class PatrimonyChatMessageView(HomeAssistantView):
         return web.json_response(body, status=status)
 
 
+class PatrimonyChatImageView(HomeAssistantView):
+    """One image. Same HA Bearer as chat. Raw bytes, not the list document."""
+
+    url = CHAT_IMAGE_PATH
+    name = "api:patrimony_collection:chat_image"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def get(self, request, message_id=""):
+        from aiohttp import web
+
+        job = getattr(self.hass, "async_add_executor_job", None)
+
+        def _run():
+            return read_chat_image(self.hass, request, message_id)
+
+        try:
+            if job:
+                body, status, content_type = await job(_run)
+            else:
+                body, status, content_type = _run()
+        except Exception:
+            _LOGGER.error("patrimony_chat_image_failed")
+            return web.json_response(
+                {"error": {"code": "store_failed", "message": "Could not read chat"}},
+                status=500,
+            )
+        if content_type and status == 200 and isinstance(body, (bytes, bytearray)):
+            return web.Response(body=bytes(body), status=200, content_type=content_type)
+        return web.json_response(body, status=status)
+
+
 def register_views(hass: HomeAssistant) -> None:
     hass.http.register_view(PatrimonyChatView(hass))
+    hass.http.register_view(PatrimonyChatImageView(hass))
     hass.http.register_view(PatrimonyChatMessageView(hass))
