@@ -21,6 +21,7 @@ from custom_components.patrimony_collection.const import (
     CONF_LOCATION_LABEL,
     CONF_MAPPINGS,
     CONF_PROPERTY_ID,
+    CONF_PQ_SHIELD,
     CONF_TIMEZONE,
 )
 from custom_components.patrimony_collection.mapping import is_uuid
@@ -81,6 +82,7 @@ def test_new_house_mints_uuid_and_shows_confirm() -> None:
         CONF_CARDS: [],
         CONF_MAPPINGS: [],
         CONF_HOUSE_EVENT_KEY: None,
+        CONF_PQ_SHIELD: True,
     }
 
 
@@ -213,5 +215,6 @@ def test_options_menu_omits_paste_house_event_key() -> None:
     result = _run(handler.async_step_init())
     assert result["step_id"] == "init"
     assert "house_event_key" not in result["menu_options"]
-    assert result["menu_options"] == ["add_card", "add_item", "remove_item"]
+    assert result["menu_options"] == ["add_card", "add_item", "remove_item", "pq_shield"]
     assert not hasattr(handler, "async_step_house_event_key")
+    assert hasattr(handler, "async_step_pq_shield")

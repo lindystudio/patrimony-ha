@@ -183,11 +183,11 @@ Orphan mappings (card_id missing) are skipped. Broken entity_id → item with `v
 ## 7. Integrator UX steps
 
 1. Install custom component, restart HA.
-2. Add **Patrimony Collection**. Enter `property_id` (same UUID the operator used in `create-property`), display name, optional location label, IANA timezone.
+2. Add **Patrimony Collection**. Enter display name, optional location label, IANA timezone. For a new house the flow mints `property_id` — copy it from the confirmation screen and use that UUID in `create-property --id` / iOS Keychain. Check **I already have a property_id (advanced)** only when reconnecting an existing registry house.
 3. Create a long-lived token in HA for the iOS user (or a dedicated `patrimony` user with read access). Put that token in the principal’s iOS Keychain under `collection.patrimony.house` / `property.id`. Do not paste it into Patrimony backend.
 4. **Configure** → add the Guest Wi-Fi entity to a `network` card, label `Guest Wi-Fi`, bool, `ok_when_on`. Add climate/security the same way. For outdoor weather: enable Met.no (or another HA weather integration) on the house, then map `weather.*` twice (attribute `temperature` → Outdoor number; state → Condition enum) onto a `custom` card titled Weather, or onto the climate card.
 5. Confirm `GET /api/patrimony_collection/state` as that HA user returns schema JSON with no `entity_id`.
-6. Optional: operator `mint-event-key`; paste `hek_…` into options for APNs ingest only.
+6. House event key: the phone POSTs `{ "houseEventKey": "hek_…" }` to `/api/patrimony_collection/event_key` after claim/rotate. Not pasted in the HA UI.
 
 Principal never performs steps 1–4.
 
@@ -225,8 +225,9 @@ Off `patrimony/state` and PresentationDocument. `schemaVersion` stays 1. Same HA
 | DELETE | `/api/patrimony_collection/photo` | Bearer | 204, or 404 if already gone. Clears stored still; GET then falls back to the bundled default. |
 | POST | `/api/patrimony_collection/photo` | Bearer | Restore default: copy bundled product still to `face.jpg`. 204. No upload. |
 | GET/PUT | `/api/patrimony_collection/notes` | Bearer | `{ "schemaVersion": 1, "propertyId": "<uuid>", "text": "", "updatedAt": "<ISO Z>" \| null }`. Cap 8k (truncate on save). Missing GET: empty text, `updatedAt` null. Store `config/patrimony_collection/notes.json`. |
-| POST | `/api/patrimony_collection/pair` | Bearer + admin | `{ "pairing": "https://<house>/api/patrimony_collection/p/<code>" }` once. Mints HA long-lived token named `Patrimony iOS`. Never persist or log the token. 403 if not admin; 501 if HA auth APIs missing; 503 `external_url_required` if External URL is missing or hostless. |
+| POST | `/api/patrimony_collection/pair` | Bearer + admin | `{ "pairing": "https://<house>/api/patrimony_collection/p/<code>" }` once. House URL from HA `get_url(prefer_external, allow_cloud)` then config external/internal. Checks that URL first, then mints HA long-lived token named `Patrimony iOS`. Never persist or log the token. 403 if not admin; 501 if HA auth APIs missing (`error.message` is exception type + text when mint throws); 503 `external_url_required` if the resolved URL is missing or hostless (`error.message` names the resolved value or `(empty)` plus `hass.config.external_url`). Panel shows `error.message`. |
 | GET | `/api/patrimony_collection/notify` | Bearer | `{ "configured": true\|false }` — true iff a usable `hek_…` house event key is in config entry options. |
 | POST | `/api/patrimony_collection/notify` | Bearer | `{ "title": "<1–120 chars>" }`. POSTs `BACKEND_BASE` (`https://api.patrimonycollection.com`) `/v1/properties/{propertyId}/events` with `X-House-Event-Key: hek_…` and `{ "cardId", "severity": "attention", "title" }`. Stable `cardId` in `config/patrimony_collection/notify.json`. 400 `missing_house_event_key` if the key is missing, empty, not `hek_`, or looks like a JWT. Never send an HA token as the key. |
+| POST | `/api/patrimony_collection/event_key` | Bearer | `{ "houseEventKey": "hek_…" }`. Persist `house_event_key` in config entry options. Success **200** `{ "configured": true }`. Invalid **400** `{ "error": { "code": "invalid_house_event_key" } }` — `hek_` prefix required; reject JWT-shaped / empty. Failed POST does not persist (GET notify `configured` stays false / Missing). Never echoes the key, never logs plaintext, never on `patrimony/state`. HA never mints `hek_` and never calls claim. |
 
 Soon tab: Photograph, Notepad, Pair (`Show a pairing code`), Notify. No `window.prompt` / `confirm` / `alert`. Pairing QR is drawn in-panel; never a third-party QR service.

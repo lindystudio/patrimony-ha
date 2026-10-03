@@ -1201,6 +1201,89 @@ def _build_item(
     return _attach_featured_rank(item, mapping)
 
 
+def attention_facts(
+    hass: HomeAssistant | None,
+    entry_data: dict[str, Any],
+    options: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Internal FIRE inputs for attention pushes. Not part of PresentationDocument.
+
+    entity_id is used to read HA and then dropped. Nothing here is a wire field.
+    """
+    shared = load_shared_mapping(hass)
+    _entry_data, options = merge_options(dict(entry_data or {}), dict(options or {}), shared)
+    collapsed_cards, collapsed_maps = collapse_cards_by_title(
+        _list(options.get(CONF_CARDS)), _list(options.get(CONF_MAPPINGS))
+    )
+    cards_meta = {row["id"]: row for row in collapsed_cards if row.get("id")}
+    facts: list[dict[str, Any]] = []
+    for mapping in collapsed_maps:
+        card_id = mapping.get("card_id")
+        if not card_id or card_id not in cards_meta:
+            continue
+        meta = cards_meta[card_id]
+        stored_kind = meta.get("kind") if meta.get("kind") in KINDS else "custom"
+        fact = _attention_fact(mapping, stored_kind, hass, str(card_id))
+        if fact:
+            facts.append(fact)
+    return facts
+
+
+def _attention_fact(
+    mapping: dict[str, Any],
+    card_kind: str,
+    hass: HomeAssistant | None,
+    card_id: str,
+) -> dict[str, Any] | None:
+    item_id = mapping.get("item_id")
+    entity_id = str(mapping.get("entity_id") or "")
+    if not item_id or not is_uuid(str(item_id)) or not entity_id.strip():
+        return None
+    state = None
+    if hass is not None:
+        try:
+            state = hass.states.get(entity_id)
+        except Exception:
+            state = None
+    raw = _raw_from_state(state, mapping.get("state_attribute"))
+    if _domain(entity_id) == "lock" and not mapping.get("state_attribute"):
+        json_value, emit_ok = lock_item_value(raw)
+    else:
+        value_type = infer_value_type(
+            entity_id, state, mapping.get("value_type"), mapping.get("state_attribute")
+        )
+        json_value, emit_ok = item_value(value_type, raw)
+    if not emit_ok:
+        return None
+    json_value, _house_unit = apply_house_temperature(json_value, mapping, state, hass)
+    severity = decide_severity(
+        mapping,
+        entity_id=entity_id,
+        kind=card_kind,
+        state=state,
+        raw=raw,
+        json_value=json_value,
+    )
+    if severity not in SEVERITIES:
+        severity = "attention"
+    device_class = None
+    if state is not None:
+        device_class = (state.attributes or {}).get("device_class")
+    lowered = "" if raw is None else str(raw).strip().lower()
+    on = lowered in BOOL_TRUE or json_value is True
+    return {
+        "item_id": str(item_id),
+        "card_id": card_id,
+        "label": _label_for(mapping, entity_id, state),
+        "kind": card_kind,
+        "domain": _domain(entity_id),
+        "device_class": None if device_class is None else str(device_class),
+        "raw": lowered,
+        "severity": severity,
+        "on": bool(on),
+    }
+
+
 def build_presentation_document(
     hass: HomeAssistant | None,
     entry_data: dict[str, Any],

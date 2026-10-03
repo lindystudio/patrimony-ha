@@ -19,6 +19,9 @@ PHOTO_PATH = Path("/config/patrimony_collection/face.jpg")
 DEFAULT_PHOTO_PATH = Path(__file__).resolve().parent / "default.jpg"
 NOTES_PATH = Path("/config/patrimony_collection/notes.json")
 NOTIFY_PATH = Path("/config/patrimony_collection/notify.json")
+IOS_SESSION_PATH = Path("/config/patrimony_collection/ios_session.json")
+AUTH_STORAGE_PATH = Path("/config/.storage/auth")
+PAIR_CLIENT_NAME = "Patrimony iOS"
 CONTACTS_METHODS = ("cellular", "viber", "whatsapp")
 MAX_CONTACTS = 40
 PHOTO_MAX_BYTES = 2 * 1024 * 1024
@@ -519,6 +522,28 @@ def house_event_key():
     return key
 
 
+def _title_is_safe(title: str) -> bool:
+    lowered = title.lower()
+    return "hek_" not in lowered and "eyj" not in lowered
+
+
+def manual_notify_decision(key, title):
+    """Add-on sender gate: explicit Soon Notify only.
+
+    Automatic FIRE is decided by the custom component from mapped state.
+    This endpoint cannot raise severity, and it does not push routine state.
+    Wire severity stays attention. A missing key or secret-shaped title does not post.
+    """
+    if not key:
+        return None
+    text = "" if title is None else str(title).strip()
+    if not text or not _title_is_safe(text):
+        return None
+    if len(text) > NOTIFY_TITLE_MAX:
+        text = text[:NOTIFY_TITLE_MAX]
+    return {"fire_class": "manual", "severity": "attention", "title": text}
+
+
 def load_notify_card_id() -> str:
     try:
         if NOTIFY_PATH.is_file():
@@ -535,8 +560,201 @@ def load_notify_card_id() -> str:
     return cid
 
 
+NO_IOS_CLIENT = "No iOS client registered"
+PUSH_LOG_MAX = 50
+MANUAL_SEND_CLASS = "manual.send"
+_DEVICE_LIST_KEYS = ("devices", "clients", "iosDevices", "deviceNames", "targets")
+_NAME_KEYS = ("name", "deviceName", "label", "client", "clientName", "client_name")
+_ID_KEYS = ("clientId", "client_id", "tokenId", "token_id", "id")
+
+
+def _safe_name(value):
+    text = "" if value is None else str(value).strip()
+    if not text or len(text) > 80:
+        return None
+    lowered = text.lower()
+    if "hek_" in lowered or "eyj" in lowered or "secret" in lowered or "token" in lowered:
+        return None
+    compact = text.replace("-", "").replace(":", "")
+    if len(compact) >= 32 and all(c in "0123456789abcdefABCDEF" for c in compact):
+        return None
+    return text
+
+
+def _id_label(value):
+    """Client or token id already stored. Long ids keep the last 4."""
+    text = "" if value is None else str(value).strip()
+    if not text or len(text) > 200:
+        return None
+    lowered = text.lower()
+    if "hek_" in lowered or "eyj" in lowered or "secret" in lowered:
+        return None
+    compact = text.replace("-", "").replace(":", "")
+    long_hex = len(compact) >= 32 and all(c in "0123456789abcdefABCDEF" for c in compact)
+    if long_hex or len(text) > 24:
+        tail = text[-4:]
+        if len(tail) == 4 and tail.isalnum():
+            return tail
+        return None
+    if "token" in lowered:
+        return None
+    return text
+
+
+def label_for_client(item):
+    """Name if we have one, otherwise a client id / token id. Ignores APNs token fields."""
+    if isinstance(item, str):
+        return _safe_name(item) or _id_label(item)
+    if not isinstance(item, dict):
+        return None
+    for key in _NAME_KEYS:
+        if item.get(key) not in (None, ""):
+            name = _safe_name(item.get(key))
+            if name:
+                return name
+    for key in _ID_KEYS:
+        label = _id_label(item.get(key))
+        if label:
+            return label
+    return None
+
+
+def _labels_from_items(items):
+    labels = []
+    for item in items:
+        label = label_for_client(item)
+        if label and label not in labels:
+            labels.append(label)
+    return labels
+
+
+def devices_from_event_body(raw):
+    """Public labels from the events body, or None when it has no device list."""
+    if raw is None or raw == b"" or raw == "":
+        return None
+    try:
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", "replace")
+        data = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    for key in _DEVICE_LIST_KEYS:
+        items = data.get(key)
+        if isinstance(items, list):
+            return _labels_from_items(items)
+    return None
+
+
+def registered_ios_clients():
+    """iOS clients already stored on the house. Name, else id. No secrets."""
+    labels = []
+    try:
+        if IOS_SESSION_PATH.is_file():
+            data = json.loads(IOS_SESSION_PATH.read_text())
+            if isinstance(data, dict):
+                label = label_for_client(data)
+                if label:
+                    labels.append(label)
+    except Exception:
+        labels = []
+    if labels:
+        return labels
+    try:
+        if not AUTH_STORAGE_PATH.is_file():
+            return labels
+        parsed = json.loads(AUTH_STORAGE_PATH.read_text())
+    except Exception:
+        return labels
+    blob = parsed.get("data") if isinstance(parsed, dict) else None
+    tokens = blob.get("refresh_tokens") if isinstance(blob, dict) else None
+    if not isinstance(tokens, list):
+        return labels
+    for tok in tokens:
+        if not isinstance(tok, dict):
+            continue
+        if str(tok.get("client_name") or "").strip() != PAIR_CLIENT_NAME:
+            continue
+        label = label_for_client(
+            {
+                "client_name": tok.get("client_name"),
+                "client_id": tok.get("client_id"),
+                "id": tok.get("id"),
+            }
+        )
+        if label and label not in labels:
+            labels.append(label)
+    return labels
+
+
+def _devices_field(devices, local=None):
+    """None means the events body had no list: use clients this house stores."""
+    if devices is None:
+        found = [item for item in (local or []) if item]
+        return found if found else NO_IOS_CLIENT
+    if isinstance(devices, list):
+        labels = _labels_from_items(devices)
+        return labels if labels else NO_IOS_CLIENT
+    if isinstance(devices, str) and devices.strip() == NO_IOS_CLIENT:
+        return NO_IOS_CLIENT
+    return NO_IOS_CLIENT
+
+
+def _public_log_text(value):
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    if "hek_" in lowered or "eyj" in lowered or "token" in lowered or "secret" in lowered:
+        return None
+    compact = text.replace("-", "").replace(":", "")
+    if len(compact) >= 32 and all(c in "0123456789abcdefABCDEF" for c in compact):
+        return None
+    return text
+
+
+def record_manual_send(devices=None, at=None):
+    """Append one manual-send row to the same notify.json the panel Push log reads."""
+    from datetime import datetime
+    stamp = _public_log_text(at) if at else None
+    if not stamp:
+        stamp = datetime.now().astimezone().isoformat(timespec="seconds")
+    data = {}
+    try:
+        if NOTIFY_PATH.is_file():
+            loaded = json.loads(NOTIFY_PATH.read_text())
+            if isinstance(loaded, dict):
+                data = loaded
+    except Exception:
+        data = {}
+    rows = data.get("pushLog")
+    if not isinstance(rows, list):
+        rows = []
+    normalized = []
+    for existing in rows:
+        if not isinstance(existing, dict):
+            continue
+        kept = dict(existing)
+        kept["devices"] = _devices_field(existing.get("devices"))
+        normalized.append(kept)
+    rows = normalized
+    rows.append({
+        "at": stamp,
+        "fire_class": MANUAL_SEND_CLASS,
+        "devices": _devices_field(devices, local=registered_ios_clients()),
+    })
+    data["pushLog"] = rows[-PUSH_LOG_MAX:]
+    NOTIFY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    NOTIFY_PATH.write_text(json.dumps(data, indent=2) + "\n")
+
+
 def post_house_event(property_id, key, card_id, title):
     from urllib.error import HTTPError, URLError
+    # Manual Soon only. Never forward a client severity. Never post a key.
+    post_house_event.last_devices = None
+    if not _title_is_safe(str(title or "")):
+        return 400
     payload = json.dumps({"cardId": card_id, "severity": "attention", "title": title}).encode()
     req = Request(
         f"{BACKEND_BASE}/v1/properties/{property_id}/events",
@@ -546,10 +764,21 @@ def post_house_event(property_id, key, card_id, title):
     )
     try:
         with urlopen(req, timeout=8) as resp:
-            return int(getattr(resp, "status", 200) or 200)
+            status = int(getattr(resp, "status", 200) or 200)
+            raw = b""
+            reader = getattr(resp, "read", None)
+            if callable(reader):
+                try:
+                    raw = reader() or b""
+                except Exception:
+                    raw = b""
+            post_house_event.last_devices = devices_from_event_body(raw)
+            return status
     except HTTPError as exc:
+        post_house_event.last_devices = None
         return int(exc.code or 502)
     except (URLError, TimeoutError, OSError):
+        post_house_event.last_devices = None
         return 502
 
 
@@ -687,17 +916,18 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(raw.decode() or "{}")
             except json.JSONDecodeError:
                 return self._json(400, {"error": "invalid_json"})
-            title = str((payload or {}).get("title") or "").strip()
-            if not title:
+            decision = manual_notify_decision(
+                key, (payload or {}).get("title") if isinstance(payload, dict) else None
+            )
+            if not decision:
                 return self._json(400, {"error": {"code": "bad_title", "message": "title must be 1–120 characters"}})
-            if len(title) > NOTIFY_TITLE_MAX:
-                title = title[:NOTIFY_TITLE_MAX]
             pid = load_options().get("property_id")
             if not pid:
                 return self._json(404, {"error": {"code": "not_configured"}})
             card_id = load_notify_card_id()
-            status = post_house_event(pid, key, card_id, title)
+            status = post_house_event(pid, key, card_id, decision["title"])
             if 200 <= int(status) < 300:
+                record_manual_send(getattr(post_house_event, "last_devices", None))
                 return self._json(200, {"ok": True})
             return self._json(502, {"error": {"code": "backend_error", "message": "Push failed"}})
         if self.path != "/api/mapping":

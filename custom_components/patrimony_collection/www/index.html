@@ -367,6 +367,18 @@
     #pair_qr[hidden], #pair_box[hidden] { display: none; }
     .head-actions .ghost { padding: 7px 12px; font-size: 13px; }
   .conn-note{font-size:12px;line-height:1.35;margin:4px 0 0;opacity:.72}
+
+    .pq-chip {
+      display: inline-block; padding: 2px 10px; border-radius: 999px;
+      font-size: 12px; letter-spacing: .04em; border: 1px solid var(--line);
+      color: var(--cream); opacity: .85;
+    }
+    .pq-chip.present { color: #8fbf8a; border-color: #3a5a38; opacity: 1; }
+    .pq-chip.off { opacity: .75; }
+    .pq-chip.unavailable { color: var(--gold); opacity: 1; }
+    .conn-pq-block { margin-top: 8px; }
+    .pushlog-row { padding: 10px 0; border-top: 1px solid var(--line); }
+    .pushlog-row:first-child { border-top: 0; }
 </style>
 </head>
 <body>
@@ -417,6 +429,7 @@
       <nav class="house-subnav" id="house_subnav" role="tablist" aria-label="House">
         <button type="button" class="house-sub is-active" id="sub_home" data-house-sub="home" role="tab" aria-selected="true">Home settings</button>
         <button type="button" class="house-sub" id="sub_conn" data-house-sub="conn" role="tab" aria-selected="false">Connections</button>
+        <button type="button" class="house-sub" id="sub_pushlog" data-house-sub="pushlog" role="tab" aria-selected="false">Push log</button>
       </nav>
       <section class="soon-card" id="soon_home">
         <h2>Home settings</h2>
@@ -485,6 +498,17 @@
           <div class="conn-row"><span class="k">App version</span><span class="v" id="conn_ios_ver">—</span></div>
           <div class="conn-row"><span class="k">Last interaction</span><span class="v" id="conn_ios_at">—</span></div>
         </div>
+        <h3>PQ Shield</h3>
+        <p class="quiet" id="conn_pq_help">PQ Shield adds further post-quantum (PQ) security beyond standard SSL/TLS between your phone and this house; requires iOS 26+.</p>
+        <div class="conn-list conn-pq-block">
+          <div class="conn-row"><span class="k">Status</span><span class="v" id="conn_pq_chip_wrap"><span class="pq-chip" id="conn_pq_chip">—</span></span></div>
+        </div>
+        <p class="conn-note muted" id="conn_pq_state_help"></p>
+        <div class="actions" id="conn_pq_actions">
+          <button class="ghost" type="button" id="conn_pq_rotate" hidden>Rotate</button>
+          <button class="danger" type="button" id="conn_pq_disable" hidden>Disable</button>
+        </div>
+        <p class="status" id="conn_pq_msg"></p>
         <h3>Push</h3>
         <p class="quiet">Sends an Apple push notification (APNs). It shows as a banner on the principal’s iOS devices.</p>
         <input id="notify_title" maxlength="120" aria-label="Banner text" />
@@ -492,6 +516,11 @@
           <button class="primary" type="button" id="notify_send">Send</button>
           <span class="status" id="notify_status"></span>
         </div>
+      </section>
+      <section class="soon-card" id="soon_pushlog" hidden>
+        <h2>Push log</h2>
+        <p class="quiet" id="pushlog_empty">No attention pushes yet.</p>
+        <div id="pushlog_rows"></div>
       </section>
     </div>
   </div>
@@ -1744,6 +1773,12 @@
     const NOTES_PATH = '/api/patrimony_collection/notes';
     const PAIR_PATH = '/api/patrimony_collection/pair';
     const NOTIFY_PATH = '/api/patrimony_collection/notify';
+    const PUSH_LOG_PATH = '/api/patrimony_collection/push_log';
+    const PQ_CAPABILITY_PATH = '/api/patrimony_collection/pq_shield/capability';
+    const PQ_DISABLE_PATH = '/api/patrimony_collection/pq_shield/disable';
+    const PQ_ROTATE_PATH = '/api/patrimony_collection/pq_shield/rotate';
+    const PUSH_LOG_NO_DEVICES = "No iOS client registered";
+    const MANUAL_SEND_CLASS = "manual.send";
     const IOS_SESSION_PATH = '/api/patrimony_collection/ios_session';
 
     let activeTab = "cards";
@@ -2476,11 +2511,13 @@
     function readHouseSub() {
       try {
         const v = sessionStorage.getItem(houseSubKey());
-        return v === "conn" ? "conn" : "home";
-      } catch (e) { return "home"; }
+        if (v === "conn" || v === "pushlog") return v;
+      } catch (e) {}
+      return "home";
     }
     function writeHouseSub(name) {
-      try { sessionStorage.setItem(houseSubKey(), name === "conn" ? "conn" : "home"); } catch (e) {}
+      const v = (name === "conn" || name === "pushlog") ? name : "home";
+      try { sessionStorage.setItem(houseSubKey(), v); } catch (e) {}
     }
     function checkedAtLabel() {
       const zone = (($("soon_zone") && $("soon_zone").textContent) || "").trim();
@@ -2491,6 +2528,146 @@
       } catch (e) {}
       return new Date().toLocaleTimeString("en-GB", opts);
     }
+
+    let pqBusy = false;
+    function pqChipLabel(cap) {
+      // Unavailable: crypto floor missing OR house feature disabled (no second Offer control).
+      if (!cap || cap.available === false || cap.reason === "disabled") return "Unavailable";
+      if (cap.session === "present") return "Present";
+      return "Off";
+    }
+    function applyPqCapability(cap) {
+      const chip = $("conn_pq_chip");
+      const help = $("conn_pq_state_help");
+      const label = pqChipLabel(cap);
+      if (chip) {
+        chip.textContent = label;
+        chip.className = "pq-chip " + label.toLowerCase();
+      }
+      const btnRot = $("conn_pq_rotate");
+      const btnDis = $("conn_pq_disable");
+      if (btnRot) btnRot.hidden = true;
+      if (btnDis) btnDis.hidden = true;
+      if (!cap || sessionExpired) {
+        if (help) help.textContent = "";
+        return;
+      }
+      if (label === "Unavailable") {
+        if (help) help.textContent = "Not available on this phone or this house.";
+        return;
+      }
+      if (label === "Present") {
+        if (help) help.textContent = "On for this house.";
+        if (btnRot) { btnRot.hidden = false; btnRot.disabled = false; }
+        if (btnDis) { btnDis.hidden = false; btnDis.disabled = false; }
+        return;
+      }
+      // Off — Enable is iPhone-only
+      if (help) help.textContent = "Enable from the Patrimony Collection app on iPhone (Connections). Requires iOS 26+.";
+    }
+    async function refreshPqShield() {
+      if (sessionExpired) return;
+      try {
+        const cap = await api(PQ_CAPABILITY_PATH);
+        applyPqCapability(cap);
+      } catch (e) {
+        if ($("conn_pq_chip")) {
+          $("conn_pq_chip").textContent = "—";
+          $("conn_pq_chip").className = "pq-chip";
+        }
+        if ($("conn_pq_state_help")) $("conn_pq_state_help").textContent = sessionExpired ? "" : "Could not read PQ Shield status.";
+        if ($("conn_pq_rotate")) $("conn_pq_rotate").hidden = true;
+        if ($("conn_pq_disable")) $("conn_pq_disable").hidden = true;
+      }
+    }
+    async function runPqAction(action) {
+      if (pqBusy || sessionExpired) return;
+      pqBusy = true;
+      const btnRot = $("conn_pq_rotate");
+      const btnDis = $("conn_pq_disable");
+      if (btnRot) btnRot.disabled = true;
+      if (btnDis) btnDis.disabled = true;
+      if ($("conn_pq_msg")) $("conn_pq_msg").textContent = "Working…";
+      try {
+        if (action === "disable") {
+          await api(PQ_DISABLE_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+          if ($("conn_pq_msg")) $("conn_pq_msg").textContent = "Disabled";
+        } else if (action === "rotate") {
+          await api(PQ_ROTATE_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+          if ($("conn_pq_msg")) $("conn_pq_msg").textContent = "Rotated — Enable again from the iPhone app";
+        }
+        await refreshPqShield();
+      } catch (e) {
+        if ($("conn_pq_msg")) $("conn_pq_msg").textContent = "Could not update PQ Shield";
+      }
+      pqBusy = false;
+      if (btnRot) btnRot.disabled = false;
+      if (btnDis) btnDis.disabled = false;
+    }
+    function pushLogText(value) {
+      const text = String(value == null ? "" : value);
+      if (/hek_/i.test(text) || /eyJ/.test(text)) return "";
+      return text;
+    }
+    function renderPushLog(rows) {
+      const empty = $("pushlog_empty");
+      const host = $("pushlog_rows");
+      const list = Array.isArray(rows) ? rows : [];
+      if (!list.length) {
+        if (empty) {
+          empty.hidden = false;
+          empty.textContent = "No attention pushes yet.";
+        }
+        if (host) host.replaceChildren();
+        return;
+      }
+      if (empty) empty.hidden = true;
+      if (!host) return;
+      host.replaceChildren();
+      list.slice().reverse().forEach((row) => {
+        const wrap = document.createElement("div");
+        wrap.className = "pushlog-row";
+        const fire = pushLogText(row && row.fire_class);
+        const manual = fire === "manual" || fire === MANUAL_SEND_CLASS;
+        const fields = [
+          ["Timestamp", pushLogText(row && row.at)],
+          [manual ? "Send" : "FIRE class", manual ? "Manual send" : fire],
+          ["Devices", (function () {
+            const devices = row && row.devices;
+            if (Array.isArray(devices)) {
+              const names = devices.map(pushLogText).filter(Boolean);
+              return names.length ? names.join(", ") : PUSH_LOG_NO_DEVICES;
+            }
+            const text = pushLogText(devices);
+            return text || PUSH_LOG_NO_DEVICES;
+          })()]
+        ];
+        fields.forEach((pair) => {
+          const line = document.createElement("div");
+          line.className = "conn-row";
+          const k = document.createElement("span");
+          k.className = "k";
+          k.textContent = pair[0];
+          const v = document.createElement("span");
+          v.className = "v";
+          v.textContent = pair[1];
+          line.appendChild(k);
+          line.appendChild(v);
+          wrap.appendChild(line);
+        });
+        host.appendChild(wrap);
+      });
+    }
+    async function loadPushLog() {
+      if (sessionExpired) return;
+      try {
+        const doc = await api(PUSH_LOG_PATH);
+        renderPushLog(doc && doc.rows);
+      } catch (e) {
+        renderPushLog([]);
+      }
+    }
+
     async function checkConnections() {
       if (sessionExpired || connCheckBusy) return;
       connCheckBusy = true;
@@ -2535,6 +2712,7 @@
         setConn("conn_cf", "No reply", "warn");
         if ($("conn_status")) $("conn_status").textContent = "Could not check · " + checkedAtLabel();
       }
+      try { await refreshPqShield(); } catch (e) {}
       connCheckBusy = false;
       if ($("conn_check")) $("conn_check").disabled = false;
     }
@@ -2553,6 +2731,7 @@
         if (r.ok && doc && doc.ok) {
           if ($("notify_title")) $("notify_title").value = "";
           if ($("notify_status")) $("notify_status").textContent = "Sent";
+          if (typeof loadPushLog === "function") loadPushLog();
           return;
         }
         const msg = doc && doc.error && doc.error.message ? String(doc.error.message) : "";
@@ -2562,24 +2741,32 @@
       }
     }
     function showHouseSub(name) {
-      const home = name === "home";
+      const which = (name === "conn" || name === "pushlog") ? name : "home";
       const subHome = $("sub_home");
       const subConn = $("sub_conn");
+      const subLog = $("sub_pushlog");
       const soonHome = $("soon_home");
       const soonConn = $("soon_conn");
-      writeHouseSub(home ? "home" : "conn");
+      const soonLog = $("soon_pushlog");
+      writeHouseSub(which);
       if (subHome) {
-        subHome.classList.toggle("is-active", home);
-        subHome.setAttribute("aria-selected", home ? "true" : "false");
+        subHome.classList.toggle("is-active", which === "home");
+        subHome.setAttribute("aria-selected", which === "home" ? "true" : "false");
       }
       if (subConn) {
-        subConn.classList.toggle("is-active", !home);
-        subConn.setAttribute("aria-selected", home ? "false" : "true");
+        subConn.classList.toggle("is-active", which === "conn");
+        subConn.setAttribute("aria-selected", which === "conn" ? "true" : "false");
       }
-      if (soonHome) soonHome.hidden = !home;
-      if (soonConn) soonConn.hidden = home;
+      if (subLog) {
+        subLog.classList.toggle("is-active", which === "pushlog");
+        subLog.setAttribute("aria-selected", which === "pushlog" ? "true" : "false");
+      }
+      if (soonHome) soonHome.hidden = which !== "home";
+      if (soonConn) soonConn.hidden = which !== "conn";
+      if (soonLog) soonLog.hidden = which !== "pushlog";
       // Integrator: opening Connections runs Check links once so status is live without an extra tap.
-      if (!home && !sessionExpired && typeof checkConnections === "function") checkConnections();
+      if (which === "conn" && !sessionExpired && typeof checkConnections === "function") checkConnections();
+      if (which === "pushlog" && !sessionExpired && typeof loadPushLog === "function") loadPushLog();
     }
     async function loadSoon() {
       fillSoonMeta();
@@ -2609,6 +2796,8 @@
       if ($("pair_dismiss")) $("pair_dismiss").onclick = () => { clearPairing(); if ($("pair_status")) $("pair_status").textContent = ""; };
       fillComponentVersion();
       if ($("conn_check")) $("conn_check").onclick = checkConnections;
+      if ($("conn_pq_rotate")) $("conn_pq_rotate").onclick = () => runPqAction("rotate");
+      if ($("conn_pq_disable")) $("conn_pq_disable").onclick = () => runPqAction("disable");
       if ($("notify_send")) $("notify_send").onclick = sendNotify;
       if ($("notify_title")) $("notify_title").addEventListener("keydown", (ev) => {
         if (ev.key === "Enter") { ev.preventDefault(); sendNotify(); }

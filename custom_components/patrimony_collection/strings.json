@@ -40,7 +40,8 @@
         "menu_options": {
           "add_card": "Add card",
           "add_item": "Add item",
-          "remove_item": "Remove item"
+          "remove_item": "Remove item",
+          "pq_shield": "PQ Shield"
         }
       },
       "add_card": {
@@ -70,6 +71,13 @@
         "description": "Remove by item UUID. The UI shows the label and entity for the integrator only.",
         "data": {
           "item_id": "Item"
+        }
+      },
+      "pq_shield": {
+        "title": "PQ Shield",
+        "description": "Default On for this house. When On, the house may offer PQ Shield after the iOS Enable flow (iOS 26+). Present still requires a capable phone and Home Assistant. Off or no session means live updates use standard SSL/TLS only.",
+        "data": {
+          "pq_shield": "Offer PQ Shield on this house"
         }
       }
     },

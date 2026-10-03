@@ -51,6 +51,18 @@ CONF_ALREADY_HAVE_PROPERTY_ID: Final = "already_have_property_id"
 CONF_CARDS: Final = "cards"
 CONF_MAPPINGS: Final = "mappings"
 CONF_HOUSE_EVENT_KEY: Final = "house_event_key"
+CONF_PQ_SHIELD: Final = "pq_shield"
+
+# Phase 1 PQ Shield. Paths match pq-shield-phase1/api-freeze.md.
+PQ_SHIELD_CAPABILITY_PATH: Final = "/api/patrimony_collection/pq_shield/capability"
+PQ_SHIELD_PUBLIC_PATH: Final = "/api/patrimony_collection/pq_shield/public"
+PQ_SHIELD_ACCEPT_ENCAP_PATH: Final = "/api/patrimony_collection/pq_shield/accept_encap"
+PQ_SHIELD_ROTATE_PATH: Final = "/api/patrimony_collection/pq_shield/rotate"
+PQ_SHIELD_DISABLE_PATH: Final = "/api/patrimony_collection/pq_shield/disable"
+# HA panel / options only — not phone enable wire.
+PQ_SHIELD_FEATURE_PATH: Final = "/api/patrimony_collection/pq_shield/feature"
+PQ_SHIELD_STORE_FILE: Final = "patrimony_collection/pq_shield.json"
+PUSH_LOG_PATH: Final = "/api/patrimony_collection/push_log"
 
 # Closed kind set from card-schema-v0.md section 5. energy is not a kind.
 KINDS: Final = ("security", "climate", "network", "cellar", "arrivals", "custom")

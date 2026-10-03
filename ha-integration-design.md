@@ -62,12 +62,14 @@ HA OS: Add-on store → Patrimony Collection (filter/select). Also keep the cust
 
 ### Step `user` (create entry)
 
+Default path is a **new house**: display name, optional location, timezone. No UUID field. On submit the flow mints `property_id` with `uuid4()` and shows step `confirm` so the integrator can copy it. Check **I already have a property_id (advanced)** to open step `existing` and paste a UUID (validated with `is_uuid`) when reconnecting.
+
 | Field | Storage | Wire |
 |---|---|---|
-| `property_id` | UUID; **must equal** backend registry `properties.id` and iOS Keychain account | `property.id` |
+| `property_id` | UUID minted here for a new house; later copied to backend registry `properties.id` and iOS Keychain | `property.id` |
 | `display_name` | non-empty | `property.displayName` |
 | `location_label` | optional short place (“Example”), not an address | `property.locationLabel` |
-| `timezone` | IANA | `property.timezone` |
+| `timezone` | IANA (`UTC` allowed) | `property.timezone` |
 
 Abort `already_configured` if an entry exists (v0: one house per HA). Do not ask for latitude/longitude. Do not ask for the iOS token (HA already authenticates its own API).
 
@@ -122,9 +124,9 @@ Never put `entity_id`, device_id, or area_id in `label`.
 
 | `valueType` | Value JSON | Source |
 |---|---|---|
-| `bool` | `true` / `false` / `null` | `on`/`off`, `true`/`false`, `unlocked`/`locked` (lock: locked→true only if integrator chose that polarity — default lock `locked` = ok bool true), connectivity `on` = connected |
+| `bool` | `true` / `false` / `null` | `on`/`off`, `true`/`false`, connectivity `on` = connected. Do not use for `lock.*` entity state. |
 | `number` | JSON number / `null` | `float(state)` or climate `current_temperature` / `temperature` as configured `attribute` (internal) |
-| `enum` | string / `null` | Humanized state (`armed_away` → `Armed away`); HVAC mode as title case |
+| `enum` | string / `null` | Humanized state (`armed_away` → `Armed away`); HVAC mode as title case; **`lock.*` entity state is `Locked` / `Unlocked`** (unknown/unavailable/jammed/locking → `null`) |
 | `text` | string / `null` | Raw state string after redaction (reject if it looks like an entity id or URL) |
 
 Mismatch (schema): do not emit the item.
@@ -254,7 +256,7 @@ Canonical fixture: `fixtures/demo-state.json`
 - Network: Guest Wi-Fi bool, ok_when_on
 - Weather custom card: Outdoor number C, Condition enum (house weather.*, typically Met.no)
 
-Do not store the HA token in this repo or the Patrimony backend. House hostname comes from HA `external_url` only.
+Do not store the HA token in this repo or the Patrimony backend. House hostname comes from HA `get_url(prefer_external=True, allow_cloud=True)`, then config `external_url` / `internal_url`.
 
 ## Guest Wi-Fi (network example)
 
@@ -283,7 +285,7 @@ Add more **items** on the same card (or another `network` card if the integrator
 - Backend `GET /v1/properties` `id`
 - This config entry
 
-`displayName` is the wallet title. `locationLabel` is optional (“Example”). No coordinates. Integrator types the UUID to match the operator-created registry row (operator CLI `create-property --id`). v0 does not mint a second id.
+`displayName` is the wallet title. `locationLabel` is optional (“Example”). No coordinates. For a new house the config flow mints `property_id` with `uuid4()`; the integrator copies that ID into the backend registry (`create-property --id`) and iOS Keychain. Paste an existing UUID only when reconnecting a registry house. Do not ask first-time installers to invent or fetch an ID before this flow.
 
 ## Out of scope (do not implement)
 

@@ -42,6 +42,7 @@ from .const import (
     CONF_LOCATION_LABEL,
     CONF_MAPPINGS,
     CONF_PROPERTY_ID,
+    CONF_PQ_SHIELD,
     CONF_TIMEZONE,
     DEFAULT_PRIORITY,
     DOMAIN,
@@ -206,7 +207,7 @@ class PatrimonyCollectionConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_create_entry(
             title=f"{display_name} ({property_id})",
             data=data,
-            options={CONF_CARDS: [], CONF_MAPPINGS: [], CONF_HOUSE_EVENT_KEY: None},
+            options={CONF_CARDS: [], CONF_MAPPINGS: [], CONF_HOUSE_EVENT_KEY: None, CONF_PQ_SHIELD: True},
         )
 
     async def async_set_unique_id(self, unique_id: str, **kwargs):
@@ -236,7 +237,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_init(self, user_input: dict | None = None):
         return self.async_show_menu(
             step_id="init",
-            menu_options=["add_card", "add_item", "remove_item"],
+            menu_options=["add_card", "add_item", "remove_item", "pq_shield"],
         )
 
     async def async_step_add_card(self, user_input: dict | None = None):
@@ -325,4 +326,25 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_create_entry(title="", data=options)
         schema = vol.Schema({vol.Required("item_id"): vol.In(choices)})
         return self.async_show_form(step_id="remove_item", data_schema=schema)
+
+
+    async def async_step_pq_shield(self, user_input: dict | None = None):
+        """Integrator house-level PQ Shield gate. Default On (public readiness).
+
+        Not surfaced on the Connections panel. Present still requires the iOS
+        enable flow (public → accept_encap). Off wipes session via options listener.
+        """
+        options = self._options()
+        if user_input is not None:
+            options[CONF_PQ_SHIELD] = bool(user_input.get(CONF_PQ_SHIELD, True))
+            return self.async_create_entry(title="", data=options)
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_PQ_SHIELD,
+                    default=bool(options.get(CONF_PQ_SHIELD, True)),
+                ): bool,
+            }
+        )
+        return self.async_show_form(step_id="pq_shield", data_schema=schema)
 

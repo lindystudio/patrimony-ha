@@ -9,7 +9,7 @@ import logging
 from typing import Any
 
 from .activity import record_mapped_activity
-from .const import CONF_MAPPINGS, DOMAIN, SNAPSHOT_DEBOUNCE_SECONDS
+from .const import CONF_HOUSE_EVENT_KEY, CONF_MAPPINGS, CONF_PQ_SHIELD, CONF_PROPERTY_ID, DOMAIN, SNAPSHOT_DEBOUNCE_SECONDS
 from .http import async_setup_http
 from .mapping import build_presentation_document, load_shared_mapping, merge_options, seed_shared_mapping
 from .websocket import async_fire_state, async_setup_websocket
@@ -77,6 +77,40 @@ async def _emit_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> None:
         [card.get("kind") for card in cards],
     )
     async_fire_state(hass, document)
+    await _consider_attention(hass, entry)
+
+
+async def _consider_attention(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """FIRE transitions only. Glance severity can change without a push.
+
+    Disk and the events POST run in an executor. Missing hek_ updates the
+    baseline and does not send. Entity unavailable is not a push.
+    """
+    from .mapping import attention_facts
+    from .notify import dispatch_attention_pushes, is_usable_house_event_key
+
+    try:
+        facts = attention_facts(hass, dict(entry.data or {}), dict(entry.options or {}))
+    except Exception:
+        _LOGGER.error("patrimony_attention_facts_failed")
+        return
+    key = (entry.options or {}).get(CONF_HOUSE_EVENT_KEY)
+    property_id = (entry.data or {}).get(CONF_PROPERTY_ID)
+    if not is_usable_house_event_key(key):
+        key = None
+        property_id = None
+
+    def _send() -> None:
+        dispatch_attention_pushes(hass, facts, property_id, key)
+
+    job = getattr(hass, "async_add_executor_job", None)
+    try:
+        if job:
+            await job(_send)
+        else:
+            _send()
+    except Exception:
+        _LOGGER.error("patrimony_attention_push_failed")
 
 
 def _bind_mapped_listener(hass: HomeAssistant, entry: ConfigEntry, runtime: dict[str, Any]) -> None:
@@ -148,6 +182,13 @@ async def _options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     if runtime is None:
         return
     runtime["entry"] = entry
+    # Feature Off → cleartext live path; wipe session/keypair (fail closed).
+    if not bool((entry.options or {}).get(CONF_PQ_SHIELD, True)):
+        try:
+            from .pq_shield.session import get_manager
+            get_manager(hass).disable(wipe_keypair=True)
+        except Exception:
+            _LOGGER.debug("pq_shield_disable_on_options_off_skipped")
     _bind_mapped_listener(hass, entry, runtime)
     await _emit_snapshot(hass, entry)
 

@@ -14,6 +14,7 @@ from .const import (
     NOTES_PATH,
     NOTIFY_PATH,
     PAIR_PATH,
+    PUSH_LOG_PATH,
     PAIR_CLAIM_PATH,
     PHOTO_MAX_BYTES,
     PHOTO_PATH,
@@ -87,7 +88,10 @@ class PatrimonyStateView(HomeAssistantView):
                 },
                 status=500,
             )
-        return web.json_response(document)
+        # Session Present → AEAD envelope; else cleartext (default Off / fail closed).
+        from .pq_shield.session import get_manager as _pq_get_manager
+        payload = _pq_get_manager(self.hass).maybe_wrap_document(document)
+        return web.json_response(payload)
 
     async def post(self, request):
         from aiohttp import web
@@ -348,12 +352,16 @@ class PatrimonyNotifyView(HomeAssistantView):
         key = self._hek()
         if not house_notify.is_usable_house_event_key(key):
             return web.json_response(house_notify.MISSING_KEY, status=400)
-        title = house_notify.clip_title((payload or {}).get("title") if isinstance(payload, dict) else None)
-        if not title:
+        # Manual Soon Notify only. Client severity is ignored. Secrets never go on the title.
+        decision = house_notify.manual_event(
+            key, (payload or {}).get("title") if isinstance(payload, dict) else None
+        )
+        if not decision:
             return web.json_response(
                 {"error": {"code": "bad_title", "message": "title must be 1–120 characters"}},
                 status=400,
             )
+        title = decision["title"]
         property_id = _property_id(self.hass)
         if not property_id:
             return _not_configured()
@@ -457,6 +465,22 @@ class PatrimonyIosSessionView(HomeAssistantView):
         return web.json_response(body, status=status)
 
 
+class PatrimonyPushLogView(HomeAssistantView):
+    """Last attention pushes. No hek_ and no tokens."""
+
+    url = PUSH_LOG_PATH
+    name = "api:patrimony_collection:push_log"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def get(self, request):
+        from aiohttp import web
+
+        return web.json_response(house_notify.push_log_document(self.hass))
+
+
 def notify_status_payload(hass, hek, *, reachable: bool | None = None) -> dict[str, Any]:
     """Connections / Check links JSON. House URL is the pairing resolver."""
     payload: dict[str, Any] = {
@@ -495,5 +519,9 @@ async def async_setup_http(hass: HomeAssistant) -> None:
     hass.http.register_view(PatrimonyNotifyView(hass))
     hass.http.register_view(PatrimonyEventKeyView(hass))
     hass.http.register_view(PatrimonyIosSessionView(hass))
+    hass.http.register_view(PatrimonyPushLogView(hass))
+    from .pq_shield import async_setup_pq_shield, register_pq_shield_views
+    await async_setup_pq_shield(hass)
+    register_pq_shield_views(hass)
     from .panel import async_setup_panel
     await async_setup_panel(hass)

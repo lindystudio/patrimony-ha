@@ -27,7 +27,7 @@ iOS: one quiet notes screen per house. HA Soon: same textarea, autosave.
 
 ## Pairing QR (HA long-lived token → iOS)
 
-Admin-only on Soon. Button "Show a pairing code" mints a long-lived HA token named `Patrimony iOS` (HA auth API / WS `auth/long_lived_access_token`). Draw a QR of:
+Admin-only on Soon. House URL comes from HA `get_url(prefer_external=True, allow_cloud=True)` so Nabu Casa Cloud counts, then config `external_url` / `internal_url`. Mint refuses a missing/hostless URL (503) before creating a token; `error.message` is the resolved URL (or `(empty)`) plus config snapshot, not canned Settings prose alone. Token/mint exceptions put `Type: str(err)` in `error.message`. Button "Show a pairing code" mints a long-lived HA token named `Patrimony iOS` (HA auth API / WS `auth/long_lived_access_token`). Draw a QR of:
 
 `patrimony://pair?url=<https house URL>&token=<llat>`
 

@@ -49,7 +49,7 @@ One panel. Same visual language in both places (ink / cream / gold, dark pass fa
 - Sidebar iframe: `/api/patrimony_collection/editor/...` with the parent HA Bearer token (`hass.auth.data.access_token`).
 - Add-on page: relative `api/house`, `api/entities`, `api/mapping`.
 
-**Left:** live **boarding-pass preview** from the same document the phone renders (or a local stand-in on the add-on). Glance grid: items with featuredRank 1–6, else the legacy first 6 (cards by priority then title). Then titled card blocks in card order. Badge: All secure / Needs a look / Alert. Format number+unit, bool Yes/No, null as an em dash. Nothing identifying a source appears on the preview.
+**Left:** live **boarding-pass preview** from the same document the phone renders (or a local stand-in on the add-on). Glance grid: items with featuredRank 1–6, else the legacy first 6 (cards by priority then title). Then titled card blocks in card order. Badge: All secure / Needs a look / Alert. Format number+unit, bool Yes/No, lock lines Locked/Unlocked, null as an em dash. Nothing identifying a source appears on the preview.
 
 **Middle — Cards:** the house's sections. Create a card (prompt for a title only). Browse the list. Rename. Reorder (priority). Delete (confirm: “Remove this card and its lines from the pass?”). No type picker. Empty house starts with no cards; do not seed Alarm/Network/Climate/etc.
 
@@ -204,6 +204,18 @@ Locked 18 Sep 2026: PresentationDocument is additive (schemaVersion stays 1; unk
 `generatedAt` stays the document clock. `item.updatedAt` is unchanged (HA `last_updated` / `last_changed`). Location remains `locationLabel` free text only — never street / city / country.
 
 iOS: a failed REST/WS fetch is Offline. A cached document whose `lastHeard` is older than the app’s stale threshold is Stale. Neither may render as a quiet healthy card. Prefer `property.lastHeard`; if missing (older component), fall back to `generatedAt`. Card `lastUpdated` is per-card “as of”, not a substitute for house Offline.
+
+## Latest iOS connection on Connections (0.4.61)
+
+Locked 20 Sep 2026: Connections shows **Latest iOS connection** with IP address (HA request peer, never client-supplied), iPhone device name, Patrimony iOS app version, and Time of last interaction. Unseen is **Missing** (amber). Never a street address. Never on `patrimony/state`. Dedicated `GET`/`POST` `/api/patrimony_collection/ios_session`; notify/check-links GET may include `iosSession`.
+
+## Latest iOS connection display + PTR (0.4.62)
+
+Locked 20 Sep 2026: POST body is `deviceName` + `appVersion` (required) and additive `iosVersion` + `model` (optional utsname machine id). Ignore unknown extras including `modelIdentifier`. Never accept client `ip`. Device line: generic `iPhone`/`iPad`/empty (case-insensitive) shows `deviceName · iosVersion` or `iosVersion`/`model`; a friendly name shows that name, optionally with `iosVersion`. Host line is `hostname · IP` after a best-effort reverse DNS; IP only when PTR fails or times out. POST returns **200** `{ ok: true }` immediately — DNS is never awaited. GET includes `ip`, optional `hostname`/`iosVersion`/`model`, and `displayDevice`/`displayHost`.
+
+## Lock lines Locked/Unlocked (0.4.63)
+
+Locked 20 Sep 2026: `lock.*` entity state is `valueType` `enum` with display **Locked** / **Unlocked** (HA `locked`/`unlocked`). unknown/unavailable/jammed/locking → `null`. Auto severity stays `ok` for locked and unlocked. Panel live preview uses the same strings — not Yes/No. Schema 1.0; no fifth `valueType`. Never `entity_id` on the wire.
 
 ## Activity events (0.4.49)
 

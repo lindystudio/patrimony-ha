@@ -39,11 +39,13 @@ def test_validate_workflow_keeps_hacs_job_with_private_ignores() -> None:
     text = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
     assert "hacs/action@" in text
     assert "category: integration" in text
+    # Public lindystudio mirror still runs HACS; private forks skip it.
+    assert "if: github.repository_owner == 'lindystudio'" in text
     ignore_line = next(line for line in text.splitlines() if line.strip().startswith("ignore:"))
     for check in ("hacsjson", "integration_manifest", "license", "topics"):
         assert check in ignore_line
     # Offline job is pytest-only; config_flow must stay importable without voluptuous.
-    assert ("pip install -q pytest" in text) or ("pip install pytest" in text)
+    assert "pip install -q pytest" in text
     assert "voluptuous" not in text
 
 

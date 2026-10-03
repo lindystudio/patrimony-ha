@@ -52,8 +52,14 @@ except ImportError:  # sketch environment without HA installed
 
 
 def async_fire_state(hass: HomeAssistant, document: dict) -> None:
-    """Fire event_type patrimony/state. event.data is the document (no wrapper keys)."""
-    hass.bus.async_fire(EVENT_STATE, document)
+    """Fire event_type patrimony/state. event.data is the document (no wrapper keys).
+
+    When PQ session Present, event.data is the session AEAD envelope.
+    """
+    from .pq_shield.session import get_manager as _pq_get_manager
+
+    payload = _pq_get_manager(hass).maybe_wrap_document(document)
+    hass.bus.async_fire(EVENT_STATE, payload)
 
 
 # Name used by the first sketch draft
@@ -105,7 +111,10 @@ async def ws_get_state(hass: HomeAssistant, connection, msg) -> None:
     except Exception:
         _send_error(connection, msg["id"], "snapshot_failed", "patrimony_snapshot_failed")
         return
-    _send_result(connection, msg["id"], document)
+    from .pq_shield.session import get_manager as _pq_get_manager
+
+    payload = _pq_get_manager(hass).maybe_wrap_document(document)
+    _send_result(connection, msg["id"], payload)
 
 
 async def async_setup_websocket(hass: HomeAssistant) -> None:
