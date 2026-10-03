@@ -7,9 +7,14 @@ HTTP (same HA Bearer as /api/patrimony_collection/state):
 - GET  /api/patrimony_collection/chat
 - POST /api/patrimony_collection/chat
     {"text": "<plain text>", "retention": "keep"|"1h"|"1d"|"7d",
+     "deviceName": "<optional, trimmed, max 80>",
      "imageBase64": "<standard base64, no data: prefix>",
      "imageContentType": "image/jpeg"|"image/png"|"image/webp"}
     retention is optional and defaults to keep.
+    A non-empty deviceName is the sender label even when the bearer
+    is a Home Assistant user token (is_ios_client false). Missing or
+    blank deviceName uses the Home Assistant user, unless the token is
+    the paired iOS client, which uses the stored device name instead.
     imageBase64 and imageContentType are optional. text may be empty
     when an image is present. Both empty is rejected.
 - GET  /api/patrimony_collection/chat/{message_id}/image
@@ -570,15 +575,20 @@ def create_message(hass, request, payload: Any, now: datetime | None = None) -> 
         store = _read_store(hass)
         _purge(store, moment)
         caller = caller_identity(hass, request)
-        if caller["kind"] == "ios":
-            # Prefer the name the phone sends on this POST (UIDevice.current.name).
-            payload_name = _safe_name(payload.get("deviceName"))
-            if payload_name:
-                caller = {
-                    "kind": "ios",
-                    "label": payload_name,
-                    "key": "ios:" + payload_name,
-                }
+        # The house phone uses the same HA user bearer as the panel, so
+        # is_ios_client is false (refresh-token client_name is not
+        # "Patrimony iOS") and the POST was stored as the HA username.
+        # A non-empty trimmed deviceName (max 80) is the name the iOS
+        # app already sends and is the bubble label anyway. The panel
+        # window does not send deviceName; blank or missing stays the
+        # caller identity (HA user, or the stored iOS name for a paired token).
+        posted = _safe_name(payload.get("deviceName"))
+        if posted:
+            caller = {
+                "kind": "ios",
+                "label": posted,
+                "key": "ios:" + posted,
+            }
         message_id = str(uuid4())
         nonce, ciphertext = _seal(key, message_id, text)
         row = {

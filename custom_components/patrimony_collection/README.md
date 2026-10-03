@@ -112,7 +112,7 @@ Text is encrypted at rest with a key that stays on the HA host. That key is not 
 
 A new message reuses the existing events notify path. The title is exactly `New chat message in {display_name}`, or `New chat message` when the stored display name is empty. The events body stays `{ cardId, severity, title }` and does not include the message text, the sender, or a preview.
 
-Sender label: from an iOS client, the stored device name, otherwise the registered client name. From the panel, the Home Assistant user making the request.
+Sender label: a non-empty `deviceName` on the POST (trimmed, at most 80 characters) is stored and returned as the sender, including when the caller authenticates as a Home Assistant user. The panel does not send `deviceName`, so those messages use the Home Assistant user name. A paired iOS client that omits `deviceName` uses the stored device name, not the Home Assistant user name.
 
 ## Privacy
 

@@ -244,7 +244,7 @@ def test_sender_is_ha_user_or_device_name(tmp_path) -> None:
 
 
 def test_ios_post_prefers_payload_device_name(tmp_path) -> None:
-    """iOS body deviceName wins; blank falls back; panel ignores it."""
+    """iOS body deviceName wins; blank on a paired token uses the session name."""
     hass = _Hass(tmp_path, _Entry())
     persist_ios_session(
         hass, device_name="Stored Session Phone", app_version="1.0", ip="127.0.0.1"
@@ -283,17 +283,86 @@ def test_ios_post_prefers_payload_device_name(tmp_path) -> None:
     assert status == 201
     assert too_long["sender"] == "Stored Session Phone"
 
-    panel, status = create_message(
+    # A posted deviceName is the label even when the caller is the panel
+    # user. The panel window itself does not send deviceName.
+    posted_panel, status = create_message(
         hass,
         _panel("Ada Lovelace"),
-        {"text": "panel-line-ignore", "deviceName": "Petros iPhone 17 Pro"},
+        {"text": "panel-line-with-name", "deviceName": "Petros iPhone 17 Pro"},
         now=T0,
     )
     assert status == 201
-    assert panel["sender"] == "Ada Lovelace"
-    assert panel["senderKind"] == "panel"
-    assert panel["sender"] != "Petros iPhone 17 Pro"
-    assert panel["sender"] != "Stored Session Phone"
+    assert posted_panel["sender"] == "Petros iPhone 17 Pro"
+    assert posted_panel["senderKind"] == "ios"
+    assert posted_panel["sender"] != "Ada Lovelace"
+    assert posted_panel["sender"] != "Stored Session Phone"
+
+    plain_panel, status = create_message(
+        hass,
+        _panel("Ada Lovelace"),
+        {"text": "panel-line-no-name"},
+        now=T0,
+    )
+    assert status == 201
+    assert plain_panel["sender"] == "Ada Lovelace"
+    assert plain_panel["senderKind"] == "panel"
+
+
+def test_device_name_wins_when_bearer_is_not_paired_ios(tmp_path) -> None:
+    """House phone bearer is an HA user token, not client_name Patrimony iOS.
+
+    Posted deviceName is the sender. A missing name on that token is the
+    HA user. A missing name on a known paired iOS call is not the HA user.
+    """
+    hass = _Hass(tmp_path, _Entry())
+    persist_ios_session(
+        hass, device_name="Stored Session Phone", app_version="1.0", ip="127.0.0.1"
+    )
+    ident = "rt-ha-user"
+    hass.auth.refresh_tokens[ident] = _Tok(ident, "Long-Lived Access Token")
+    header = "Bearer " + _b64({"alg": "none"}) + "." + _b64({"iss": ident}) + "."
+    phone = _Req(_User("admin", "user-admin"), {"Authorization": header})
+    assert chat_mod.is_ios_client(hass, phone) is False
+
+    named, status = create_message(
+        hass,
+        phone,
+        {"text": "phone-line-named", "deviceName": "  Kitchen iPhone  "},
+        now=T0,
+    )
+    assert status == 201
+    assert named["sender"] == "Kitchen iPhone"
+    assert named["senderKind"] == "ios"
+    assert named["sender"] != "admin"
+    store = json.loads(_raw(hass))
+    assert store["messages"][0]["senderLabel"] == "Kitchen iPhone"
+    assert store["messages"][0]["senderKey"] == "ios:Kitchen iPhone"
+
+    blank, status = create_message(
+        hass,
+        phone,
+        {"text": "phone-line-blank-user", "deviceName": "   "},
+        now=T0,
+    )
+    assert status == 201
+    assert blank["sender"] == "admin"
+    assert blank["senderKind"] == "panel"
+
+    missing_user, status = create_message(
+        hass, phone, {"text": "phone-line-missing-user"}, now=T0
+    )
+    assert status == 201
+    assert missing_user["sender"] == "admin"
+
+    ios = _ios_request(hass, "Stored Session Phone", user_name="admin")
+    assert chat_mod.is_ios_client(hass, ios) is True
+    missing_ios, status = create_message(
+        hass, ios, {"text": "phone-line-missing-ios"}, now=T0
+    )
+    assert status == 201
+    assert missing_ios["sender"] == "Stored Session Phone"
+    assert missing_ios["senderKind"] == "ios"
+    assert missing_ios["sender"] != "admin"
 
 
 
