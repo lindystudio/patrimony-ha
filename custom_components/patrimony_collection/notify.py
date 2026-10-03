@@ -505,10 +505,17 @@ def _patrimony_refresh_tokens(hass) -> list[Any]:
 def registered_ios_clients(hass) -> list[str]:
     """Every iOS client this house has registered. Name, else id. No secrets.
 
-    ios_session.json is one latest device. Refresh tokens are the list: when
-    more than one Patrimony iOS token is stored, each is listed. One client
-    still shows that one stored name.
+    Prefer the per-credential clients registry (display names). Fall back to
+    ios_session.json last-write and Patrimony iOS refresh tokens.
     """
+    try:
+        from .clients import active_display_names
+
+        named = active_display_names(hass)
+        if named:
+            return named
+    except Exception:
+        pass
     try:
         session = load_ios_session(hass)
     except Exception:

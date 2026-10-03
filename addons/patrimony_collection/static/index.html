@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Patrimony Collection</title>
+  <meta http-equiv="Cache-Control" content="no-store" />
+  <title>Patrimony</title>
   <style>
 
     @import url("https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400&family=Source+Sans+3:wght@400;500;600&display=swap");
@@ -90,6 +91,54 @@
     .tab.is-active {
       opacity: 1; color: var(--gold); border-bottom-color: var(--gold);
     }
+    .house-subnav {
+      display: flex; padding: 0 2px 2px;
+      border-bottom: 1px solid var(--line);
+      margin: 0 0 12px;
+      gap: 0;
+    }
+    .house-sub {
+      background: none; border: 0; border-radius: 0;
+      border-bottom: 2px solid transparent;
+      color: var(--cream); opacity: .5;
+      padding: 8px 10px 7px; margin-bottom: -1px;
+      font-size: 12px; font-weight: 500; letter-spacing: .06em;
+      cursor: pointer;
+    }
+    .house-sub:hover { opacity: .85; }
+    .house-sub.is-active {
+      opacity: 1; color: var(--gold); border-bottom-color: var(--gold);
+    }
+    .house-subnav { flex-wrap: wrap; }
+    .chat-log { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; }
+    .chat-row {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+      border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px;
+      background: #151210;
+    }
+    .chat-main { flex: 1; min-width: 0; }
+    .chat-meta {
+      display: flex; justify-content: space-between; gap: 8px;
+      font-size: 12px; opacity: .75;
+    }
+    .chat-body { margin: 4px 0 6px; white-space: pre-wrap; word-break: break-word; }
+    .chat-photo { display: block; max-width: 100%; max-height: 240px; border-radius: 8px; margin: 4px 0; }
+    .chat-time { display: block; font-size: 12px; opacity: .65; }
+    .phone-card {
+      border: 1px solid rgba(196,165,116,.35);
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin: 12px 0;
+      background: rgba(26,23,20,.35);
+    }
+    .phone-card label { display: block; margin-top: 8px; font-size: 13px; opacity: .8; }
+    .phone-card input[type="text"] {
+      width: 100%; max-width: 28rem; margin-top: 4px;
+    }
+    .phone-meta { font-size: 13px; opacity: .75; margin: 8px 0; }
+    .phone-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+    .phone-confirm { font-size: 13px; color: #e8c48a; }
+    .chat-row .chat-del { margin-left: auto; flex: none; align-self: center; padding: 4px 8px; font-size: 12px; }
     .wrap {
       display: flex; flex-direction: column; gap: 12px;
       padding: 14px 14px 36px; width: 100%;
@@ -110,9 +159,22 @@
       background: linear-gradient(165deg, rgba(196,165,116,.12), transparent 42%, #0e0c0a 88%);
     }
     .pass * { position: relative; }
+    .pass-title-row {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    }
     .pass h2 {
       margin: 4px 0 0; font-family: Fraunces, Georgia, serif;
       font-size: 22px; font-weight: 500; color: var(--cream);
+      min-width: 0; flex: 1;
+    }
+    .pass-clock {
+      margin: 4px 0 0;
+      font-family: Fraunces, Georgia, serif;
+      font-size: 20px; font-weight: 400;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: .02em;
+      color: var(--cream); opacity: .9;
+      flex: none;
     }
     .pass .place { letter-spacing: .16em; text-transform: uppercase; font-size: 10px; color: var(--cream); opacity: .85; }
     .badge { display: inline-block; margin: 8px 0 10px; padding: 2px 8px; border-radius: 4px; font-size: 12px; letter-spacing: .04em; }
@@ -122,10 +184,12 @@
     .cell .v { font-size: 15px; margin-top: 1px; }
     .updated { margin-top: 6px; font-size: 10px; color: var(--cream); opacity: .45; letter-spacing: .12em; text-transform: uppercase; }
     #blocks { overflow: visible; }
-    .block { background: var(--panel); border-radius: 10px; padding: 7px 12px; margin-top: 6px; border: 1px solid var(--line); }
-    .block h3 { margin: 0 0 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--cream); font-weight: 600; }
-    .row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; cursor: pointer; font-size: 13px; }
-    .row:hover { color: #fff; }
+    .block { background: var(--panel); border-radius: 14px; padding: 0; margin-top: 6px; border: 1px solid var(--line); overflow: hidden; cursor: pointer; }
+    .block.open { border-color: var(--gold-deep); cursor: default; }
+    .block.open .card-title { color: var(--gold); }
+    .block-face { padding: 0 12px 10px; }
+    .block-face .quiet { margin: 0; }
+    .row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; font-size: 13px; }
     .row.active { color: var(--gold); }
     label {
       display: block; font-size: 13px; letter-spacing: 0;
@@ -146,12 +210,17 @@
     .danger:hover { color: #e4c4b8; border-color: #8a5a4e; }
     .hit { padding: 8px 6px; border-bottom: 1px solid var(--line); cursor: pointer; }
     .hit:hover { background: #151210; }
+    .hit.is-active { background: #151210; outline: 1px solid var(--gold-deep); border-radius: 6px; }
     .hit .name { font-size: 15px; }
     .hit .live { font-size: 12px; color: var(--cream); opacity: .8; margin-top: 2px; }
+    .hit .mark { font-size: 11px; letter-spacing: .04em; color: var(--gold); opacity: .85; margin-top: 2px; }
+    .hit .eid { font-size: 11px; color: var(--cream); opacity: .55; margin-top: 2px; letter-spacing: .02em; }
     .live { font-size: 13px; color: var(--cream); }
     .status { min-height: 1.2em; color: var(--gold); font-size: 13px; }
     .head-actions .status { min-height: 0; text-align: right; }
     .head-actions .primary { padding: 7px 14px; font-size: 13px; }
+    #retry_session { padding: 7px 12px; font-size: 13px; }
+    #retry_session[hidden] { display: none; }
     .quiet { color: var(--cream); opacity: .75; font-size: 13px; margin: 0 0 10px; }
     .card-sec {
       background: var(--panel); border-radius: 14px; border: 1px solid var(--line);
@@ -188,6 +257,9 @@
       text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 400;
       color: var(--cream); width: auto; cursor: pointer; white-space: nowrap;
     }
+    .pass-rank { opacity:.7; font-variant-numeric:tabular-nums; letter-spacing:.02em; }
+    .pass-rank-btns { display:inline-flex; align-items:center; gap:2px; }
+    .pass-rank-btns .btn-icon { padding:4px 7px; min-width:28px; font-size:12px; }
     input[type="checkbox"] { width: auto; margin: 0; accent-color: var(--gold); flex: none; }
     .line-label {
       flex: 1; min-width: 88px; width: auto; background: transparent;
@@ -200,6 +272,7 @@
     }
     .adv-panel { padding: 8px 0 12px; }
     .card-foot { margin-top: 12px; }
+    .add-toggle { margin-top: 4px; }
     .confirm-bar {
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
       margin: 8px 12px 10px; padding: 8px 10px; border: 1px solid var(--alert);
@@ -215,7 +288,7 @@
     .add-line { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .add-line input { flex: 1; min-width: 120px; width: auto; }
     .add-line button { flex: none; }
-    .composer .actions { margin-top: 4px; }
+    #blocks .actions { margin-top: 4px; }
 
     .people-empty { margin: 28px 0 8px; opacity: .7; }
     .people-card {
@@ -245,55 +318,98 @@
     }
     .people-actions { margin-top: 4px; }
     #people_save { display: none; }
-    #pane_soon.soon-pane {
-      display: flex; flex-direction: column; align-items: stretch;
-      gap: 12px; min-height: 0; padding: 0; text-align: left;
+    .soon-card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 12px; padding: 12px 14px 14px; margin-bottom: 10px;
     }
-    #pane_soon[hidden] { display: none; }
-    .soon-sec {
-      background: var(--panel); border-radius: 14px; border: 1px solid var(--line);
-      padding: 14px 16px 16px;
-    }
-    .soon-sec h3 {
-      margin: 0 0 6px;
+    .soon-card h2 {
+      margin: 0 0 4px;
       font-family: Fraunces, Georgia, serif;
-      font-size: 18px; font-weight: 500; color: var(--cream);
+      font-size: 18px; font-weight: 500;
+      color: var(--cream);
     }
-    .soon-still-wrap {
+    .still {
       position: relative;
-      background: #0e0c0a; border-radius: 12px; overflow: hidden;
-      aspect-ratio: 16 / 10; margin: 8px 0 8px;
+      width: 100%;
+      aspect-ratio: 16 / 10;
+      border-radius: 12px;
+      overflow: hidden;
       border: 1px solid var(--line);
+      background: #0e0c0a;
+    }
+    .still::before {
+      content: ""; position: absolute; inset: 0;
+      background: linear-gradient(165deg, rgba(196,165,116,.12), transparent 42%, #0e0c0a 88%);
+      pointer-events: none; z-index: 1;
+    }
+    .still img {
+      display: block; width: 100%; height: 100%;
+      object-fit: cover;
+    }
+    .still.still-empty {
+      background: var(--paper);
       display: flex; align-items: center; justify-content: center;
     }
-    .soon-still-wrap::after {
-      content: ""; position: absolute; inset: 0; pointer-events: none;
-      background: linear-gradient(165deg, rgba(196,165,116,.16), transparent 42%, #0e0c0a 88%);
-    }
-    .soon-still-wrap img {
+    .still.still-empty::before { display: none; }
+    .still.still-empty img { display: none; }
+    .still-mark {
+      display: none;
+      width: 18px; height: 32px;
+      color: var(--gold); opacity: .38;
       position: relative; z-index: 1;
-      width: 100%; height: 100%; object-fit: cover; display: block;
     }
-    .soon-empty {
-      margin: 0; padding: 0; position: relative; z-index: 1;
-      font-size: 13px; color: var(--ink); opacity: .55;
+    .still.still-empty .still-mark { display: block; }
+    .soon-card .confirm-bar { margin: 10px 0 0; }
+    .soon-card h3 {
+      margin: 16px 0 4px;
+      font-family: var(--font-body, "Source Sans 3", sans-serif);
+      font-size: 11px; font-weight: 500;
+      letter-spacing: .18em; text-transform: uppercase;
+      color: var(--gold);
     }
-    .soon-still-wrap:has(#photo_empty:not([hidden])) {
+    .soon-card > h3:first-of-type { margin-top: 10px; }
+    .conn-list { margin: 10px 0 0; border-top: 1px solid var(--line); }
+    .conn-row {
+      display: flex; align-items: baseline; justify-content: space-between;
+      gap: 16px; padding: 10px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .conn-row .k { font-size: 14px; color: var(--cream); flex: none; }
+    .conn-row .v {
+      font-size: 13px; opacity: .7; text-align: right;
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .conn-row .v.ok { color: #8fbf8a; opacity: 1; }
+    .conn-row .v.warn { color: var(--gold); opacity: 1; }
+    .soon-meta { margin-top: 14px; }
+    .soon-meta p { margin: 4px 0 0; font-size: 13px; opacity: .7; }
+    #notes_text { min-height: 10em; resize: vertical; }
+    #notes_text:focus { outline: 1px solid var(--gold); border-color: var(--gold-deep); }
+    .notes-cap { margin: 0 0 0 auto; font-size: 12px; opacity: .55; }
+    .qr-paper {
+      display: inline-block;
       background: var(--paper);
+      padding: 14px;
+      border-radius: 12px;
+      margin: 4px 0 0;
     }
-    .soon-still-wrap:has(#photo_empty:not([hidden]))::after {
-      background: linear-gradient(165deg, rgba(196,165,116,.22), transparent 60%);
+    .qr-paper canvas { display: block; }
+    #pair_qr[hidden], #pair_box[hidden] { display: none; }
+    .head-actions .ghost { padding: 7px 12px; font-size: 13px; }
+  .conn-note{font-size:12px;line-height:1.35;margin:4px 0 0;opacity:.72}
+
+    .pq-chip {
+      display: inline-block; padding: 2px 10px; border-radius: 999px;
+      font-size: 12px; letter-spacing: .04em; border: 1px solid var(--line);
+      color: var(--cream); opacity: .85;
     }
-    #pair_qr {
-      display: block; margin: 12px 0 0;
-      background: var(--paper); padding: 14px;
-      border-radius: 12px; width: 232px; height: 232px;
-    }
-    #notes_text { min-height: 8.5em; resize: vertical; }
-    input:focus, select:focus, textarea:focus { outline: 1px solid var(--gold); border-color: var(--gold-deep); }
-    #pair_qr[hidden] { display: none; }
-    .soon-sec .confirm-bar { margin: 10px 0 0; }
-  </style>
+    .pq-chip.present { color: #8fbf8a; border-color: #3a5a38; opacity: 1; }
+    .pq-chip.off { opacity: .75; }
+    .pq-chip.unavailable { color: var(--gold); opacity: 1; }
+    .conn-pq-block { margin-top: 8px; }
+    .pushlog-row { padding: 10px 0; border-top: 1px solid var(--line); }
+    .pushlog-row:first-child { border-top: 0; }
+</style>
 </head>
 <body>
   <div class="chrome">
@@ -305,6 +421,7 @@
         </div>
         <div class="head-actions">
           <span class="status" id="status"></span>
+          <button class="ghost" type="button" id="retry_session" hidden>Retry</button>
           <button class="primary" type="button" id="save">Save</button>
         </div>
       </div>
@@ -318,7 +435,7 @@
     <nav class="tab-bar" id="tab_bar" role="tablist">
       <button type="button" class="tab is-active" id="tab_cards" data-tab="cards" role="tab" aria-selected="true">Cards</button>
       <button type="button" class="tab" id="tab_people" data-tab="people" role="tab" aria-selected="false">People</button>
-      <button type="button" class="tab" id="tab_soon" data-tab="soon" role="tab" aria-selected="false">Soon</button>
+      <button type="button" class="tab" id="tab_soon" data-tab="soon" role="tab" aria-selected="false">House</button>
     </nav>
   </div>
   <div class="wrap">
@@ -329,7 +446,6 @@
         </div>
         <div id="blocks"></div>
       </section>
-      <section class="composer" id="composer"></section>
     </div>
     <div id="pane_people" class="pane" role="tabpanel" hidden>
       <div id="people_list"></div>
@@ -339,14 +455,36 @@
       </div>
       <p class="status" id="people_status"></p>
     </div>
-    <div id="pane_soon" class="pane soon-pane" role="tabpanel" hidden>
-      <section class="soon-sec" id="soon_photo">
+    <div id="pane_soon" class="pane" role="tabpanel" hidden>
+      <nav class="house-subnav" id="house_subnav" role="tablist" aria-label="House">
+        <button type="button" class="house-sub is-active" id="sub_home" data-house-sub="home" role="tab" aria-selected="true">Home settings</button>
+        <button type="button" class="house-sub" id="sub_conn" data-house-sub="conn" role="tab" aria-selected="false">Connections</button>
+        <button type="button" class="house-sub" id="sub_pushlog" data-house-sub="pushlog" role="tab" aria-selected="false">Push log</button>
+        <button type="button" class="house-sub" id="sub_chat" data-house-sub="chat" role="tab" aria-selected="false">Chat</button>
+        <button type="button" class="house-sub" id="sub_phones" data-house-sub="phones" role="tab" aria-selected="false">Phones</button>
+      </nav>
+      <section class="soon-card" id="soon_home">
+        <h2>Home settings</h2>
+        <p class="quiet">The face of the pass, the house file, and who may join.</p>
+        <h3>Name and time</h3>
+        <label for="house_display_name">Display name</label>
+        <input id="house_display_name" maxlength="120" autocomplete="off" aria-label="Display name" />
+        <p class="quiet">Shown on this house in Home Assistant. Phones keep their own name.</p>
+        <label for="house_timezone">Timezone</label>
+        <select id="house_timezone" aria-label="Timezone"></select>
+        <div class="actions">
+          <button class="primary" type="button" id="house_identity_save">Save</button>
+          <button class="ghost" type="button" id="house_tz_from_ha">Use this Home Assistant's timezone</button>
+        </div>
+        <p class="quiet" id="house_ha_zone_line">This Home Assistant's timezone is <span id="house_ha_zone">—</span>.</p>
+        <p class="status" id="house_identity_status"></p>
         <h3>Photograph</h3>
         <p class="quiet">The face of the pass.</p>
-        <div class="soon-still-wrap" id="photo_wrap">
-          <p class="soon-empty" id="photo_empty">No photograph yet.</p>
-          <img id="photo_img" alt="House photograph" hidden />
+        <div class="still still-empty" id="photo_still">
+          <img id="photo_img" alt="" />
+          <svg class="key-mark still-mark" viewBox="0 0 12 22" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M6 0C3.79 0 2 1.7 2 3.8c0 .74.24 1.42.64 1.98L2.2 6.6V7.5h1.3V20.2c0 .99.86 1.8 1.9 1.8h2.2c1.04 0 1.9-.81 1.9-1.8V14h2.15c.47 0 .85-.36.85-.8v-1.3c0-.44-.38-.8-.85-.8H9.5v-.85h2.15c.47 0 .85-.36.85-.8V8.15c0-.44-.38-.8-.85-.8H9.5V7.5h1.3V6.6l-.44-.82C10.76 5.22 11 4.54 11 3.8 11 1.7 9.21 0 7 0H6zm0 1.45A2.4 2.4 0 0 1 8.45 3.8 2.4 2.4 0 0 1 6 6.15 2.4 2.4 0 0 1 3.55 3.8 2.4 2.4 0 0 1 6 1.45z"/></svg>
         </div>
+        <p class="quiet" id="photo_empty">No photograph yet.</p>
         <div class="actions">
           <button class="primary" type="button" id="photo_restore">Restore default</button>
           <button class="ghost" type="button" id="photo_replace">Replace</button>
@@ -355,84 +493,269 @@
         </div>
         <div class="confirm-bar" id="photo_confirm" hidden>
           <span>Remove this photograph?</span>
-          <button class="danger" type="button" id="photo_confirm_yes">Remove</button>
-          <button class="ghost" type="button" id="photo_confirm_no">Keep</button>
+          <button type="button" class="danger" id="photo_confirm_yes">Remove</button>
+          <button type="button" class="ghost" id="photo_keep">Keep</button>
         </div>
         <p class="status" id="photo_status"></p>
-      </section>
-      <section class="soon-sec" id="soon_notes">
         <h3>Notepad</h3>
         <p class="quiet">The same page on the phone.</p>
-        <textarea id="notes_text" maxlength="8000" placeholder="A quiet note"></textarea>
-        <p class="status" id="notes_status"></p>
+        <textarea id="notes_text" maxlength="8000" aria-label="Notepad"></textarea>
+        <div class="actions">
+          <span class="status" id="notes_status"></span>
+          <span class="quiet notes-cap" id="notes_cap">0/8000</span>
+        </div>
+        <h3>Invitation</h3>
+        <p class="quiet" id="pair_quiet">Show once. The phone keeps it.</p>
+        <div class="actions" id="pair_actions">
+          <button class="primary" type="button" id="pair_show">Show a pairing code</button>
+        </div>
+        <div id="pair_box" hidden>
+          <div class="qr-paper"><canvas id="pair_qr" width="0" height="0"></canvas></div>
+          <div class="actions">
+            <button class="ghost" type="button" id="pair_dismiss">Dismiss</button>
+          </div>
+        </div>
+        <p class="status" id="pair_status"></p>
+        <div class="soon-meta">
+          <p>Time zone <span id="soon_zone">—</span></p>
+        </div>
       </section>
-      <section class="soon-sec" id="soon_pair">
-        <h3>Pair</h3>
-        <p class="quiet">Pairing is in the Patrimony sidebar.</p>
-      </section>
-      <section class="soon-sec" id="soon_notify">
-        <h3>Notify</h3>
+      <section class="soon-card" id="soon_conn" hidden>
+        <h2>Connections</h2>
+        <p class="quiet">This house to the collection, and a banner on the phone.</p>
+        <div class="conn-list">
+          <div class="conn-row"><span class="k">Home Assistant</span><span class="v" id="conn_ha">—</span></div>
+          <div class="conn-row"><span class="k">External URL</span><span class="v" id="conn_url">—</span></div>
+          <div class="conn-row"><span class="k">Push notification server</span><span class="v" id="conn_cf">—</span></div>
+          <p class="conn-note muted" id="conn_cf_note">Optional — used only for push notifications. No other traffic.</p>
+          <div class="conn-row"><span class="k">House event key</span><span class="v" id="conn_hek">—</span></div>
+          <div class="conn-row"><span class="k">Component</span><span class="v" id="conn_ver">—</span></div>
+        </div>
+        <div class="actions">
+          <button class="ghost" type="button" id="conn_check">Check links</button>
+          <span class="status" id="conn_status"></span>
+        </div>
+        <h3>Latest iOS connection</h3>
+        <div class="conn-list">
+          <div class="conn-row"><span class="k">Device</span><span class="v" id="conn_ios_name">—</span></div>
+          <div class="conn-row"><span class="k">IP / host</span><span class="v" id="conn_ios_ip">—</span></div>
+          <div class="conn-row"><span class="k">App version</span><span class="v" id="conn_ios_ver">—</span></div>
+          <div class="conn-row"><span class="k">Last interaction</span><span class="v" id="conn_ios_at">—</span></div>
+        </div>
+        <h3>PQ Shield</h3>
+        <p class="quiet" id="conn_pq_help">PQ Shield adds further post-quantum (PQ) security beyond standard SSL/TLS between your phone and this house; requires iOS 26+.</p>
+        <div class="conn-list conn-pq-block">
+          <div class="conn-row"><span class="k">Status</span><span class="v" id="conn_pq_chip_wrap"><span class="pq-chip" id="conn_pq_chip">—</span></span></div>
+        </div>
+        <p class="conn-note muted" id="conn_pq_state_help"></p>
+        <div class="actions" id="conn_pq_actions">
+          <button class="ghost" type="button" id="conn_pq_rotate" hidden>Rotate</button>
+          <button class="danger" type="button" id="conn_pq_disable" hidden>Disable</button>
+        </div>
+        <p class="status" id="conn_pq_msg"></p>
+        <h3>Push</h3>
         <p class="quiet">Sends an Apple push notification (APNs). It shows as a banner on the principal’s iOS devices.</p>
-        <input id="notify_title" maxlength="120" placeholder="Guest arriving" />
+        <input id="notify_title" maxlength="120" aria-label="Banner text" />
         <div class="actions">
           <button class="primary" type="button" id="notify_send">Send</button>
+          <span class="status" id="notify_status"></span>
         </div>
-        <p class="status" id="notify_status"></p>
+      </section>
+      <section class="soon-card" id="soon_pushlog" hidden>
+        <h2>Push log</h2>
+        <p class="quiet" id="pushlog_empty">No attention pushes yet.</p>
+        <div id="pushlog_rows"></div>
+      </section>
+      <section class="soon-card" id="soon_chat" hidden>
+        <h2>Chat</h2>
+        <p class="quiet">Members of this house. Kept here, not in the cloud. The house can read these messages.</p>
+        <p class="quiet" id="chat_empty">No messages.</p>
+        <div class="chat-log" id="chat_log"></div>
+        <label for="chat_text">Message</label>
+        <textarea id="chat_text" maxlength="2000" aria-label="Message" autocomplete="off"></textarea>
+        <label for="chat_retention">Keep this message</label>
+        <select id="chat_retention" aria-label="Keep this message">
+          <option value="keep">Keep</option>
+          <option value="1h">1 hour</option>
+          <option value="1d">1 day</option>
+          <option value="7d">7 days</option>
+        </select>
+        <div class="actions">
+          <button class="primary" type="button" id="chat_send">Send</button>
+          <span class="status" id="chat_status"></span>
+        </div>
+      </section>
+      <section class="soon-card" id="soon_phones" hidden>
+        <h2>Paired phones</h2>
+        <p class="quiet">Names shown in chat for each paired iPhone. Times use this house timezone.</p>
+        <p class="quiet" id="phones_empty">No paired phones yet.</p>
+        <div id="phones_list"></div>
+        <p class="status" id="phones_status"></p>
       </section>
     </div>
   </div>
 
   <script>
-    const MODE = "addon";
+    const MODE = "panel";
+    function tokenFromHass(hass) {
+      if (!hass) return "";
+      try {
+        const auth = hass.auth || (hass.connection && hass.connection.options && hass.connection.options.auth);
+        const data = auth && auth.data;
+        const t = (data && data.access_token) || (auth && auth.accessToken) || "";
+        return t ? String(t) : "";
+      } catch (e) {
+        return "";
+      }
+    }
+    function haAccessToken() {
+      const docs = [];
+      try { docs.push(parent.document); } catch (e) {}
+      try { if (typeof top !== "undefined") docs.push(top.document); } catch (e) {}
+      docs.push(document);
+      for (const doc of docs) {
+        if (!doc || !doc.querySelector) continue;
+        try {
+          const el = doc.querySelector("home-assistant") || doc.querySelector("hc-main");
+          const t = tokenFromHass(el && el.hass);
+          if (t) return t;
+        } catch (e) {}
+      }
+      try {
+        const raw = localStorage.getItem("hassTokens") || sessionStorage.getItem("hassTokens");
+        if (raw) {
+          const data = JSON.parse(raw);
+          if (data && data.access_token) return String(data.access_token);
+        }
+      } catch (e) {}
+      return "";
+    }
+    function haAuthed() {
+      return !!haAccessToken();
+    }
+    function haHeaders(extra) {
+      const headers = Object.assign({}, extra || {});
+      const token = haAccessToken();
+      if (token) headers.Authorization = "Bearer " + token;
+      return headers;
+    }
+    function isAuthStatus(status) {
+      return status === 401 || status === 403;
+    }
+    function isAuthError(err) {
+      const msg = String((err && err.message) || err || "");
+      return /\b401\b/.test(msg) || /\b403\b/.test(msg);
+    }
+    function showRetry() {
+      const el = $("retry_session");
+      if (el) el.hidden = false;
+    }
+    function hideRetry() {
+      const el = $("retry_session");
+      if (el) el.hidden = true;
+    }
+    function stopPoll() {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+    function startPoll() {
+      if (pollTimer || sessionExpired || loadFailed) return;
+      pollTimer = setInterval(async () => {
+        if (saveTimer) return;
+        if (sessionExpired || loadFailed) return;
+        if (!haAuthed()) return;
+        try { await MODE_REFRESH(); } catch (e) {
+          if (isAuthError(e)) markSessionExpired();
+        }
+      }, 4000);
+    }
+    function markSessionExpired() {
+      sessionExpired = true;
+      loadFailed = true;
+      houseLoaded = false;
+      stopPoll();
+      const el = $("status");
+      if (el) {
+        el.textContent = "Session ended — reload Home Assistant";
+        el.style.color = "var(--alert)";
+      }
+      showRetry();
+    }
+    async function retrySession() {
+      sessionExpired = false;
+      loadFailed = false;
+      houseLoaded = false;
+      hideRetry();
+      const el = $("status");
+      if (el) { el.textContent = ""; el.style.color = ""; }
+      await load();
+      if (houseLoaded && !sessionExpired) startPoll();
+    }
     async function api(path, opts) {
-      const r = await fetch(path, Object.assign({ credentials: "same-origin" }, opts || {}));
+      if (sessionExpired) throw new Error(path + " 401");
+      async function once() {
+        const headers = haHeaders((opts && opts.headers) || {});
+        if (!headers.Authorization) throw new Error("no auth");
+        return fetch(path, Object.assign({ credentials: "same-origin" }, opts || {}, { headers }));
+      }
+      let r = await once();
+      if (isAuthStatus(r.status)) r = await once();
+      if (isAuthStatus(r.status)) {
+        markSessionExpired();
+        throw new Error(path + " " + r.status);
+      }
       if (!r.ok) throw new Error(path + " " + r.status);
       return r.json();
     }
-    async function apiBinary(path, opts) {
-      const r = await fetch(path, Object.assign({ credentials: "same-origin" }, opts || {}));
+    async function bin(path, opts) {
+      if (sessionExpired) return new Response("", { status: 401 });
+      async function once() {
+        const headers = haHeaders((opts && opts.headers) || {});
+        if (!headers.Authorization) return new Response("", { status: 401 });
+        return fetch(path, Object.assign({ credentials: "same-origin" }, opts || {}, { headers }));
+      }
+      let r = await once();
+      if (isAuthStatus(r.status)) r = await once();
+      if (isAuthStatus(r.status)) markSessionExpired();
       return r;
     }
     async function MODE_LOAD() {
-      const [h, e] = await Promise.all([api("api/house"), api("api/entities")]);
-      houseMeta = h;
-      mapping.cards = h.cards || [];
-      mapping.mappings = h.mappings || [];
+      const [p, m, e] = await Promise.all([
+        api("/api/patrimony_collection/editor/preview"),
+        api("/api/patrimony_collection/editor/mapping"),
+        api("/api/patrimony_collection/editor/entities"),
+      ]);
+      preview = p;
+      mapping.cards = m.cards || [];
+      mapping.mappings = m.mappings || [];
+      houseMeta = m.property || {};
       lastEntities = e.entities || [];
-      preview.property = {
-        displayName: h.display_name || h.displayName,
-        locationLabel: h.location_label || h.locationLabel,
-        timezone: h.timezone,
-      };
-      rebuildLocalPreview();
     }
     async function MODE_SAVE() {
-      return api("api/mapping", {
+      return api("/api/patrimony_collection/editor/mapping", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          property_id: houseMeta.property_id,
-          display_name: houseMeta.display_name || houseMeta.displayName,
-          location_label: houseMeta.location_label || houseMeta.locationLabel,
-          timezone: houseMeta.timezone,
-          cards: cardsForWire(),
-          mappings: mapping.mappings,
-        }),
+        body: JSON.stringify({ cards: cardsForWire(), mappings: mapping.mappings }),
       });
     }
     async function MODE_SEARCH(q) {
-      if (!lastEntities.length) {
-        const e = await api("api/entities");
-        lastEntities = e.entities || [];
-      }
-      return filterHits(lastEntities, q);
+      const e = await api("/api/patrimony_collection/editor/entities?q=" + encodeURIComponent(q));
+      const hits = e.entities || [];
+      const byId = {};
+      lastEntities.forEach(x => { byId[x.entity_id] = x; });
+      hits.forEach(x => { byId[x.entity_id] = x; });
+      lastEntities = Object.keys(byId).map(k => byId[k]);
+      return filterHits(hits, q);
     }
     async function MODE_REFRESH() {
-      try {
-        const e = await api("api/entities");
-        lastEntities = e.entities || lastEntities;
-      } catch (err) {}
-      rebuildLocalPreview();
+      if (sessionExpired || loadFailed) return;
+      if (!haAuthed()) return;
+      if (!houseLoaded) return;
+      preview = await api("/api/patrimony_collection/editor/preview");
+      renderPass();
+      fillHouseBar();
     }
 
     const $ = (id) => document.getElementById(id);
@@ -443,10 +766,15 @@
     let selectedCardId = null;
     let openAdvId = null;
     let loadFailed = false;
+    let sessionExpired = false;
+    let houseLoaded = false;
+    let pollTimer = null;
     let saveTimer = null;
+    let peopleSaveTimer = null;
     let lastEntities = [];
     let searchTimer = null;
     let addingCard = false;
+    let addingLines = false;
     let renamingId = null;
     let pendingConfirm = null;
 
@@ -531,13 +859,44 @@
       } catch (e) {}
       return "Last heard";
     }
+    function houseClockText() {
+      const p = (preview && preview.property) || {};
+      const zone = String(p.timezone || (houseMeta && houseMeta.timezone) || "").trim();
+      const opts = { hour: "2-digit", minute: "2-digit", hour12: false };
+      try {
+        if (zone) return new Date().toLocaleTimeString("en-GB", Object.assign({}, opts, { timeZone: zone }));
+      } catch (e) {}
+      const snap = String(p.localTime || "").trim();
+      if (/^\d{1,2}:\d{2}$/.test(snap)) {
+        const parts = snap.split(":");
+        return parts[0].padStart(2, "0") + ":" + parts[1];
+      }
+      return "";
+    }
+    function paintPassClock() {
+      const el = $("pass_clock");
+      if (!el) return;
+      const t = houseClockText();
+      el.textContent = t;
+      el.hidden = !t;
+    }
+    let clockTimer = null;
+    function startPassClock() {
+      paintPassClock();
+      if (clockTimer) return;
+      clockTimer = setInterval(paintPassClock, 15000);
+    }
     function renderPass() {
       const p = preview.property || {};
       const items = featuredItems(preview.cards || []);
       const sev = maxSev((preview.cards || []).flatMap(c => c.items || []));
+      const clock = houseClockText();
       $("pass").innerHTML = `
         <div class="place">${esc(p.locationLabel || "")}</div>
-        <h2>${esc(p.displayName || "House")}</h2>
+        <div class="pass-title-row">
+          <h2>${esc(p.displayName || "House")}</h2>
+          <div class="pass-clock" id="pass_clock"${clock ? "" : " hidden"} aria-label="House time">${esc(clock)}</div>
+        </div>
         <div class="badge ${esc(sev)}">${esc(badgeText[sev] || "Needs a look")}</div>
         <div class="grid">${items.map(i => `
           <div class="cell">
@@ -545,27 +904,33 @@
             <div class="v ${esc(i.severity)}">${esc(fmt(i))}</div>
           </div>`).join("")}</div>
         <div class="updated">${esc(lastHeardText())}</div>`;
-      $("blocks").innerHTML = [...(preview.cards || [])].sort((a,b) => (a.priority-b.priority) || String(a.title||"").localeCompare(String(b.title||""))).map(c => `
-        <div class="block">
-          <h3>${esc(c.title)}</h3>
-          ${(c.items||[]).map(i => `
-            <div class="row ${selected && selected.item_id === i.id ? "active" : ""}" data-item="${esc(i.id)}">
-              <span>${esc(i.label)}</span><span class="${esc(i.severity)}">${esc(fmt(i))}</span>
-            </div>`).join("")}
+      startPassClock();
+    }
+    function liveRowsHtml(card) {
+      const pc = (preview.cards || []).find(c => c.id === card.id);
+      const items = (pc && pc.items) || [];
+      if (!items.length) return `<p class="quiet">Nothing on this card yet.</p>`;
+      return items.map(i => `
+        <div class="row" data-act="toggle" data-id="${esc(card.id)}">
+          <span>${esc(i.label)}</span><span class="${esc(i.severity)}">${esc(fmt(i))}</span>
         </div>`).join("");
-      document.querySelectorAll("[data-item]").forEach(el => el.onclick = () => selectItem(el.dataset.item));
     }
     function selectItem(id) {
       selected = mapping.mappings.find(m => m.item_id === id) || null;
       if (selected) selectedCardId = selected.card_id;
+      writeOpenCardId(selectedCardId);
       openAdvId = null;
+      addingLines = false;
       drawAll();
     }
     function toggleCard(id) {
       selectedCardId = selectedCardId === id ? null : id;
+      writeOpenCardId(selectedCardId);
       if (selected && selected.card_id !== selectedCardId) selected = null;
       openAdvId = null;
+      openAddIfEmpty(selectedCardId);
       drawAll();
+      if (addingLines && $("q")) $("q").focus();
     }
     function isPlaceholder(m) {
       return !(m && String(m.entity_id || "").trim());
@@ -579,6 +944,12 @@
     }
     function passCount() {
       return mapping.mappings.filter(isOnPass).length;
+    }
+    function cardLineCount(cardId) {
+      return mapping.mappings.filter(m => m.card_id === cardId).length;
+    }
+    function openAddIfEmpty(cardId) {
+      addingLines = !!(cardId && cardLineCount(cardId) === 0);
     }
     function compactPassRanks() {
       const checked = mapping.mappings.filter(isOnPass).slice().sort((a,b) => {
@@ -642,9 +1013,50 @@
       drawAll();
       scheduleSave();
     }
-    function liveDisplay(m) {
+    function movePassRank(itemId, dir) {
+      const checked = mapping.mappings.filter(isOnPass).slice().sort((a,b) => {
+        const ra = Number(a.featured_rank), rb = Number(b.featured_rank);
+        const aOk = Number.isInteger(ra) && ra >= 1 && ra <= 6;
+        const bOk = Number.isInteger(rb) && rb >= 1 && rb <= 6;
+        if (aOk && bOk && ra !== rb) return ra - rb;
+        if (aOk && !bOk) return -1;
+        if (!aOk && bOk) return 1;
+        return mapping.mappings.indexOf(a) - mapping.mappings.indexOf(b);
+      });
+      const pos = checked.findIndex(m => m.item_id === itemId);
+      const dest = pos + dir;
+      if (pos < 0 || dest < 0 || dest >= checked.length) return;
+      const tmp = checked[pos];
+      checked[pos] = checked[dest];
+      checked[dest] = tmp;
+      checked.forEach((m, i) => {
+        m.on_pass = true;
+        m.featured_rank = i + 1;
+      });
+      compactPassRanks();
+      rebuildLocalPreview();
+      drawAll();
+      scheduleSave();
+    }
+    function previewItemFor(m) {
+      if (!m) return null;
+      const iid = m.item_id;
+      for (const c of (preview.cards || [])) {
+        const hit = (c.items || []).find(i => i.id === iid);
+        if (hit) return hit;
+      }
+      return null;
+    }
+    function liveItem(m) {
       const ent = lastEntities.find(e => e.entity_id === (m && m.entity_id));
       const item = coerceItem(m, ent);
+      if (item && item.value !== null && item.value !== undefined) return item;
+      const fromPreview = previewItemFor(m);
+      if (fromPreview && fromPreview.value !== null && fromPreview.value !== undefined) return fromPreview;
+      return item;
+    }
+    function liveDisplay(m) {
+      const item = liveItem(m);
       if (!item) return "—";
       return fmt(item);
     }
@@ -680,14 +1092,22 @@
       const on = isOnPass(m);
       const dis = (!on && full) ? "disabled" : "";
       const chk = on ? "checked" : "";
-      const live = liveDisplay(m);
-      const ent = lastEntities.find(e => e.entity_id === m.entity_id);
-      const item = coerceItem(m, ent);
+      const item = liveItem(m);
+      const live = item ? fmt(item) : "—";
       const sev = item ? item.severity : "ok";
       const adv = openAdvId === m.item_id;
+      const rank = Number(m.featured_rank);
+      const rankOk = on && Number.isInteger(rank) && rank >= 1 && rank <= 6;
+      const nPass = passCount();
+      const rankChip = rankOk ? `<span class="pass-rank">· ${rank}</span>` : "";
+      const passBtns = on ? `<span class="pass-rank-btns">
+            <button type="button" class="ghost btn-icon" data-act="pass-up" data-id="${esc(m.item_id)}" ${rank===1?"disabled":""} aria-label="Earlier on the pass">↑</button>
+            <button type="button" class="ghost btn-icon" data-act="pass-down" data-id="${esc(m.item_id)}" ${rank===nPass?"disabled":""} aria-label="Later on the pass">↓</button>
+          </span>` : "";
       return `<div class="line-wrap">
         <div class="line-row">
-          <label class="pass-check"><input type="checkbox" data-pass="${esc(m.item_id)}" ${chk} ${dis} /> On the pass</label>
+          <label class="pass-check"><input type="checkbox" data-pass="${esc(m.item_id)}" ${chk} ${dis} /> On the pass${rankChip}</label>
+          ${passBtns}
           <input class="line-label" data-label="${esc(m.item_id)}" value="${esc(m.label || "")}" aria-label="Label" />
           <span class="line-live ${esc(sev)}" data-live="${esc(m.item_id)}">${esc(live)}</span>
           <button type="button" class="ghost btn-icon" data-act="line-up" data-id="${esc(m.item_id)}" ${idx===0?"disabled":""} aria-label="Up">↑</button>
@@ -700,6 +1120,9 @@
     function drawOpenBody(card) {
       const items = mapping.mappings.filter(m => m.card_id === card.id);
       const full = passCount() >= 6;
+      const passHint = full
+        ? `<p class="quiet">Pass glance is full (6). Uncheck a line to free a slot.</p>`
+        : (passCount() ? `<p class="quiet">${passCount()} of 6 on the pass.</p>` : "");
       const lines = !items.length
         ? `<p class="quiet">Nothing on this card yet.</p>`
         : items.map((m, idx) => {
@@ -707,9 +1130,8 @@
               ? confirmBar("line", m.item_id) : "";
             return drawLine(m, idx, items.length, full) + bar;
           }).join("");
-      return `<div class="card-body">
-        ${lines}
-        <div class="card-foot">
+      const addOpen = addingLines;
+      const addFields = addOpen ? `
           <label for="q">Add from the house</label>
           <input id="q" placeholder="Search by name" autocomplete="off" />
           <div id="hits"></div>
@@ -718,8 +1140,11 @@
             <input id="ph_label" placeholder="Label" autocomplete="off" />
             <input id="ph_value" placeholder="Value" autocomplete="off" />
             <button class="primary" type="button" data-act="add-line" id="ph_add">Add</button>
-          </div>
-        </div>
+          </div>` : "";
+      return `<div class="card-body">
+        ${passHint}
+        ${lines}
+        ${addOpen ? `<div class="card-foot">${addFields}</div>` : ""}
       </div>`;
     }
     function confirmBar(kind, id) {
@@ -741,9 +1166,12 @@
       return `<div class="actions"><button class="ghost add-cta" type="button" data-act="new-card">New card</button></div>`;
     }
     function drawComposer() {
-      const el = $("composer");
+      const el = $("blocks");
+      if (!el) return;
       const cards = sortedCards();
       const qKeep = ($("q") && $("q").value) || "";
+      const phLabelKeep = ($("ph_label") && $("ph_label").value) || "";
+      const phValueKeep = ($("ph_value") && $("ph_value").value) || "";
       const newTitle = ($("new_card_title") && $("new_card_title").value) || "";
       const renameVal = ($("rename_card_title") && $("rename_card_title").value) || "";
       if (!cards.length) {
@@ -759,22 +1187,28 @@
           ? `<input id="rename_card_title" class="card-title-edit" value="${esc(renameVal || card.title)}" aria-label="Card title" />`
           : `<button type="button" class="card-title" data-act="toggle" data-id="${esc(card.id)}">${esc(card.title)}</button>`;
         const ask = pendingConfirm && pendingConfirm.id === card.id ? confirmBar(pendingConfirm.kind, card.id) : "";
-        return `<article class="card-sec${open?" open":""}">
-          <div class="card-head">
-            ${titleBit}
-            <div class="card-tools">
+        const tools = open ? `<div class="card-tools">
             <span class="count">${n} ${n===1?"line":"lines"}</span>
             <button type="button" class="ghost btn-icon" data-act="card-up" data-id="${esc(card.id)}" ${idx===0?"disabled":""} aria-label="Up">↑</button>
             <button type="button" class="ghost btn-icon" data-act="card-down" data-id="${esc(card.id)}" ${idx===cards.length-1?"disabled":""} aria-label="Down">↓</button>
+            <button class="ghost add-cta" type="button" data-act="toggle-add" aria-expanded="${addingLines?"true":"false"}">Add</button>
+            ${addingLines ? `<button class="ghost" type="button" data-act="toggle-add">Done</button>` : ""}
             <button type="button" class="ghost" data-act="rename" data-id="${esc(card.id)}">Rename</button>
             <button type="button" class="danger" data-act="del-card" data-id="${esc(card.id)}">Delete</button>
-            </div>
+            </div>` : "";
+        return `<article class="block${open?" open":""}" data-card="${esc(card.id)}">
+          <div class="card-head">
+            ${titleBit}
+            ${tools}
           </div>
+          ${!open ? `<div class="block-face" data-act="toggle" data-id="${esc(card.id)}">${liveRowsHtml(card)}</div>` : ""}
           ${ask && pendingConfirm.kind === "card" ? ask : ""}
           ${open ? drawOpenBody(card) : ""}
         </article>`;
       }).join("") + newCardControls();
       if ($("q") && qKeep) $("q").value = qKeep;
+      if ($("ph_label") && phLabelKeep) $("ph_label").value = phLabelKeep;
+      if ($("ph_value") && phValueKeep) $("ph_value").value = phValueKeep;
       if ($("new_card_title") && newTitle) $("new_card_title").value = newTitle;
     }
     function looksLikeEntityId(v) {
@@ -838,8 +1272,7 @@
       const m = mapping.mappings.find(x => x.item_id === itemId);
       const el = document.querySelector(`[data-live="${CSS.escape(itemId)}"]`);
       if (!m || !el) return;
-      const ent = lastEntities.find(e => e.entity_id === m.entity_id);
-      const item = coerceItem(m, ent);
+      const item = liveItem(m);
       el.textContent = item ? fmt(item) : "—";
       el.className = "line-live " + (item ? item.severity : "ok");
     }
@@ -859,12 +1292,15 @@
       const card = { id: newUuid(), kind: "custom", title, priority };
       mapping.cards.push(card);
       selectedCardId = card.id;
+      writeOpenCardId(selectedCardId);
       selected = null;
       openAdvId = null;
       addingCard = false;
+      addingLines = true;
       rebuildLocalPreview();
       drawAll();
       scheduleSave();
+      if ($("q")) $("q").focus();
     }
     function cancelNewCard() {
       addingCard = false;
@@ -875,6 +1311,7 @@
       addingCard = false;
       pendingConfirm = null;
       selectedCardId = cardId;
+      writeOpenCardId(selectedCardId);
       drawAll();
       const el = $("rename_card_title");
       if (el) { el.focus(); el.select(); }
@@ -907,6 +1344,7 @@
       mapping.cards = mapping.cards.filter(c => c.id !== card.id);
       mapping.mappings = mapping.mappings.filter(m => m.card_id !== card.id);
       if (selectedCardId === card.id) selectedCardId = null;
+      writeOpenCardId(selectedCardId);
       if (selected && selected.card_id === card.id) selected = null;
       openAdvId = null;
       rebuildLocalPreview();
@@ -964,17 +1402,36 @@
       });
       if ($("ph_label")) $("ph_label").value = "";
       if ($("ph_value")) $("ph_value").value = "";
-      afterAdd();
+      afterAdd("ph");
+    }
+    function onThisCard(eid) {
+      const card = currentCard();
+      if (!card || !eid) return false;
+      return mapping.mappings.some(m => m.card_id === card.id && m.entity_id === eid);
+    }
+    function statusAlready() {
+      const el = $("status");
+      if (!el) return;
+      el.textContent = "Already on this card";
+      el.style.color = "var(--gold)";
     }
     function addFromSearch(ent) {
       const card = needCard();
       if (!card) return;
       const eid = ent.entity_id || "";
       if (eid.startsWith("weather.")) {
-        if (!alreadyHas(m => m.card_id === card.id && m.entity_id === eid && m.state_attribute === "temperature")) {
+        const hasOutdoor = alreadyHas(m => m.card_id === card.id && m.entity_id === eid && m.state_attribute === "temperature");
+        const hasCondition = alreadyHas(m => m.card_id === card.id && m.entity_id === eid && !m.state_attribute);
+        if (hasOutdoor && hasCondition) {
+          selected = mapping.mappings.find(m => m.card_id === card.id && m.entity_id === eid) || selected;
+          afterAdd(null, { skipSave: true });
+          statusAlready();
+          return;
+        }
+        if (!hasOutdoor) {
           addItem({ card_id: card.id, entity_id: eid, state_attribute: "temperature", label: "Outdoor", value_type: "auto", severity_mode: "auto" });
         }
-        if (!alreadyHas(m => m.card_id === card.id && m.entity_id === eid && !m.state_attribute)) {
+        if (!hasCondition) {
           addItem({ card_id: card.id, entity_id: eid, state_attribute: null, label: "Condition", value_type: "auto", severity_mode: "auto" });
         }
         selected = mapping.mappings.filter(m => m.card_id === card.id && m.entity_id === eid).slice(-1)[0] || selected;
@@ -982,12 +1439,20 @@
         return;
       }
       if (looksGuest(ent.name) && isBoolish(ent)) {
-        if (!alreadyHas(m => m.card_id === card.id && m.entity_id === eid)) {
-          selected = addItem({ card_id: card.id, entity_id: eid, label: "Guest Wi-Fi", value_type: "auto", severity_mode: "ok_when_on" });
-        } else {
+        if (alreadyHas(m => m.card_id === card.id && m.entity_id === eid)) {
           selected = mapping.mappings.find(m => m.card_id === card.id && m.entity_id === eid);
+          afterAdd(null, { skipSave: true });
+          statusAlready();
+          return;
         }
+        selected = addItem({ card_id: card.id, entity_id: eid, label: "Guest Wi-Fi", value_type: "auto", severity_mode: "ok_when_on" });
         afterAdd();
+        return;
+      }
+      if (alreadyHas(m => m.card_id === card.id && m.entity_id === eid && !m.state_attribute)) {
+        selected = mapping.mappings.find(m => m.card_id === card.id && m.entity_id === eid && !m.state_attribute);
+        afterAdd(null, { skipSave: true });
+        statusAlready();
         return;
       }
       selected = addItem({
@@ -999,13 +1464,18 @@
       });
       afterAdd();
     }
-    function afterAdd() {
+    function afterAdd(focus, opts) {
       if ($("hits")) $("hits").innerHTML = "";
       if ($("q")) $("q").value = "";
+      lastHits = [];
+      hitIndex = 0;
       openAdvId = null;
       rebuildLocalPreview();
       drawAll();
-      scheduleSave();
+      if (!(opts && opts.skipSave)) scheduleSave();
+      if (!addingLines) return;
+      const el = (focus === "ph" ? $("ph_label") : $("q")) || $("q") || $("ph_label");
+      if (el) el.focus();
     }
     function liveLine(state, unit) {
       if (state == null || state === undefined) return "—";
@@ -1068,7 +1538,13 @@
         id: c.id, kind: "custom", title: c.title, priority: c.priority,
         items: mapping.mappings.filter(m => m.card_id === c.id).map(m => {
           const ent = lastEntities.find(e => e.entity_id === m.entity_id);
-          const item = coerceItem(m, ent);
+          let item = coerceItem(m, ent);
+          if (!item || item.value === null || item.value === undefined) {
+            const prev = previewItemFor(m);
+            if (prev && prev.value !== null && prev.value !== undefined) {
+              item = Object.assign({}, prev, { id: m.item_id, label: m.label || prev.label });
+            }
+          }
           if (!item) return null;
           if (isOnPass(m)) {
             const r = Number(m.featured_rank);
@@ -1084,6 +1560,7 @@
           displayName: prop.displayName || houseMeta.display_name || houseMeta.displayName || "House",
           locationLabel: prop.locationLabel || houseMeta.location_label || houseMeta.locationLabel || "",
           timezone: prop.timezone || houseMeta.timezone || "",
+          localTime: prop.localTime || "",
           lastHeard: prop.lastHeard || "",
         },
         generatedAt: preview.generatedAt,
@@ -1091,6 +1568,11 @@
         cards,
       };
       renderPass();
+      document.querySelectorAll("#blocks .block:not(.open)").forEach(el => {
+        const card = (mapping.cards || []).find(c => c.id === el.dataset.card);
+        const face = el.querySelector(".block-face");
+        if (card && face) face.innerHTML = liveRowsHtml(card);
+      });
       fillHouseBar();
     }
     function scheduleSave() {
@@ -1099,9 +1581,10 @@
       saveTimer = setTimeout(doSave, 1200);
     }
     async function doSave() {
-      if (loadFailed) {
-        $("status").textContent = "Could not load — nothing written";
+      if (loadFailed || sessionExpired) {
+        $("status").textContent = sessionExpired ? "Session ended — reload Home Assistant" : "Could not load — nothing written";
         $("status").style.color = "var(--alert)";
+        showRetry();
         return;
       }
       applyForm();
@@ -1124,34 +1607,83 @@
       if (!needle) return [];
       return (list || []).filter(x => {
         const name = (x.name || "").toLowerCase();
-        return name.includes(needle);
+        const eid = (x.entity_id || "").toLowerCase();
+        return name.includes(needle) || eid.includes(needle);
       }).slice(0, 40);
     }
+    let lastHits = [];
+    let hitIndex = 0;
     function renderHits(list) {
+      lastHits = list || [];
+      if (!lastHits.length) hitIndex = 0;
+      else if (hitIndex >= lastHits.length) hitIndex = lastHits.length - 1;
+      else if (hitIndex < 0) hitIndex = 0;
       const box = $("hits");
       if (!box) return;
-      box.innerHTML = list.map((x, i) => `
-        <div class="hit" data-i="${i}">
+      const card = currentCard();
+      box.innerHTML = lastHits.map((x, i) => {
+        const eid = x.entity_id || "";
+        const onCard = !!(card && eid && mapping.mappings.some(m => m.card_id === card.id && m.entity_id === eid));
+        const live = (x.attributes && x.attributes.temperature != null) ? liveLine(x.attributes.temperature, x.unit) : liveLine(x.state, x.unit);
+        return `
+        <div class="hit${i === hitIndex ? " is-active" : ""}" data-i="${i}">
           <div class="name">${esc(x.name)}</div>
-          <div class="live">${esc((x.attributes && x.attributes.temperature != null) ? liveLine(x.attributes.temperature, x.unit) : liveLine(x.state, x.unit))}</div>
-        </div>`).join("");
+          <div class="live">${esc(live)}</div>
+          ${eid ? `<div class="eid">${esc(eid)}</div>` : ""}
+          ${onCard ? `<div class="mark">On this card</div>` : ""}
+        </div>`;
+      }).join("");
       box.querySelectorAll(".hit").forEach(el => {
-        el.onclick = () => addFromSearch(list[Number(el.dataset.i)]);
+        el.onclick = () => addFromSearch(lastHits[Number(el.dataset.i)]);
       });
+      const active = box.querySelector(".hit.is-active");
+      if (active && active.scrollIntoView) active.scrollIntoView({ block: "nearest" });
+    }
+    function moveHit(dir) {
+      if (!lastHits.length) return;
+      hitIndex = (hitIndex + dir + lastHits.length) % lastHits.length;
+      renderHits(lastHits);
     }
     async function runSearch() {
       const q = ($("q") && $("q").value) || "";
       try {
         const hits = await MODE_SEARCH(q);
         renderHits(hits);
-      } catch (e) {}
+      } catch (e) { lastHits = []; hitIndex = 0; }
+    }
+    async function addPickedHit() {
+      const q = (($("q") && $("q").value) || "").trim();
+      if (!q) return;
+      const prevIds = lastHits.map(x => x.entity_id || "");
+      const savedIndex = hitIndex;
+      clearTimeout(searchTimer);
+      await runSearch();
+      const nextIds = lastHits.map(x => x.entity_id || "");
+      const same = prevIds.length === nextIds.length && prevIds.every((id, i) => id === nextIds[i]);
+      if (same && lastHits.length) hitIndex = Math.min(Math.max(0, savedIndex), lastHits.length - 1);
+      else hitIndex = 0;
+      if (lastHits.length) renderHits(lastHits);
+      const pick = lastHits[hitIndex] || lastHits[0];
+      if (pick) addFromSearch(pick);
     }
     function onComposerClick(ev) {
+      const root = $("blocks");
+      if (!root || !root.contains(ev.target)) return;
       const btn = ev.target.closest("[data-act]");
-      if (!btn || !$("composer").contains(btn)) return;
+      if (!btn) {
+        if (ev.target.closest("input,select,textarea,button,.hit,.adv-panel,.card-body,.confirm-bar,.new-card-row")) return;
+        const card = ev.target.closest("[data-card]");
+        if (card) toggleCard(card.dataset.card);
+        return;
+      }
       const act = btn.dataset.act;
       const id = btn.dataset.id;
       if (act === "toggle") toggleCard(id);
+      else if (act === "toggle-add") {
+        addingLines = !addingLines;
+        drawComposer();
+        if (addingLines && $("q")) $("q").focus();
+      }
       else if (act === "new-card") beginNewCard();
       else if (act === "commit-card") commitNewCard();
       else if (act === "cancel-card") cancelNewCard();
@@ -1166,6 +1698,8 @@
       }
       else if (act === "line-up") moveLine(id, -1);
       else if (act === "line-down") moveLine(id, 1);
+      else if (act === "pass-up") movePassRank(id, -1);
+      else if (act === "pass-down") movePassRank(id, 1);
       else if (act === "adv") {
         openAdvId = openAdvId === id ? null : id;
         drawComposer();
@@ -1228,34 +1762,98 @@
       try {
         await MODE_LOAD();
         fillHouseBar();
-        try { await loadPeople(); } catch (e) { $("people_status").textContent = "Could not load people"; }
+        try { await loadHouseIdentity(); } catch (e) { if (sessionExpired) throw e; }
+        try { await loadPeople(); } catch (e) {
+          if (sessionExpired) throw e;
+          $("people_status").textContent = "Could not load people";
+        }
         loadFailed = false;
+        sessionExpired = false;
+        houseLoaded = true;
+        hideRetry();
         $("status").textContent = "";
+        $("status").style.color = "";
+        const remembered = readOpenCardId();
+        if (remembered && (mapping.cards || []).some(c => c.id === remembered)) {
+          selectedCardId = remembered;
+          openAddIfEmpty(selectedCardId);
+        } else if (remembered) {
+          writeOpenCardId(null);
+        }
         drawAll();
         fillHouseBar();
+        startPoll();
       } catch (err) {
+        houseLoaded = false;
+        if (sessionExpired || isAuthError(err)) {
+          markSessionExpired();
+          drawAll();
+          fillHouseBar();
+          return;
+        }
         loadFailed = true;
+        stopPoll();
         $("status").textContent = "Could not load the house";
         $("status").style.color = "var(--alert)";
+        showRetry();
         drawAll();
         fillHouseBar();
       }
     }
-    $("composer").addEventListener("click", onComposerClick);
-    $("composer").addEventListener("input", onComposerInput);
-    $("composer").addEventListener("change", onComposerChange);
-    $("composer").addEventListener("keydown", (ev) => {
+    $("blocks").addEventListener("click", onComposerClick);
+    $("blocks").addEventListener("input", onComposerInput);
+    $("blocks").addEventListener("change", onComposerChange);
+    $("blocks").addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") {
+        if (pendingConfirm) {
+          ev.preventDefault();
+          pendingConfirm = null;
+          drawComposer();
+        } else if (renamingId) {
+          ev.preventDefault();
+          renamingId = null;
+          drawComposer();
+        } else if (addingCard) {
+          ev.preventDefault();
+          cancelNewCard();
+        } else if (addingLines) {
+          ev.preventDefault();
+          addingLines = false;
+          drawComposer();
+        }
+        return;
+      }
+      const id = ev.target && ev.target.id;
+      if (id === "q" && (ev.key === "ArrowDown" || ev.key === "ArrowUp")) {
+        ev.preventDefault();
+        moveHit(ev.key === "ArrowDown" ? 1 : -1);
+        return;
+      }
       if (ev.key !== "Enter") return;
-      if (ev.target && ev.target.id === "new_card_title") { ev.preventDefault(); commitNewCard(); }
-      if (ev.target && ev.target.id === "rename_card_title") { ev.preventDefault(); commitRename(); }
+      if (id === "new_card_title") { ev.preventDefault(); commitNewCard(); }
+      else if (id === "rename_card_title") { ev.preventDefault(); commitRename(); }
+      else if (id === "q") { ev.preventDefault(); addPickedHit(); }
+      else if (id === "ph_label" || id === "ph_value") { ev.preventDefault(); addPlaceholder(); }
     });
     
+
+    
     let people = [];
-    const PEOPLE_PATH = 'api/contacts';
-    const PHOTO_PATH = 'api/photo';
-    const NOTES_PATH = 'api/notes';
-    const PAIR_PATH = '';
-    const NOTIFY_PATH = 'api/notify';
+    const PEOPLE_PATH = '/api/patrimony_collection/contacts';
+    const PHOTO_PATH = '/api/patrimony_collection/photo';
+    const NOTES_PATH = '/api/patrimony_collection/notes';
+    const PAIR_PATH = '/api/patrimony_collection/pair';
+    const NOTIFY_PATH = '/api/patrimony_collection/notify';
+    const PUSH_LOG_PATH = '/api/patrimony_collection/push_log';
+    const PQ_CAPABILITY_PATH = '/api/patrimony_collection/pq_shield/capability';
+    const PQ_DISABLE_PATH = '/api/patrimony_collection/pq_shield/disable';
+    const PQ_ROTATE_PATH = '/api/patrimony_collection/pq_shield/rotate';
+    const PUSH_LOG_NO_DEVICES = "No iOS client registered";
+    const MANUAL_SEND_CLASS = "manual.send";
+    const IOS_SESSION_PATH = '/api/patrimony_collection/ios_session';
+    const HOUSE_PATH = '/api/patrimony_collection/house';
+    const CHAT_PATH = '/api/patrimony_collection/chat';
+    const CLIENTS_PATH = '/api/patrimony_collection/clients';
 
     let activeTab = "cards";
 
@@ -1279,8 +1877,31 @@
       set("house_zone", zone);
       set("house_id", "");
     }
+    function panelTabKey() { return "patrimony.panelTab"; }
+    function readPanelTab() {
+      try {
+        const v = sessionStorage.getItem(panelTabKey());
+        if (v === "people" || v === "soon" || v === "cards") return v;
+      } catch (e) {}
+      return "cards";
+    }
+    function writePanelTab(name) {
+      const v = (name === "people" || name === "soon") ? name : "cards";
+      try { sessionStorage.setItem(panelTabKey(), v); } catch (e) {}
+    }
+    function openCardKey() { return "patrimony.openCardId"; }
+    function readOpenCardId() {
+      try { return sessionStorage.getItem(openCardKey()) || null; } catch (e) { return null; }
+    }
+    function writeOpenCardId(id) {
+      try {
+        if (id) sessionStorage.setItem(openCardKey(), id);
+        else sessionStorage.removeItem(openCardKey());
+      } catch (e) {}
+    }
     function showTab(name) {
       activeTab = name;
+      writePanelTab(name);
       ["cards", "people", "soon"].forEach((id) => {
         const tab = $("tab_" + id);
         const pane = $("pane_" + id);
@@ -1291,7 +1912,9 @@
         if (pane) pane.hidden = id !== name;
       });
       if ($("save")) $("save").hidden = name === "soon";
-      if (name === "soon") loadSoon();
+      if (name === "soon") {
+        loadSoon();
+      }
     }
     function drawPeople() {
       const host = $("people_list");
@@ -1342,6 +1965,18 @@
       people = Array.isArray(doc.contacts) ? doc.contacts : [];
       drawPeople();
     }
+    function schedulePeopleSave() {
+      clearTimeout(peopleSaveTimer);
+      peopleSaveTimer = setTimeout(() => {
+        savePeople().catch(() => {
+          if ($("people_status")) $("people_status").textContent = "Save failed";
+          if ($("status")) {
+            $("status").textContent = "Save failed";
+            $("status").style.color = "var(--alert)";
+          }
+        });
+      }, 1200);
+    }
     async function savePeople() {
       readPeopleForm();
       $("people_status").textContent = "Saving…";
@@ -1353,35 +1988,42 @@
         body: JSON.stringify({ schemaVersion: 1, contacts: people }),
       });
       people = Array.isArray(doc.contacts) ? doc.contacts : people;
-      drawPeople();
+      const ae = document.activeElement;
+      const editing = ae && $("people_list") && $("people_list").contains(ae);
+      if (!editing) drawPeople();
       $("people_status").textContent = "Saved on the house";
       $("status").textContent = "Saved";
+      $("status").style.color = "";
     }
     $("people_add").onclick = () => {
       readPeopleForm();
       const id = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now());
       people.push({ id, function: "", name: "", tel: "", method: "cellular" });
       drawPeople();
+      schedulePeopleSave();
     };
     $("people_save").onclick = () => savePeople().catch(() => {
       $("people_status").textContent = "Save failed";
       $("status").textContent = "Save failed";
       $("status").style.color = "var(--alert)";
     });
+    $("people_list").addEventListener("input", () => schedulePeopleSave());
+    $("people_list").addEventListener("change", () => schedulePeopleSave());
     $("people_list").addEventListener("click", (ev) => {
       const t = ev.target.closest("[data-del], [data-up], [data-down]") || ev.target;
       if (t.dataset.del != null) {
         readPeopleForm();
         people.splice(Number(t.dataset.del), 1);
         drawPeople();
+        schedulePeopleSave();
       } else if (t.dataset.up != null) {
         readPeopleForm();
         const i = Number(t.dataset.up);
-        if (i > 0) { const row = people.splice(i, 1)[0]; people.splice(i - 1, 0, row); drawPeople(); }
+        if (i > 0) { const row = people.splice(i, 1)[0]; people.splice(i - 1, 0, row); drawPeople(); schedulePeopleSave(); }
       } else if (t.dataset.down != null) {
         readPeopleForm();
         const i = Number(t.dataset.down);
-        if (i < people.length - 1) { const row = people.splice(i, 1)[0]; people.splice(i + 1, 0, row); drawPeople(); }
+        if (i < people.length - 1) { const row = people.splice(i, 1)[0]; people.splice(i + 1, 0, row); drawPeople(); schedulePeopleSave(); }
       }
     });
 
@@ -1629,13 +2271,13 @@
       const n = matrix.length;
       const quiet = 4;
       const dim = n + quiet * 2;
-      const scale = Math.max(2, Math.floor(200 / dim));
+      const scale = Math.max(6, Math.floor(288 / dim));
       canvas.width = dim * scale;
       canvas.height = dim * scale;
       const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "#fff";
+      ctx.fillStyle = "#f4efe6";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#000";
+      ctx.fillStyle = "#1a1714";
       for (let y = 0; y < n; y++) for (let x = 0; x < n; x++)
         if (matrix[y][x]) ctx.fillRect((x + quiet) * scale, (y + quiet) * scale, scale, scale);
     }
@@ -1643,6 +2285,7 @@
     let photoObjectUrl = null;
     let notesTimer = null;
     let notesReady = false;
+    let pairingUri = null;
 
     function syncPhotoButtons(mode) {
       const restore = $("photo_restore");
@@ -1656,71 +2299,117 @@
       if (remove) remove.hidden = mode !== "custom";
       if ($("photo_confirm") && mode !== "custom") $("photo_confirm").hidden = true;
     }
-    async function loadPhoto() {
-      const empty = $("photo_empty");
+    function setStillEmpty() {
+      const still = $("photo_still");
+      if (still) still.classList.add("still-empty");
       const img = $("photo_img");
-      if (!img) return;
+      if (img) { img.removeAttribute("src"); img.alt = ""; }
+      if (photoObjectUrl) { URL.revokeObjectURL(photoObjectUrl); photoObjectUrl = null; }
+      if ($("photo_empty")) $("photo_empty").hidden = false;
+      syncPhotoButtons("empty");
+    }
+    function sniffStillMime(bytes) {
+      if (bytes.length >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) return "image/jpeg";
+      if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+          && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return "image/webp";
+      return "";
+    }
+    function bytesToDataUrl(bytes, mime) {
+      let bin = "";
+      const step = 0x8000;
+      for (let i = 0; i < bytes.length; i += step) {
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
+      }
+      return "data:" + mime + ";base64," + btoa(bin);
+    }
+    function setStillDataUrl(url, source) {
+      const still = $("photo_still");
+      if (still) still.classList.remove("still-empty");
+      if (photoObjectUrl) { URL.revokeObjectURL(photoObjectUrl); photoObjectUrl = null; }
+      const img = $("photo_img");
+      if (img) { img.removeAttribute("hidden"); img.src = url; img.alt = "Photograph"; }
+      if ($("photo_empty")) $("photo_empty").hidden = true;
+      syncPhotoButtons(source === "default" ? "default" : "custom");
+      if ($("photo_status")) $("photo_status").textContent = "";
+    }
+    async function loadPhoto() {
+      if ($("photo_status")) $("photo_status").textContent = "";
       try {
-        const r = await apiBinary(PHOTO_PATH);
-        if (r.status === 404) {
-          img.hidden = true;
-          if (empty) empty.hidden = false;
-          if (photoObjectUrl) { URL.revokeObjectURL(photoObjectUrl); photoObjectUrl = null; }
-          syncPhotoButtons("empty");
+        const r = await bin(PHOTO_PATH, { headers: { Accept: "image/jpeg,image/webp,*/*" } });
+        if (r.status === 404) { setStillEmpty(); return; }
+        if (!r.ok) {
+          setStillEmpty();
+          if ($("photo_status")) $("photo_status").textContent = "Could not load the photograph.";
           return;
         }
-        if (!r.ok) throw new Error("photo");
-        const blob = await r.blob();
-        if (photoObjectUrl) URL.revokeObjectURL(photoObjectUrl);
-        photoObjectUrl = URL.createObjectURL(blob);
-        img.src = photoObjectUrl;
-        img.hidden = false;
-        if (empty) empty.hidden = true;
+        const buf = await r.arrayBuffer();
+        const bytes = new Uint8Array(buf || []);
+        const mime = sniffStillMime(bytes);
+        if (!mime) {
+          setStillEmpty();
+          if ($("photo_status")) $("photo_status").textContent = "Could not load the photograph.";
+          return;
+        }
         const source = (r.headers.get("X-Patrimony-Photo-Source") || "custom").toLowerCase();
-        syncPhotoButtons(source === "default" ? "default" : "custom");
+        setStillDataUrl(bytesToDataUrl(bytes, mime), source);
       } catch (e) {
+        setStillEmpty();
         if ($("photo_status")) $("photo_status").textContent = "Could not load the photograph.";
-        syncPhotoButtons("empty");
       }
     }
     async function restorePhoto() {
-      $("photo_status").textContent = "Saving…";
-      const r = await apiBinary(PHOTO_PATH, { method: "POST" });
-      if (!r.ok) { $("photo_status").textContent = "Could not restore."; return; }
-      await loadPhoto();
-      $("photo_status").textContent = "Restored";
+      if ($("photo_status")) $("photo_status").textContent = "";
+      try {
+        const r = await bin(PHOTO_PATH, { method: "POST" });
+        if (!r.ok) { $("photo_status").textContent = "Could not restore"; return; }
+        await loadPhoto();
+      } catch (e) {
+        $("photo_status").textContent = "Could not restore";
+      }
     }
     async function putPhoto(file) {
-      const type = file.type === "image/webp" ? "image/webp" : (file.type === "image/jpeg" ? "image/jpeg" : "");
-      if (!type) { $("photo_status").textContent = "Use a jpeg or webp."; return; }
-      if (file.size > 2 * 1024 * 1024) { $("photo_status").textContent = "Needs to be under 2 MB."; return; }
-      $("photo_status").textContent = "Saving…";
-      const buf = await file.arrayBuffer();
-      const r = await apiBinary(PHOTO_PATH, { method: "PUT", headers: { "Content-Type": type }, body: buf });
-      if (!r.ok) { $("photo_status").textContent = "Could not save."; return; }
-      await loadPhoto();
-      $("photo_status").textContent = "Saved";
+      if (!file) return;
+      if (file.size > 2 * 1024 * 1024) {
+        $("photo_status").textContent = "Needs to be under 2 MB.";
+        return;
+      }
+      $("photo_status").textContent = "";
+      try {
+        const buf = await file.arrayBuffer();
+        const r = await bin(PHOTO_PATH, {
+          method: "PUT",
+          headers: { "Content-Type": file.type || "image/jpeg" },
+          body: buf
+        });
+        if (!r.ok) { $("photo_status").textContent = "Could not save"; return; }
+        await loadPhoto();
+      } catch (e) {
+        $("photo_status").textContent = "Could not save";
+      }
     }
     async function removePhoto() {
-      $("photo_status").textContent = "Saving…";
-      const r = await apiBinary(PHOTO_PATH, { method: "DELETE" });
-      if (r.status !== 204 && r.status !== 404) { $("photo_status").textContent = "Could not remove."; return; }
-      const empty = $("photo_empty");
-      const img = $("photo_img");
-      if (img) img.hidden = true;
-      if (empty) empty.hidden = false;
-      if (photoObjectUrl) { URL.revokeObjectURL(photoObjectUrl); photoObjectUrl = null; }
-      syncPhotoButtons("empty");
-      $("photo_status").textContent = "Removed";
+      if ($("photo_confirm")) $("photo_confirm").hidden = true;
+      try {
+        const r = await bin(PHOTO_PATH, { method: "DELETE" });
+        if (r.ok || r.status === 404) setStillEmpty();
+        else $("photo_status").textContent = "Could not save";
+      } catch (e) {
+        $("photo_status").textContent = "Could not save";
+      }
+    }
+    function updateNotesCap() {
+      const n = (($("notes_text") && $("notes_text").value) || "").length;
+      if ($("notes_cap")) $("notes_cap").textContent = n + "/8000";
     }
     async function loadNotes() {
       notesReady = false;
       try {
         const doc = await api(NOTES_PATH);
-        if ($("notes_text")) $("notes_text").value = doc.text || "";
-        if ($("notes_status")) $("notes_status").textContent = doc.updatedAt ? "Saved" : "";
+        if ($("notes_text")) $("notes_text").value = (doc && doc.text) || "";
+        updateNotesCap();
+        if ($("notes_status")) $("notes_status").textContent = "";
       } catch (e) {
-        if ($("notes_status")) $("notes_status").textContent = "Could not load notes";
+        if ($("notes_status")) $("notes_status").textContent = "";
       }
       notesReady = true;
     }
@@ -1732,34 +2421,45 @@
         await api(NOTES_PATH, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ schemaVersion: 1, text }),
+          body: JSON.stringify({ schemaVersion: 1, text: text })
         });
         if ($("notes_status")) $("notes_status").textContent = "Saved";
       } catch (e) {
-        if ($("notes_status")) $("notes_status").textContent = "Save failed";
+        if ($("notes_status")) $("notes_status").textContent = "Could not save";
       }
     }
     function scheduleNotes() {
       if (!notesReady) return;
+      const el = $("notes_text");
+      if (el && el.value.length > 8000) el.value = el.value.slice(0, 8000);
+      updateNotesCap();
       if ($("notes_status")) $("notes_status").textContent = "Saving…";
       clearTimeout(notesTimer);
-      notesTimer = setTimeout(saveNotesNow, 600);
+      notesTimer = setTimeout(() => { notesTimer = null; saveNotesNow(); }, 600);
     }
     function clearPairing() {
+      pairingUri = null;
+      if ($("pair_box")) $("pair_box").hidden = true;
       const canvas = $("pair_qr");
       if (canvas) {
         canvas.hidden = true;
         const ctx = canvas.getContext && canvas.getContext("2d");
         if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        canvas.width = 0;
+        canvas.height = 0;
       }
       if ($("pair_dismiss")) $("pair_dismiss").hidden = true;
     }
     async function showPairing() {
+      if (!PAIR_PATH) return;
       if ($("pair_status")) $("pair_status").textContent = "";
       try {
-        const r = await apiBinary(PAIR_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const r = await bin(PAIR_PATH, { method: "POST" });
         if (r.status === 403) {
-          if ($("pair_status")) $("pair_status").textContent = "An admin can show a pairing code.";
+          if ($("pair_show")) $("pair_show").hidden = true;
+          if ($("pair_actions")) $("pair_actions").hidden = true;
+          if ($("pair_quiet")) $("pair_quiet").textContent = "An admin can show a pairing code.";
+          if ($("pair_status")) $("pair_status").textContent = "";
           clearPairing();
           return;
         }
@@ -1775,15 +2475,88 @@
           return;
         }
         const body = await r.json();
-        const uri = body && body.pairing;
-        if (!uri) { if ($("pair_status")) $("pair_status").textContent = "Pairing is unavailable."; return; }
+        pairingUri = body && body.pairing;
+        if (!pairingUri) { if ($("pair_status")) $("pair_status").textContent = "Pairing is unavailable."; return; }
         const canvas = $("pair_qr");
-        drawPairQr(canvas, uri);
+        drawPairQr(canvas, pairingUri);
         canvas.hidden = false;
+        if ($("pair_box")) $("pair_box").hidden = false;
         if ($("pair_dismiss")) $("pair_dismiss").hidden = false;
       } catch (e) {
         if ($("pair_status")) $("pair_status").textContent = "Pairing is unavailable.";
       }
+    }
+    function fillComponentVersion() {
+      let ver = "";
+      try { ver = (new URLSearchParams(location.search).get("v") || "").trim(); } catch (e) {}
+      if (ver) setConn("conn_ver", ver);
+    }
+    function setConn(id, text, cls) {
+      const el = $(id);
+      if (!el) return;
+      el.textContent = text;
+      el.className = "v" + (cls ? " " + cls : "");
+      if (id === "conn_url" || id === "conn_ios_ip" || id === "conn_ios_name") {
+        el.title = (text && text !== "—" && text !== "Missing") ? text : "";
+      }
+    }
+    function applyHouseUrl(doc) {
+      const url = String((doc && (doc.externalUrl || doc.houseUrl)) || "").trim();
+      const ok = !!(doc && doc.usable === true && url);
+      setConn("conn_url", ok ? url : "Missing", ok ? "ok" : "warn");
+    }
+    function isGenericDeviceName(name) {
+      const n = String(name || "").trim().toLowerCase();
+      return !n || n === "iphone" || n === "ipad";
+    }
+    function formatIosDevice(doc) {
+      if (doc && doc.displayDevice) return String(doc.displayDevice);
+      const name = String((doc && doc.deviceName) || "").trim();
+      const ios = String((doc && doc.iosVersion) || "").trim();
+      const model = String((doc && doc.model) || "").trim();
+      if (!isGenericDeviceName(name)) return ios ? (name + " · " + ios) : name;
+      if (name && ios) return name + " · " + ios;
+      if (ios) return ios;
+      if (model) return model;
+      return name;
+    }
+    function formatIosHost(doc) {
+      if (doc && doc.displayHost) return String(doc.displayHost);
+      const ip = String((doc && doc.ip) || "").trim();
+      const host = String((doc && doc.hostname) || "").trim();
+      if (host && ip) return host + " · " + ip;
+      return ip || host;
+    }
+    function applyIosSession(doc) {
+      const seen = !!(doc && doc.seen);
+      if (!seen) {
+        setConn("conn_ios_ip", "Missing", "warn");
+        setConn("conn_ios_name", "Missing", "warn");
+        setConn("conn_ios_ver", "Missing", "warn");
+        setConn("conn_ios_at", "Missing", "warn");
+        return;
+      }
+      setConn("conn_ios_name", formatIosDevice(doc) || "—");
+      setConn("conn_ios_ip", formatIosHost(doc) || "—");
+      setConn("conn_ios_ver", String(doc.appVersion || "—"));
+      setConn("conn_ios_at", String(doc.lastInteractionAt || "—"));
+    }
+    async function refreshIosSession(hint) {
+      if (hint && hint.iosSession) {
+        applyIosSession(hint.iosSession);
+        return;
+      }
+      try {
+        applyIosSession(await api(IOS_SESSION_PATH));
+      } catch (e) {
+        applyIosSession({ seen: false });
+      }
+    }
+    function fillSoonMeta() {
+      const p = (preview && preview.property) || {};
+      const m = houseMeta || {};
+      const zone = p.timezone || m.timezone || "";
+      if ($("soon_zone")) $("soon_zone").textContent = zone || "—";
     }
     async function loadNotifyConfig() {
       try {
@@ -1793,41 +2566,682 @@
         if ($("notify_title")) $("notify_title").disabled = !on;
         if (!on && $("notify_status")) $("notify_status").textContent = "Push needs the house event key.";
         else if ($("notify_status") && $("notify_status").textContent === "Push needs the house event key.") $("notify_status").textContent = "";
+        setConn("conn_hek", on ? "Present" : "Missing", on ? "ok" : "warn");
+        if (doc && doc.ingestHost) setConn("conn_cf", doc.ingestHost);
+        applyHouseUrl(doc);
+        setConn("conn_ha", "Signed in", "ok");
+        await refreshIosSession(doc);
       } catch (e) {
         if ($("notify_send")) $("notify_send").disabled = true;
         if ($("notify_status")) $("notify_status").textContent = "Push needs the house event key.";
+        setConn("conn_ha", "Unreachable", "warn");
+        setConn("conn_hek", "Unknown");
+        setConn("conn_url", "Unknown");
+        applyIosSession({ seen: false });
       }
+    }
+    let connCheckBusy = false;
+    function houseSubKey() { return "patrimony.houseSub"; }
+    function readHouseSub() {
+      try {
+        const v = sessionStorage.getItem(houseSubKey());
+        if (v === "conn" || v === "pushlog" || v === "chat" || v === "phones") return v;
+      } catch (e) {}
+      return "home";
+    }
+    function writeHouseSub(name) {
+      const v = (name === "conn" || name === "pushlog" || name === "chat" || name === "phones") ? name : "home";
+      try { sessionStorage.setItem(houseSubKey(), v); } catch (e) {}
+    }
+    function checkedAtLabel() {
+      const zone = (($("soon_zone") && $("soon_zone").textContent) || "").trim();
+      const opts = { hour: "2-digit", minute: "2-digit", hour12: false };
+      try {
+        if (zone && zone !== "—")
+          return new Date().toLocaleTimeString("en-GB", { ...opts, timeZone: zone });
+      } catch (e) {}
+      return new Date().toLocaleTimeString("en-GB", opts);
+    }
+
+    let pqBusy = false;
+    function pqChipLabel(cap) {
+      // Unavailable: crypto floor missing OR house feature disabled (no second Offer control).
+      if (!cap || cap.available === false || cap.reason === "disabled") return "Unavailable";
+      if (cap.session === "present") return "Present";
+      return "Off";
+    }
+    function applyPqCapability(cap) {
+      const chip = $("conn_pq_chip");
+      const help = $("conn_pq_state_help");
+      const label = pqChipLabel(cap);
+      if (chip) {
+        chip.textContent = label;
+        chip.className = "pq-chip " + label.toLowerCase();
+      }
+      const btnRot = $("conn_pq_rotate");
+      const btnDis = $("conn_pq_disable");
+      if (btnRot) btnRot.hidden = true;
+      if (btnDis) btnDis.hidden = true;
+      if (!cap || sessionExpired) {
+        if (help) help.textContent = "";
+        return;
+      }
+      if (label === "Unavailable") {
+        if (help) help.textContent = "Not available on this phone or this house.";
+        return;
+      }
+      if (label === "Present") {
+        if (help) help.textContent = "On for this house.";
+        if (btnRot) { btnRot.hidden = false; btnRot.disabled = false; }
+        if (btnDis) { btnDis.hidden = false; btnDis.disabled = false; }
+        return;
+      }
+      // Off — Enable is iPhone-only
+      if (help) help.textContent = "Enable from the Patrimony Collection app on iPhone (Connections). Requires iOS 26+.";
+    }
+    async function refreshPqShield() {
+      if (sessionExpired) return;
+      try {
+        const cap = await api(PQ_CAPABILITY_PATH);
+        applyPqCapability(cap);
+      } catch (e) {
+        if ($("conn_pq_chip")) {
+          $("conn_pq_chip").textContent = "—";
+          $("conn_pq_chip").className = "pq-chip";
+        }
+        if ($("conn_pq_state_help")) $("conn_pq_state_help").textContent = sessionExpired ? "" : "Could not read PQ Shield status.";
+        if ($("conn_pq_rotate")) $("conn_pq_rotate").hidden = true;
+        if ($("conn_pq_disable")) $("conn_pq_disable").hidden = true;
+      }
+    }
+    async function runPqAction(action) {
+      if (pqBusy || sessionExpired) return;
+      pqBusy = true;
+      const btnRot = $("conn_pq_rotate");
+      const btnDis = $("conn_pq_disable");
+      if (btnRot) btnRot.disabled = true;
+      if (btnDis) btnDis.disabled = true;
+      if ($("conn_pq_msg")) $("conn_pq_msg").textContent = "Working…";
+      try {
+        if (action === "disable") {
+          await api(PQ_DISABLE_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+          if ($("conn_pq_msg")) $("conn_pq_msg").textContent = "Disabled";
+        } else if (action === "rotate") {
+          await api(PQ_ROTATE_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+          if ($("conn_pq_msg")) $("conn_pq_msg").textContent = "Rotated — Enable again from the iPhone app";
+        }
+        await refreshPqShield();
+      } catch (e) {
+        if ($("conn_pq_msg")) $("conn_pq_msg").textContent = "Could not update PQ Shield";
+      }
+      pqBusy = false;
+      if (btnRot) btnRot.disabled = false;
+      if (btnDis) btnDis.disabled = false;
+    }
+    function pushLogText(value) {
+      const text = String(value == null ? "" : value);
+      if (/hek_/i.test(text) || /eyJ/.test(text)) return "";
+      return text;
+    }
+    function pushLogDeviceList(devices) {
+      // Every registered client, comma-separated. Not only the first.
+      if (Array.isArray(devices)) {
+        const names = devices.map(pushLogText).filter(Boolean);
+        return names.length ? names.join(", ") : PUSH_LOG_NO_DEVICES;
+      }
+      const text = pushLogText(devices);
+      return text || PUSH_LOG_NO_DEVICES;
+    }
+    function renderPushLog(rows) {
+      const empty = $("pushlog_empty");
+      const host = $("pushlog_rows");
+      const list = Array.isArray(rows) ? rows : [];
+      if (!list.length) {
+        if (empty) {
+          empty.hidden = false;
+          empty.textContent = "No attention pushes yet.";
+        }
+        if (host) host.replaceChildren();
+        return;
+      }
+      if (empty) empty.hidden = true;
+      if (!host) return;
+      host.replaceChildren();
+      list.slice().reverse().forEach((row) => {
+        const wrap = document.createElement("div");
+        wrap.className = "pushlog-row";
+        const fire = pushLogText(row && row.fire_class);
+        const manual = fire === "manual" || fire === MANUAL_SEND_CLASS;
+        const fields = [
+          ["Timestamp", pushLogText(row && row.at)],
+          [manual ? "Send" : "FIRE class", manual ? "Manual send" : fire],
+          ["Devices", pushLogDeviceList(row && row.devices)]
+        ];
+        fields.forEach((pair) => {
+          const line = document.createElement("div");
+          line.className = "conn-row";
+          const k = document.createElement("span");
+          k.className = "k";
+          k.textContent = pair[0];
+          const v = document.createElement("span");
+          v.className = "v";
+          v.textContent = pair[1];
+          line.appendChild(k);
+          line.appendChild(v);
+          wrap.appendChild(line);
+        });
+        host.appendChild(wrap);
+      });
+    }
+    async function loadPushLog() {
+      if (sessionExpired) return;
+      try {
+        const doc = await api(PUSH_LOG_PATH);
+        renderPushLog(doc && doc.rows);
+      } catch (e) {
+        renderPushLog([]);
+      }
+    }
+
+    async function checkConnections() {
+      if (sessionExpired || connCheckBusy) return;
+      connCheckBusy = true;
+      if ($("conn_check")) $("conn_check").disabled = true;
+      if ($("conn_status")) $("conn_status").textContent = "Checking…";
+      setConn("conn_ha", "Checking…");
+      setConn("conn_cf", "Checking…");
+      setConn("conn_url", "Checking…");
+      let ok = false;
+      try {
+        const signed = await api(NOTIFY_PATH);
+        setConn("conn_ha", "Signed in", "ok");
+        applyHouseUrl(signed);
+        await refreshIosSession(signed);
+      } catch (e) {
+        setConn("conn_ha", "Unreachable", "warn");
+        setConn("conn_url", "Unknown");
+        if (sessionExpired) {
+          connCheckBusy = false;
+          if ($("conn_check")) $("conn_check").disabled = false;
+          return;
+        }
+      }
+      try {
+        const doc = await api(NOTIFY_PATH, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ check: true })
+        });
+        const host = (doc && doc.ingestHost) || "Push notification server";
+        if (doc && doc.ok) { setConn("conn_cf", host + " · reachable", "ok"); ok = true; }
+        else setConn("conn_cf", host + " · no reply", "warn");
+        if (doc && typeof doc.configured === "boolean")
+          setConn("conn_hek", doc.configured ? "Present" : "Missing", doc.configured ? "ok" : "warn");
+        applyHouseUrl(doc);
+        await refreshIosSession(doc);
+        const when = checkedAtLabel();
+        if ($("conn_status")) $("conn_status").textContent = ok
+          ? ("Checked · " + when)
+          : ("Push notification server did not answer · " + when);
+      } catch (e) {
+        setConn("conn_cf", "No reply", "warn");
+        if ($("conn_status")) $("conn_status").textContent = "Could not check · " + checkedAtLabel();
+      }
+      try { await refreshPqShield(); } catch (e) {}
+      connCheckBusy = false;
+      if ($("conn_check")) $("conn_check").disabled = false;
     }
     async function sendNotify() {
       const title = (($("notify_title") && $("notify_title").value) || "").trim();
-      if (!title) { if ($("notify_status")) $("notify_status").textContent = "Write a short title."; return; }
-      if ($("notify_status")) $("notify_status").textContent = "Sending…";
+      if (!title) return;
       try {
-        const r = await apiBinary(NOTIFY_PATH, {
+        const r = await bin(NOTIFY_PATH, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: title.slice(0, 120) }),
+          body: JSON.stringify({ title: title })
         });
-        const body = await r.json().catch(() => ({}));
-        if (r.ok && body && body.ok) {
-          if ($("notify_status")) $("notify_status").textContent = "Sent";
+        let doc = null;
+        const raw = await r.text();
+        try { doc = raw ? JSON.parse(raw) : null; } catch (e) { doc = null; }
+        if (r.ok && doc && doc.ok) {
           if ($("notify_title")) $("notify_title").value = "";
+          if ($("notify_status")) $("notify_status").textContent = "Sent";
+          if (typeof loadPushLog === "function") loadPushLog();
           return;
         }
-        if (body && body.error && body.error.code === "missing_house_event_key") {
-          if ($("notify_send")) $("notify_send").disabled = true;
-          if ($("notify_status")) $("notify_status").textContent = "Push needs the house event key.";
-          return;
-        }
-        if ($("notify_status")) $("notify_status").textContent = "Could not send.";
+        const msg = doc && doc.error && doc.error.message ? String(doc.error.message) : "";
+        if ($("notify_status")) $("notify_status").textContent = msg || (doc ? "Could not send" : "Push failed (connection)");
       } catch (e) {
-        if ($("notify_status")) $("notify_status").textContent = "Could not send.";
+        if ($("notify_status")) $("notify_status").textContent = "Push failed (connection)";
       }
     }
-    async function loadSoon() {
-      await Promise.all([loadPhoto(), loadNotes(), loadNotifyConfig()]);
+    function chatRetentionLabel(code) {
+      if (code === "1h") return "1 hour";
+      if (code === "1d") return "1 day";
+      if (code === "7d") return "7 days";
+      return "Keep";
     }
+    let chatPhotoUrls = [];
+    function chatZone() {
+      const stored = String(
+        (houseMeta && houseMeta.timezone) ||
+        (preview && preview.property && preview.property.timezone) ||
+        ""
+      ).trim();
+      if (stored) return stored;
+      const ha = String(
+        (houseMeta && houseMeta.homeAssistantTimezone) ||
+        (($("house_ha_zone") && $("house_ha_zone").textContent) || "")
+      ).trim();
+      if (ha && ha !== "—") return ha;
+      return "UTC";
+    }
+    function chatWhen(iso) {
+      const raw = String(iso || "").trim();
+      if (!raw) return "";
+      const date = new Date(raw);
+      if (isNaN(date.getTime())) return "";
+      const zone = chatZone();
+      const opts = { timeZone: zone, year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" };
+      try {
+        return new Intl.DateTimeFormat(undefined, opts).format(date);
+      } catch (e) {
+        try {
+          return new Intl.DateTimeFormat(undefined, {
+            timeZone: "UTC", year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
+          }).format(date);
+        } catch (e2) {
+          return "";
+        }
+      }
+    }
+    function clearChatPhotos() {
+      chatPhotoUrls.forEach(function (url) {
+        try { URL.revokeObjectURL(url); } catch (e) {}
+      });
+      chatPhotoUrls = [];
+    }
+    async function paintChatImages(log) {
+      const nodes = log.querySelectorAll("img.chat-photo[data-id]");
+      for (let i = 0; i < nodes.length; i++) {
+        const img = nodes[i];
+        const id = img.getAttribute("data-id");
+        if (!id) continue;
+        try {
+          const r = await bin(CHAT_PATH + "/" + encodeURIComponent(id) + "/image");
+          if (!r.ok) continue;
+          const blob = await r.blob();
+          const url = URL.createObjectURL(blob);
+          chatPhotoUrls.push(url);
+          img.src = url;
+          img.hidden = false;
+        } catch (e) {}
+      }
+    }
+    function renderChat(doc) {
+      const log = $("chat_log");
+      const empty = $("chat_empty");
+      const messages = (doc && doc.messages) || [];
+      if (empty) empty.hidden = messages.length > 0;
+      if (!log) return;
+      clearChatPhotos();
+      log.innerHTML = messages.map(function (m) {
+        const del = m.canDelete
+          ? '<button type="button" class="danger chat-del" data-id="' + esc(m.id) + '">Delete</button>'
+          : "";
+        const when = chatWhen(m.createdAt);
+        const photo = m.hasImage
+          ? '<img class="chat-photo" alt="" hidden data-id="' + esc(m.id) + '">'
+          : "";
+        const body = m.text ? '<p class="chat-body">' + esc(m.text) + '</p>' : "";
+        return '<div class="chat-row"><div class="chat-main"><div class="chat-meta"><span>' + esc(m.sender) + '</span><span>' + esc(chatRetentionLabel(m.retention)) + '</span></div>' + body + photo + '<time class="chat-time">' + esc(when) + '</time></div>' + del + '</div>';
+      }).join("");
+      log.querySelectorAll(".chat-del").forEach(function (btn) {
+        btn.onclick = function () { deleteChat(btn.getAttribute("data-id"), btn); };
+      });
+      paintChatImages(log);
+    }
+    async function loadChat() {
+      try {
+        renderChat(await api(CHAT_PATH));
+      } catch (e) {
+        if ($("chat_status") && !sessionExpired) $("chat_status").textContent = "Could not load chat";
+      }
+    }
+    async function sendChat() {
+      const field = $("chat_text");
+      const text = ((field && field.value) || "").trim();
+      if (!text) return;
+      const retention = (($("chat_retention") && $("chat_retention").value) || "keep");
+      const sendBtn = $("chat_send");
+      if (sendBtn) sendBtn.disabled = true;
+      if ($("chat_status")) $("chat_status").textContent = "Sending…";
+      try {
+        const r = await bin(CHAT_PATH, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: text, retention: retention })
+        });
+        if (!r.ok) {
+          if ($("chat_status")) $("chat_status").textContent = "Could not send";
+          return;
+        }
+        if (field) field.value = "";
+        if ($("chat_status")) $("chat_status").textContent = "Sent";
+        await loadChat();
+      } catch (e) {
+        if ($("chat_status")) $("chat_status").textContent = "Could not send";
+      } finally {
+        if (sendBtn) sendBtn.disabled = false;
+      }
+    }
+    async function deleteChat(id, btn) {
+      if (!id) return;
+      if (!btn.dataset.armed) {
+        btn.dataset.armed = "1";
+        btn.textContent = "Delete?";
+        return;
+      }
+      try {
+        const r = await bin(CHAT_PATH + "/" + encodeURIComponent(id), { method: "DELETE" });
+        if (!r.ok) {
+          if ($("chat_status")) $("chat_status").textContent = "Could not delete";
+          return;
+        }
+        if ($("chat_status")) $("chat_status").textContent = "Deleted";
+        await loadChat();
+      } catch (e) {
+        if ($("chat_status")) $("chat_status").textContent = "Could not delete";
+      }
+    }
+
+    let phonesUnpairStep = {};
+    async function loadPhones() {
+      const list = $("phones_list");
+      const empty = $("phones_empty");
+      const status = $("phones_status");
+      if (!list) return;
+      if (sessionExpired) {
+        list.innerHTML = "";
+        if (empty) { empty.hidden = false; empty.textContent = "Sign in again."; }
+        return;
+      }
+      try {
+        const r = await bin(CLIENTS_PATH);
+        if (!r.ok) {
+          if (status) status.textContent = "Could not load phones";
+          return;
+        }
+        const doc = await r.json();
+        const rows = Array.isArray(doc.clients) ? doc.clients : [];
+        phonesUnpairStep = {};
+        list.innerHTML = "";
+        if (empty) {
+          empty.hidden = rows.length > 0;
+          empty.textContent = "No paired phones yet.";
+        }
+        rows.forEach(function (row) {
+          const id = String(row.clientId || "");
+          const card = document.createElement("div");
+          card.className = "phone-card";
+          card.dataset.clientId = id;
+          const nameId = "phone_name_" + id.replace(/[^a-zA-Z0-9_-]/g, "_");
+          card.innerHTML =
+            '<label for="' + nameId + '">Display name</label>' +
+            '<input type="text" id="' + nameId + '" maxlength="80" aria-label="Display name" />' +
+            '<div class="phone-meta">Paired <span data-k="paired"></span></div>' +
+            '<div class="phone-meta">Last access <span data-k="access"></span></div>' +
+            '<div class="phone-actions">' +
+            '<button type="button" class="ghost" data-act="save">Save name</button>' +
+            '<button type="button" class="danger" data-act="unpair">Unpair</button>' +
+            '<span class="phone-confirm" data-k="confirm" hidden></span>' +
+            '</div>';
+          const input = card.querySelector("input");
+          if (input) input.value = String(row.displayName || "");
+          const paired = card.querySelector('[data-k="paired"]');
+          const access = card.querySelector('[data-k="access"]');
+          if (paired) paired.textContent = String(row.pairedAtDisplay || row.pairedAt || "—");
+          if (access) access.textContent = String(row.lastAccessAtDisplay || row.lastAccessAt || "—");
+          const saveBtn = card.querySelector('[data-act="save"]');
+          const unpairBtn = card.querySelector('[data-act="unpair"]');
+          const confirm = card.querySelector('[data-k="confirm"]');
+          if (saveBtn) saveBtn.onclick = function () { savePhoneName(id, input, status); };
+          if (unpairBtn) unpairBtn.onclick = function () { unpairPhone(id, unpairBtn, confirm, status); };
+          list.appendChild(card);
+        });
+        if (status) status.textContent = rows.length ? "" : status.textContent;
+      } catch (e) {
+        if (status) status.textContent = "Could not load phones";
+      }
+    }
+    async function savePhoneName(clientId, input, status) {
+      const raw = input ? String(input.value || "") : "";
+      const trimmed = raw.trim();
+      if (!trimmed) {
+        if (status) status.textContent = "Name cannot be blank";
+        await loadPhones();
+        return;
+      }
+      try {
+        const r = await bin(CLIENTS_PATH + "/" + encodeURIComponent(clientId), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ displayName: trimmed.slice(0, 80) })
+        });
+        if (!r.ok) {
+          if (status) status.textContent = "Could not save name";
+          return;
+        }
+        if (status) status.textContent = "Saved";
+        await loadPhones();
+      } catch (e) {
+        if (status) status.textContent = "Could not save name";
+      }
+    }
+    async function unpairPhone(clientId, btn, confirm, status) {
+      const step = phonesUnpairStep[clientId] || 0;
+      if (step < 1) {
+        phonesUnpairStep[clientId] = 1;
+        if (confirm) {
+          confirm.hidden = false;
+          confirm.textContent = "Tap Unpair again to confirm. This phone will drop this home locally.";
+        }
+        if (btn) btn.textContent = "Confirm unpair";
+        return;
+      }
+      try {
+        const r = await bin(CLIENTS_PATH + "/" + encodeURIComponent(clientId) + "/unpair", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}"
+        });
+        if (!r.ok) {
+          if (status) status.textContent = "Could not unpair";
+          phonesUnpairStep[clientId] = 0;
+          return;
+        }
+        if (status) status.textContent = "Unpaired";
+        delete phonesUnpairStep[clientId];
+        await loadPhones();
+      } catch (e) {
+        if (status) status.textContent = "Could not unpair";
+        phonesUnpairStep[clientId] = 0;
+      }
+    }
+
+    function showHouseSub(name) {
+      const which = (name === "conn" || name === "pushlog" || name === "chat" || name === "phones") ? name : "home";
+      const subHome = $("sub_home");
+      const subConn = $("sub_conn");
+      const subLog = $("sub_pushlog");
+      const subChat = $("sub_chat");
+      const subPhones = $("sub_phones");
+      const soonHome = $("soon_home");
+      const soonConn = $("soon_conn");
+      const soonLog = $("soon_pushlog");
+      const soonChat = $("soon_chat");
+      const soonPhones = $("soon_phones");
+      writeHouseSub(which);
+      if (subHome) {
+        subHome.classList.toggle("is-active", which === "home");
+        subHome.setAttribute("aria-selected", which === "home" ? "true" : "false");
+      }
+      if (subConn) {
+        subConn.classList.toggle("is-active", which === "conn");
+        subConn.setAttribute("aria-selected", which === "conn" ? "true" : "false");
+      }
+      if (subLog) {
+        subLog.classList.toggle("is-active", which === "pushlog");
+        subLog.setAttribute("aria-selected", which === "pushlog" ? "true" : "false");
+      }
+      if (subChat) {
+        subChat.classList.toggle("is-active", which === "chat");
+        subChat.setAttribute("aria-selected", which === "chat" ? "true" : "false");
+      }
+      if (subPhones) {
+        subPhones.classList.toggle("is-active", which === "phones");
+        subPhones.setAttribute("aria-selected", which === "phones" ? "true" : "false");
+      }
+      if (soonHome) soonHome.hidden = which !== "home";
+      if (soonConn) soonConn.hidden = which !== "conn";
+      if (soonLog) soonLog.hidden = which !== "pushlog";
+      if (soonChat) soonChat.hidden = which !== "chat";
+      if (soonPhones) soonPhones.hidden = which !== "phones";
+      // Integrator: opening Connections runs Check links once so status is live without an extra tap.
+      if (which === "conn" && !sessionExpired && typeof checkConnections === "function") checkConnections();
+      if (which === "pushlog" && !sessionExpired && typeof loadPushLog === "function") loadPushLog();
+      if (which === "chat" && !sessionExpired && typeof loadChat === "function") loadChat();
+      if (which === "phones" && !sessionExpired && typeof loadPhones === "function") loadPhones();
+    }
+
+    function timezoneOptionLabel(name, ha) {
+      if (ha && name === ha) return name + " (this Home Assistant)";
+      return name;
+    }
+    function fillTimezoneList(zoneEl, zone, ha, listed) {
+      if (!zoneEl) return;
+      if (String(zoneEl.tagName || "").toUpperCase() !== "SELECT") {
+        if (document.activeElement !== zoneEl) zoneEl.value = zone;
+        return;
+      }
+      if (document.activeElement === zoneEl) return;
+      let zones;
+      if (Array.isArray(listed) && listed.length) zones = listed.slice();
+      else if (zoneEl.options && zoneEl.options.length) {
+        zones = Array.prototype.map.call(zoneEl.options, function (o) { return o.value; });
+      } else zones = [];
+      if (zone && zones.indexOf(zone) < 0) zones.push(zone);
+      if (ha && zones.indexOf(ha) < 0) zones.push(ha);
+      zones.sort(function (a, b) { return a < b ? -1 : (a > b ? 1 : 0); });
+      const existing = Array.prototype.map.call(zoneEl.options, function (o) { return o.value; });
+      const same = existing.length === zones.length && existing.every(function (v, i) { return v === zones[i]; });
+      if (!same) {
+        zoneEl.innerHTML = "";
+        zones.forEach(function (z) {
+          const opt = document.createElement("option");
+          opt.value = z;
+          opt.textContent = timezoneOptionLabel(z, ha);
+          zoneEl.appendChild(opt);
+        });
+      } else {
+        Array.prototype.forEach.call(zoneEl.options, function (opt) {
+          opt.textContent = timezoneOptionLabel(opt.value, ha);
+        });
+      }
+      if (zone && zones.indexOf(zone) >= 0) zoneEl.value = zone;
+    }
+    function fillHouseIdentity(doc) {
+      const name = (doc && (doc.displayName || doc.display_name)) || "";
+      const zone = (doc && doc.timezone) || "";
+      const ha = (doc && doc.homeAssistantTimezone) || "";
+      const nameEl = $("house_display_name");
+      const zoneEl = $("house_timezone");
+      if (nameEl && document.activeElement !== nameEl) nameEl.value = name;
+      const listed = (doc && Array.isArray(doc.timezones)) ? doc.timezones : null;
+      fillTimezoneList(zoneEl, zone, ha, listed);
+      if ($("house_ha_zone")) $("house_ha_zone").textContent = ha || "—";
+      if ($("soon_zone") && zone) $("soon_zone").textContent = zone;
+      houseMeta = houseMeta || {};
+      houseMeta.timezone = zone || "";
+      houseMeta.homeAssistantTimezone = ha || "";
+    }
+    async function loadHouseIdentity() {
+      try {
+        fillHouseIdentity(await api(HOUSE_PATH));
+      } catch (e) {
+        if (sessionExpired) return;
+        const p = (preview && preview.property) || {};
+        const m = houseMeta || {};
+        fillHouseIdentity({
+          displayName: p.displayName || m.displayName || m.display_name || "",
+          timezone: p.timezone || m.timezone || "",
+          homeAssistantTimezone: ""
+        });
+      }
+    }
+    async function saveHouseIdentity(copyTz) {
+      if (sessionExpired) { markSessionExpired(); return; }
+      const status = $("house_identity_status");
+      const saveBtn = $("house_identity_save");
+      const copyBtn = $("house_tz_from_ha");
+      if (saveBtn) saveBtn.disabled = true;
+      if (copyBtn) copyBtn.disabled = true;
+      if (status) status.textContent = "Saving…";
+      const body = copyTz
+        ? { copyTimezoneFromHomeAssistant: true }
+        : {
+            displayName: (($("house_display_name") && $("house_display_name").value) || "").trim(),
+            timezone: (($("house_timezone") && $("house_timezone").value) || "").trim()
+          };
+      try {
+        const r = await bin(HOUSE_PATH, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        let doc = null;
+        const raw = await r.text();
+        try { doc = raw ? JSON.parse(raw) : null; } catch (e) { doc = null; }
+        if (!r.ok || !doc || doc.ok !== true) {
+          const msg = doc && doc.error && doc.error.message ? String(doc.error.message) : "Could not save";
+          if (status) status.textContent = msg;
+          return;
+        }
+        fillHouseIdentity(doc);
+        preview = preview || { property: {}, cards: [] };
+        preview.property = preview.property || {};
+        if (!copyTz) preview.property.displayName = doc.displayName;
+        preview.property.timezone = doc.timezone;
+        houseMeta = houseMeta || {};
+        if (!copyTz) {
+          houseMeta.displayName = doc.displayName;
+          houseMeta.display_name = doc.displayName;
+        }
+        houseMeta.timezone = doc.timezone;
+        fillHouseBar();
+        fillSoonMeta();
+        if (status) status.textContent = copyTz ? "Timezone updated" : "Saved";
+      } catch (e) {
+        if (status) status.textContent = "Could not save";
+      } finally {
+        if (saveBtn) saveBtn.disabled = false;
+        if (copyBtn) copyBtn.disabled = false;
+      }
+    }
+
+    async function loadSoon() {
+      fillSoonMeta();
+      loadHouseIdentity();
+      loadPhoto();
+      if (!notesTimer) loadNotes();
+      loadNotifyConfigured();
+    }
+    function loadNotifyConfigured() { return loadNotifyConfig(); }
     function bindSoon() {
+      document.querySelectorAll("[data-house-sub]").forEach((btn) => {
+        btn.onclick = () => showHouseSub(btn.dataset.houseSub);
+      });
+      showHouseSub(readHouseSub());
       if ($("photo_restore")) $("photo_restore").onclick = restorePhoto;
       if ($("photo_replace")) $("photo_replace").onclick = () => $("photo_file") && $("photo_file").click();
       if ($("photo_file")) $("photo_file").onchange = () => {
@@ -1835,26 +3249,37 @@
         $("photo_file").value = "";
         if (f) putPhoto(f);
       };
-      if ($("photo_remove")) $("photo_remove").onclick = () => {
-        if ($("photo_confirm")) $("photo_confirm").hidden = false;
-      };
-      if ($("photo_confirm_yes")) $("photo_confirm_yes").onclick = () => {
-        if ($("photo_confirm")) $("photo_confirm").hidden = true;
-        removePhoto();
-      };
-      if ($("photo_confirm_no")) $("photo_confirm_no").onclick = () => {
-        if ($("photo_confirm")) $("photo_confirm").hidden = true;
-      };
+      if ($("photo_remove")) $("photo_remove").onclick = () => { if ($("photo_confirm")) $("photo_confirm").hidden = false; };
+      if ($("photo_confirm_yes")) $("photo_confirm_yes").onclick = removePhoto;
+      if ($("photo_keep")) $("photo_keep").onclick = () => { if ($("photo_confirm")) $("photo_confirm").hidden = true; };
+      if ($("photo_confirm_no")) $("photo_confirm_no").onclick = () => { if ($("photo_confirm")) $("photo_confirm").hidden = true; };
       if ($("notes_text")) $("notes_text").addEventListener("input", scheduleNotes);
       if ($("pair_show")) $("pair_show").onclick = showPairing;
       if ($("pair_dismiss")) $("pair_dismiss").onclick = () => { clearPairing(); if ($("pair_status")) $("pair_status").textContent = ""; };
+      fillComponentVersion();
+      if ($("conn_check")) $("conn_check").onclick = checkConnections;
+      if ($("conn_pq_rotate")) $("conn_pq_rotate").onclick = () => runPqAction("rotate");
+      if ($("conn_pq_disable")) $("conn_pq_disable").onclick = () => runPqAction("disable");
+      if ($("house_identity_save")) $("house_identity_save").onclick = () => saveHouseIdentity(false);
+      if ($("house_tz_from_ha")) $("house_tz_from_ha").onclick = () => saveHouseIdentity(true);
       if ($("notify_send")) $("notify_send").onclick = sendNotify;
+      if ($("notify_title")) $("notify_title").addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") { ev.preventDefault(); sendNotify(); }
+      });
+      if ($("chat_send")) $("chat_send").onclick = sendChat;
     }
+
     bindSoon();
+
     document.querySelectorAll(".tab").forEach((btn) => {
       btn.onclick = () => showTab(btn.dataset.tab);
     });
     $("save").onclick = () => {
+      if (activeTab === "soon") return;
+      if (sessionExpired) {
+        markSessionExpired();
+        return;
+      }
       if (activeTab === "people") {
         savePeople().catch(() => {
           $("people_status").textContent = "Save failed";
@@ -1865,9 +3290,9 @@
         doSave();
       }
     };
-    showTab("cards");
+    if ($("retry_session")) $("retry_session").onclick = retrySession;
+    showTab(readPanelTab());
     load();
-    setInterval(async () => { if (saveTimer) return; try { await MODE_REFRESH(); } catch (e) {} }, 4000);
   </script>
 </body>
 </html>

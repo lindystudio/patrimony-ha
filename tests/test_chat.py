@@ -91,8 +91,8 @@ def _b64(obj) -> str:
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
-def _ios_request(hass, device_name=None, user_name="Ada Lovelace"):
-    ident = "rt-ios-1"
+def _ios_request(hass, device_name=None, user_name="Ada Lovelace", client_id="rt-ios-1"):
+    ident = client_id
     hass.auth.refresh_tokens[ident] = _Tok(ident, PAIR_CLIENT_NAME)
     if device_name:
         persist_ios_session(
@@ -180,17 +180,15 @@ def test_delete_removes_the_row(tmp_path) -> None:
 
 def test_ios_can_delete_own_message_only(tmp_path) -> None:
     hass = _Hass(tmp_path, _Entry())
-    ios = _ios_request(hass, "Kitchen iPad", user_name="Ada Lovelace")
+    ios = _ios_request(hass, "Kitchen iPad", user_name="Ada Lovelace", client_id="rt-ios-kitchen")
     own, status = create_message(hass, ios, {"text": SECRET}, now=T0)
     assert status == 201
     assert own["sender"] == "Kitchen iPad"
     assert own["sender"] != "Ada Lovelace"
-    other = _ios_request(hass, "Studio iPad", user_name="Ada Lovelace")
-    # Last session write changed the stored device. Recreate the first phone's key by
-    # a request whose refresh token is iOS but whose label is the other device.
+    other = _ios_request(hass, "Studio iPad", user_name="Ada Lovelace", client_id="rt-ios-studio")
     denied, code = delete_message(hass, other, own["id"], now=T0)
     assert code == 403
-    again = _ios_request(hass, "Kitchen iPad", user_name="Ada Lovelace")
+    again = _ios_request(hass, "Kitchen iPad", user_name="Ada Lovelace", client_id="rt-ios-kitchen")
     deleted, code = delete_message(hass, again, own["id"], now=T0)
     assert code == 200
     assert SECRET not in _raw(hass)
@@ -263,25 +261,27 @@ def test_ios_post_prefers_payload_device_name(tmp_path) -> None:
     assert preferred["sender"] != "Ada Lovelace"
     store = json.loads(_raw(hass))
     assert store["messages"][0]["senderLabel"] == "Petros iPhone 17 Pro"
-    assert store["messages"][0]["senderKey"] == "ios:Petros iPhone 17 Pro"
+    assert store["messages"][0]["senderKey"] == "ios:rt-ios-1"
 
+    # First posted deviceName seeded the paired client; later blanks keep it.
     missing, status = create_message(
         hass, ios, {"text": "phone-line-fallback"}, now=T0
     )
     assert status == 201
-    assert missing["sender"] == "Stored Session Phone"
+    assert missing["sender"] == "Petros iPhone 17 Pro"
+    assert missing["sender"] != "Ada Lovelace"
 
     blank, status = create_message(
         hass, ios, {"text": "phone-line-blank", "deviceName": "   "}, now=T0
     )
     assert status == 201
-    assert blank["sender"] == "Stored Session Phone"
+    assert blank["sender"] == "Petros iPhone 17 Pro"
 
     too_long, status = create_message(
         hass, ios, {"text": "phone-line-long", "deviceName": "x" * 81}, now=T0
     )
     assert status == 201
-    assert too_long["sender"] == "Stored Session Phone"
+    assert too_long["sender"] == "Petros iPhone 17 Pro"
 
     # A posted deviceName is the label even when the caller is the panel
     # user. The panel window itself does not send deviceName.
@@ -336,7 +336,7 @@ def test_device_name_wins_when_bearer_is_not_paired_ios(tmp_path) -> None:
     assert named["sender"] != "admin"
     store = json.loads(_raw(hass))
     assert store["messages"][0]["senderLabel"] == "Kitchen iPhone"
-    assert store["messages"][0]["senderKey"] == "ios:Kitchen iPhone"
+    assert store["messages"][0]["senderKey"] == "ios:rt-ha-user"
 
     blank, status = create_message(
         hass,
@@ -345,14 +345,17 @@ def test_device_name_wins_when_bearer_is_not_paired_ios(tmp_path) -> None:
         now=T0,
     )
     assert status == 201
-    assert blank["sender"] == "admin"
-    assert blank["senderKind"] == "panel"
+    # Credential is now a registered client; blank keeps the stored display name.
+    assert blank["sender"] == "Kitchen iPhone"
+    assert blank["senderKind"] == "ios"
+    assert blank["sender"] != "admin"
 
     missing_user, status = create_message(
         hass, phone, {"text": "phone-line-missing-user"}, now=T0
     )
     assert status == 201
-    assert missing_user["sender"] == "admin"
+    assert missing_user["sender"] == "Kitchen iPhone"
+    assert missing_user["sender"] != "admin"
 
     ios = _ios_request(hass, "Stored Session Phone", user_name="admin")
     assert chat_mod.is_ios_client(hass, ios) is True

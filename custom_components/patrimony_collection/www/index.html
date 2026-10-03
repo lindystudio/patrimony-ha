@@ -124,6 +124,20 @@
     .chat-body { margin: 4px 0 6px; white-space: pre-wrap; word-break: break-word; }
     .chat-photo { display: block; max-width: 100%; max-height: 240px; border-radius: 8px; margin: 4px 0; }
     .chat-time { display: block; font-size: 12px; opacity: .65; }
+    .phone-card {
+      border: 1px solid rgba(196,165,116,.35);
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin: 12px 0;
+      background: rgba(26,23,20,.35);
+    }
+    .phone-card label { display: block; margin-top: 8px; font-size: 13px; opacity: .8; }
+    .phone-card input[type="text"] {
+      width: 100%; max-width: 28rem; margin-top: 4px;
+    }
+    .phone-meta { font-size: 13px; opacity: .75; margin: 8px 0; }
+    .phone-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+    .phone-confirm { font-size: 13px; color: #e8c48a; }
     .chat-row .chat-del { margin-left: auto; flex: none; align-self: center; padding: 4px 8px; font-size: 12px; }
     .wrap {
       display: flex; flex-direction: column; gap: 12px;
@@ -447,6 +461,7 @@
         <button type="button" class="house-sub" id="sub_conn" data-house-sub="conn" role="tab" aria-selected="false">Connections</button>
         <button type="button" class="house-sub" id="sub_pushlog" data-house-sub="pushlog" role="tab" aria-selected="false">Push log</button>
         <button type="button" class="house-sub" id="sub_chat" data-house-sub="chat" role="tab" aria-selected="false">Chat</button>
+        <button type="button" class="house-sub" id="sub_phones" data-house-sub="phones" role="tab" aria-selected="false">Phones</button>
       </nav>
       <section class="soon-card" id="soon_home">
         <h2>Home settings</h2>
@@ -569,6 +584,13 @@
           <button class="primary" type="button" id="chat_send">Send</button>
           <span class="status" id="chat_status"></span>
         </div>
+      </section>
+      <section class="soon-card" id="soon_phones" hidden>
+        <h2>Paired phones</h2>
+        <p class="quiet">Names shown in chat for each paired iPhone. Times use this house timezone.</p>
+        <p class="quiet" id="phones_empty">No paired phones yet.</p>
+        <div id="phones_list"></div>
+        <p class="status" id="phones_status"></p>
       </section>
     </div>
   </div>
@@ -1831,6 +1853,7 @@
     const IOS_SESSION_PATH = '/api/patrimony_collection/ios_session';
     const HOUSE_PATH = '/api/patrimony_collection/house';
     const CHAT_PATH = '/api/patrimony_collection/chat';
+    const CLIENTS_PATH = '/api/patrimony_collection/clients';
 
     let activeTab = "cards";
 
@@ -2562,12 +2585,12 @@
     function readHouseSub() {
       try {
         const v = sessionStorage.getItem(houseSubKey());
-        if (v === "conn" || v === "pushlog" || v === "chat") return v;
+        if (v === "conn" || v === "pushlog" || v === "chat" || v === "phones") return v;
       } catch (e) {}
       return "home";
     }
     function writeHouseSub(name) {
-      const v = (name === "conn" || name === "pushlog" || name === "chat") ? name : "home";
+      const v = (name === "conn" || name === "pushlog" || name === "chat" || name === "phones") ? name : "home";
       try { sessionStorage.setItem(houseSubKey(), v); } catch (e) {}
     }
     function checkedAtLabel() {
@@ -2931,16 +2954,133 @@
         if ($("chat_status")) $("chat_status").textContent = "Could not delete";
       }
     }
+
+    let phonesUnpairStep = {};
+    async function loadPhones() {
+      const list = $("phones_list");
+      const empty = $("phones_empty");
+      const status = $("phones_status");
+      if (!list) return;
+      if (sessionExpired) {
+        list.innerHTML = "";
+        if (empty) { empty.hidden = false; empty.textContent = "Sign in again."; }
+        return;
+      }
+      try {
+        const r = await bin(CLIENTS_PATH);
+        if (!r.ok) {
+          if (status) status.textContent = "Could not load phones";
+          return;
+        }
+        const doc = await r.json();
+        const rows = Array.isArray(doc.clients) ? doc.clients : [];
+        phonesUnpairStep = {};
+        list.innerHTML = "";
+        if (empty) {
+          empty.hidden = rows.length > 0;
+          empty.textContent = "No paired phones yet.";
+        }
+        rows.forEach(function (row) {
+          const id = String(row.clientId || "");
+          const card = document.createElement("div");
+          card.className = "phone-card";
+          card.dataset.clientId = id;
+          const nameId = "phone_name_" + id.replace(/[^a-zA-Z0-9_-]/g, "_");
+          card.innerHTML =
+            '<label for="' + nameId + '">Display name</label>' +
+            '<input type="text" id="' + nameId + '" maxlength="80" aria-label="Display name" />' +
+            '<div class="phone-meta">Paired <span data-k="paired"></span></div>' +
+            '<div class="phone-meta">Last access <span data-k="access"></span></div>' +
+            '<div class="phone-actions">' +
+            '<button type="button" class="ghost" data-act="save">Save name</button>' +
+            '<button type="button" class="danger" data-act="unpair">Unpair</button>' +
+            '<span class="phone-confirm" data-k="confirm" hidden></span>' +
+            '</div>';
+          const input = card.querySelector("input");
+          if (input) input.value = String(row.displayName || "");
+          const paired = card.querySelector('[data-k="paired"]');
+          const access = card.querySelector('[data-k="access"]');
+          if (paired) paired.textContent = String(row.pairedAtDisplay || row.pairedAt || "—");
+          if (access) access.textContent = String(row.lastAccessAtDisplay || row.lastAccessAt || "—");
+          const saveBtn = card.querySelector('[data-act="save"]');
+          const unpairBtn = card.querySelector('[data-act="unpair"]');
+          const confirm = card.querySelector('[data-k="confirm"]');
+          if (saveBtn) saveBtn.onclick = function () { savePhoneName(id, input, status); };
+          if (unpairBtn) unpairBtn.onclick = function () { unpairPhone(id, unpairBtn, confirm, status); };
+          list.appendChild(card);
+        });
+        if (status) status.textContent = rows.length ? "" : status.textContent;
+      } catch (e) {
+        if (status) status.textContent = "Could not load phones";
+      }
+    }
+    async function savePhoneName(clientId, input, status) {
+      const raw = input ? String(input.value || "") : "";
+      const trimmed = raw.trim();
+      if (!trimmed) {
+        if (status) status.textContent = "Name cannot be blank";
+        await loadPhones();
+        return;
+      }
+      try {
+        const r = await bin(CLIENTS_PATH + "/" + encodeURIComponent(clientId), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ displayName: trimmed.slice(0, 80) })
+        });
+        if (!r.ok) {
+          if (status) status.textContent = "Could not save name";
+          return;
+        }
+        if (status) status.textContent = "Saved";
+        await loadPhones();
+      } catch (e) {
+        if (status) status.textContent = "Could not save name";
+      }
+    }
+    async function unpairPhone(clientId, btn, confirm, status) {
+      const step = phonesUnpairStep[clientId] || 0;
+      if (step < 1) {
+        phonesUnpairStep[clientId] = 1;
+        if (confirm) {
+          confirm.hidden = false;
+          confirm.textContent = "Tap Unpair again to confirm. This phone will drop this home locally.";
+        }
+        if (btn) btn.textContent = "Confirm unpair";
+        return;
+      }
+      try {
+        const r = await bin(CLIENTS_PATH + "/" + encodeURIComponent(clientId) + "/unpair", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}"
+        });
+        if (!r.ok) {
+          if (status) status.textContent = "Could not unpair";
+          phonesUnpairStep[clientId] = 0;
+          return;
+        }
+        if (status) status.textContent = "Unpaired";
+        delete phonesUnpairStep[clientId];
+        await loadPhones();
+      } catch (e) {
+        if (status) status.textContent = "Could not unpair";
+        phonesUnpairStep[clientId] = 0;
+      }
+    }
+
     function showHouseSub(name) {
-      const which = (name === "conn" || name === "pushlog" || name === "chat") ? name : "home";
+      const which = (name === "conn" || name === "pushlog" || name === "chat" || name === "phones") ? name : "home";
       const subHome = $("sub_home");
       const subConn = $("sub_conn");
       const subLog = $("sub_pushlog");
       const subChat = $("sub_chat");
+      const subPhones = $("sub_phones");
       const soonHome = $("soon_home");
       const soonConn = $("soon_conn");
       const soonLog = $("soon_pushlog");
       const soonChat = $("soon_chat");
+      const soonPhones = $("soon_phones");
       writeHouseSub(which);
       if (subHome) {
         subHome.classList.toggle("is-active", which === "home");
@@ -2958,14 +3098,20 @@
         subChat.classList.toggle("is-active", which === "chat");
         subChat.setAttribute("aria-selected", which === "chat" ? "true" : "false");
       }
+      if (subPhones) {
+        subPhones.classList.toggle("is-active", which === "phones");
+        subPhones.setAttribute("aria-selected", which === "phones" ? "true" : "false");
+      }
       if (soonHome) soonHome.hidden = which !== "home";
       if (soonConn) soonConn.hidden = which !== "conn";
       if (soonLog) soonLog.hidden = which !== "pushlog";
       if (soonChat) soonChat.hidden = which !== "chat";
+      if (soonPhones) soonPhones.hidden = which !== "phones";
       // Integrator: opening Connections runs Check links once so status is live without an extra tap.
       if (which === "conn" && !sessionExpired && typeof checkConnections === "function") checkConnections();
       if (which === "pushlog" && !sessionExpired && typeof loadPushLog === "function") loadPushLog();
       if (which === "chat" && !sessionExpired && typeof loadChat === "function") loadChat();
+      if (which === "phones" && !sessionExpired && typeof loadPhones === "function") loadPhones();
     }
 
     function timezoneOptionLabel(name, ha) {

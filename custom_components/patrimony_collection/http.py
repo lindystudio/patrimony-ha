@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from .const import (
+    CLIENT_PATH,
+    CLIENT_UNPAIR_PATH,
+    CLIENTS_PATH,
     CONF_HOUSE_EVENT_KEY,
     CONF_PROPERTY_ID,
     CONTACTS_PATH,
@@ -14,6 +17,7 @@ from .const import (
     NOTES_PATH,
     NOTIFY_PATH,
     PAIR_PATH,
+    PAIRING_PATH,
     PUSH_LOG_PATH,
     PAIR_CLAIM_PATH,
     PHOTO_MAX_BYTES,
@@ -21,6 +25,7 @@ from .const import (
     PHOTO_SOURCE_HEADER,
     REST_PATH,
 )
+from . import clients as house_clients
 from . import contacts as house_contacts
 from . import ios_session as house_ios_session
 from . import notes as house_notes
@@ -88,9 +93,17 @@ class PatrimonyStateView(HomeAssistantView):
                 },
                 status=500,
             )
+        # Phone pairing status for THIS credential. Same object as GET /pairing.
+        pairing = house_clients.pairing_document(self.hass, request)
+        document = dict(document)
+        document["pairing"] = pairing
         # Session Present → AEAD envelope; else cleartext (default Off / fail closed).
         from .pq_shield.session import get_manager as _pq_get_manager
         payload = _pq_get_manager(self.hass).maybe_wrap_document(document)
+        if pairing.get("status") == house_clients.STATUS_UNPAIRED:
+            client_id = str(pairing.get("clientId") or "")
+            if client_id:
+                await house_clients.note_unpair_served(self.hass, client_id)
         return web.json_response(payload)
 
     async def post(self, request):
@@ -462,6 +475,23 @@ class PatrimonyIosSessionView(HomeAssistantView):
         # PTR is best-effort after accept. Never await DNS on the heartbeat.
         if status == 200:
             house_ios_session.schedule_reverse_lookup(self.hass, peer)
+            client_id = house_clients.request_client_id(request)
+            if client_id:
+                user = request.get("hass_user") if hasattr(request, "get") else None
+                ha_name = getattr(user, "name", None) if user is not None else None
+                device = ""
+                version = ""
+                if isinstance(payload, dict):
+                    device = payload.get("deviceName")
+                    version = payload.get("appVersion")
+                house_clients.upsert_client(
+                    self.hass,
+                    client_id,
+                    device_name=device if isinstance(device, str) else None,
+                    app_version=version if isinstance(version, str) else None,
+                    ha_username=str(ha_name) if ha_name else None,
+                    touch_access=True,
+                )
         return web.json_response(body, status=status)
 
 
@@ -479,6 +509,151 @@ class PatrimonyPushLogView(HomeAssistantView):
         from aiohttp import web
 
         return web.json_response(house_notify.push_log_document(self.hass))
+
+
+
+class PatrimonyPairingView(HomeAssistantView):
+    """Phone pairing status. Same Bearer as state. Always 200 while auth works."""
+
+    url = PAIRING_PATH
+    name = "api:patrimony_collection:pairing"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def get(self, request):
+        from aiohttp import web
+
+        if _first_entry(self.hass) is None:
+            return _not_configured()
+        body = house_clients.pairing_document(self.hass, request)
+        if body.get("status") == house_clients.STATUS_UNPAIRED:
+            client_id = str(body.get("clientId") or "")
+            if client_id:
+                await house_clients.note_unpair_served(self.hass, client_id)
+        return web.json_response(body)
+
+
+class PatrimonyClientsView(HomeAssistantView):
+    """Panel list of paired iOS clients. Admin only."""
+
+    url = CLIENTS_PATH
+    name = "api:patrimony_collection:clients"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def get(self, request):
+        from aiohttp import web
+
+        deny = _deny_if_not_admin(request)
+        if deny:
+            return deny
+        if _first_entry(self.hass) is None:
+            return _not_configured()
+        return web.json_response(house_clients.panel_clients_document(self.hass))
+
+
+class PatrimonyClientView(HomeAssistantView):
+    """Panel rename for one paired client. Admin only."""
+
+    url = CLIENT_PATH
+    name = "api:patrimony_collection:client"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def post(self, request, client_id):
+        from aiohttp import web
+
+        deny = _deny_if_not_admin(request)
+        if deny:
+            return deny
+        if _first_entry(self.hass) is None:
+            return _not_configured()
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response(
+                {"error": {"code": "invalid_json", "message": "Body must be JSON"}},
+                status=400,
+            )
+        if not isinstance(payload, dict):
+            return web.json_response(
+                {"error": {"code": "invalid_json", "message": "Body must be JSON"}},
+                status=400,
+            )
+        row, err = house_clients.rename_client(
+            self.hass, client_id, payload.get("displayName")
+        )
+        if err == "not_found" or row is None:
+            return web.json_response(
+                {"error": {"code": "not_found", "message": "Client not found"}},
+                status=404,
+            )
+        if err == "too_long":
+            return web.json_response(
+                {"error": {"code": "too_long", "message": "displayName max 80"}},
+                status=400,
+            )
+        if err == "invalid":
+            return web.json_response(
+                {"error": {"code": "invalid", "message": "displayName rejected"}},
+                status=400,
+            )
+        doc = house_clients.panel_clients_document(self.hass)
+        for item in doc.get("clients") or []:
+            if item.get("clientId") == row["clientId"]:
+                return web.json_response({"ok": True, "client": item})
+        return web.json_response(
+            {
+                "ok": True,
+                "client": {
+                    "clientId": row["clientId"],
+                    "displayName": row["displayName"],
+                    "pairedAt": row["pairedAt"],
+                    "lastAccessAt": row["lastAccessAt"],
+                },
+            }
+        )
+
+
+class PatrimonyClientUnpairView(HomeAssistantView):
+    """Panel unpair. Admin only. Double confirm is UI-only; one POST here."""
+
+    url = CLIENT_UNPAIR_PATH
+    name = "api:patrimony_collection:client_unpair"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def post(self, request, client_id):
+        from aiohttp import web
+
+        deny = _deny_if_not_admin(request)
+        if deny:
+            return deny
+        if _first_entry(self.hass) is None:
+            return _not_configured()
+        row = house_clients.mark_unpaired(self.hass, client_id)
+        if row is None:
+            return web.json_response(
+                {"error": {"code": "not_found", "message": "Client not found"}},
+                status=404,
+            )
+        return web.json_response(
+            {
+                "ok": True,
+                "clientId": row["clientId"],
+                "status": row["status"],
+                "reason": "unpaired",
+            }
+        )
+
 
 
 def notify_status_payload(hass, hek, *, reachable: bool | None = None) -> dict[str, Any]:
@@ -519,6 +694,10 @@ async def async_setup_http(hass: HomeAssistant) -> None:
     hass.http.register_view(PatrimonyNotifyView(hass))
     hass.http.register_view(PatrimonyEventKeyView(hass))
     hass.http.register_view(PatrimonyIosSessionView(hass))
+    hass.http.register_view(PatrimonyPairingView(hass))
+    hass.http.register_view(PatrimonyClientsView(hass))
+    hass.http.register_view(PatrimonyClientView(hass))
+    hass.http.register_view(PatrimonyClientUnpairView(hass))
     hass.http.register_view(PatrimonyPushLogView(hass))
     from .chat import register_views as register_chat_views
     register_chat_views(hass)

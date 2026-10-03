@@ -267,6 +267,20 @@ async def mint_pairing(hass, user) -> tuple[int, dict[str, Any]]:
             access_token_expiration=timedelta(days=3650),
         )
         token = await _maybe_await(create_access(refresh))
+        try:
+            from .clients import upsert_client
+
+            rid = getattr(refresh, "id", None) or (refresh.get("id") if isinstance(refresh, dict) else None)
+            if rid:
+                ha_name = getattr(auth_user, "name", None)
+                upsert_client(
+                    hass,
+                    str(rid),
+                    ha_username=str(ha_name) if ha_name else None,
+                    touch_access=True,
+                )
+        except Exception:
+            _LOGGER.warning("patrimony_pair_client_register_failed")
     except Exception as err:
         message = mint_error_message(err)
         _LOGGER.warning("pairing mint failed: %s", message)

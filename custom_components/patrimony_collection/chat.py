@@ -11,10 +11,11 @@ HTTP (same HA Bearer as /api/patrimony_collection/state):
      "imageBase64": "<standard base64, no data: prefix>",
      "imageContentType": "image/jpeg"|"image/png"|"image/webp"}
     retention is optional and defaults to keep.
-    A non-empty deviceName is the sender label even when the bearer
-    is a Home Assistant user token (is_ios_client false). Missing or
-    blank deviceName uses the Home Assistant user, unless the token is
-    the paired iOS client, which uses the stored device name instead.
+    A paired credential uses its panel-edited display name (seeded once
+    from a real deviceName). Later POST deviceName values do not overwrite
+    an edited name. A non-empty deviceName still registers / labels a
+    phone bearer even when is_ios_client is false (0.4.79). The panel
+    chat window does not send deviceName and stays the HA username.
     imageBase64 and imageContentType are optional. text may be empty
     when an image is present. Both empty is rejected.
 - GET  /api/patrimony_collection/chat/{message_id}/image
@@ -63,6 +64,7 @@ from .const import (
     SCHEMA_VERSION,
 )
 from .ios_session import load_ios_session
+from . import clients as house_clients
 from .notify import (
     _iter_refresh_tokens,
     _safe_name,
@@ -413,7 +415,12 @@ def _user_id(user) -> str:
 
 
 def ios_sender_label(hass) -> str:
-    """Stored device name, else the client name the push log already uses."""
+    """Stored paired-client display name, else ios_session / push-log label."""
+    names = house_clients.active_display_names(hass)
+    for name in names:
+        safe = _safe_name(name)
+        if safe:
+            return safe
     raw = load_ios_session(hass)
     if isinstance(raw, dict):
         name = _safe_name(raw.get("deviceName"))
@@ -432,9 +439,15 @@ def ios_sender_label(hass) -> str:
 
 def caller_identity(hass, request) -> dict[str, str]:
     user = request_user(request)
+    client_id = house_clients.request_client_id(request)
+    if client_id:
+        row = house_clients.get_client(hass, client_id)
+        if row is not None and row.get("status") == house_clients.STATUS_ACTIVE:
+            label = row.get("displayName") or ios_sender_label(hass)
+            return {"kind": "ios", "label": label, "key": "ios:" + client_id}
     if is_ios_client(hass, request):
         label = ios_sender_label(hass)
-        return {"kind": "ios", "label": label, "key": "ios:" + label}
+        return {"kind": "ios", "label": label, "key": "ios:" + (client_id or label)}
     label = _user_name(user)
     uid = _user_id(user)
     key = "panel:" + (uid or label)
@@ -574,21 +587,22 @@ def create_message(hass, request, payload: Any, now: datetime | None = None) -> 
         key = load_chat_key(hass)
         store = _read_store(hass)
         _purge(store, moment)
-        caller = caller_identity(hass, request)
-        # The house phone uses the same HA user bearer as the panel, so
-        # is_ios_client is false (refresh-token client_name is not
-        # "Patrimony iOS") and the POST was stored as the HA username.
-        # A non-empty trimmed deviceName (max 80) is the name the iOS
-        # app already sends and is the bubble label anyway. The panel
-        # window does not send deviceName; blank or missing stays the
-        # caller identity (HA user, or the stored iOS name for a paired token).
         posted = _safe_name(payload.get("deviceName"))
-        if posted:
+        # Prefer the paired-client registry (match by credential / JWT iss),
+        # not client_name == "Patrimony iOS". Edited display names win over
+        # a later POST deviceName. Panel posts without deviceName stay HA user.
+        registered = house_clients.client_sender_label(hass, request, posted)
+        if registered is not None:
+            caller = registered
+        elif posted:
+            # 0.4.79: honor deviceName on a misclassified phone bearer.
             caller = {
                 "kind": "ios",
                 "label": posted,
                 "key": "ios:" + posted,
             }
+        else:
+            caller = caller_identity(hass, request)
         message_id = str(uuid4())
         nonce, ciphertext = _seal(key, message_id, text)
         row = {
