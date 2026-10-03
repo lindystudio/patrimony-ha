@@ -181,7 +181,7 @@ def test_bundled_default_matches_addon_and_ui_copy_is_generic():
         html = (root / rel).read_text(encoding="utf-8")
         assert "Restore default" in html
         low = html.lower()
-        assert "example" not in low
+        assert "copenhagen" not in low
         assert "nyhavn" not in low
         assert "soon_units" not in html
         assert "usesFahrenheit" not in html
