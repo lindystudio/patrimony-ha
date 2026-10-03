@@ -242,6 +242,61 @@ def test_sender_is_ha_user_or_device_name(tmp_path) -> None:
     assert fallback["sender"] != "Ada Lovelace"
 
 
+
+def test_ios_post_prefers_payload_device_name(tmp_path) -> None:
+    """iOS body deviceName wins; blank falls back; panel ignores it."""
+    hass = _Hass(tmp_path, _Entry())
+    persist_ios_session(
+        hass, device_name="Stored Session Phone", app_version="1.0", ip="127.0.0.1"
+    )
+    ios = _ios_request(hass, "Stored Session Phone", user_name="Ada Lovelace")
+    preferred, status = create_message(
+        hass,
+        ios,
+        {"text": "phone-line-device", "deviceName": "  Petros iPhone 17 Pro  "},
+        now=T0,
+    )
+    assert status == 201
+    assert preferred["sender"] == "Petros iPhone 17 Pro"
+    assert preferred["senderKind"] == "ios"
+    assert preferred["sender"] != "Stored Session Phone"
+    assert preferred["sender"] != "Ada Lovelace"
+    store = json.loads(_raw(hass))
+    assert store["messages"][0]["senderLabel"] == "Petros iPhone 17 Pro"
+    assert store["messages"][0]["senderKey"] == "ios:Petros iPhone 17 Pro"
+
+    missing, status = create_message(
+        hass, ios, {"text": "phone-line-fallback"}, now=T0
+    )
+    assert status == 201
+    assert missing["sender"] == "Stored Session Phone"
+
+    blank, status = create_message(
+        hass, ios, {"text": "phone-line-blank", "deviceName": "   "}, now=T0
+    )
+    assert status == 201
+    assert blank["sender"] == "Stored Session Phone"
+
+    too_long, status = create_message(
+        hass, ios, {"text": "phone-line-long", "deviceName": "x" * 81}, now=T0
+    )
+    assert status == 201
+    assert too_long["sender"] == "Stored Session Phone"
+
+    panel, status = create_message(
+        hass,
+        _panel("Ada Lovelace"),
+        {"text": "panel-line-ignore", "deviceName": "Petros iPhone 17 Pro"},
+        now=T0,
+    )
+    assert status == 201
+    assert panel["sender"] == "Ada Lovelace"
+    assert panel["senderKind"] == "panel"
+    assert panel["sender"] != "Petros iPhone 17 Pro"
+    assert panel["sender"] != "Stored Session Phone"
+
+
+
 def test_push_payload_is_the_fixed_sentence_not_the_message(tmp_path, monkeypatch, caplog) -> None:
     hass = _Hass(tmp_path, _Entry("North House"))
     captured = {}

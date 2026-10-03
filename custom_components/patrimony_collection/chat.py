@@ -570,6 +570,15 @@ def create_message(hass, request, payload: Any, now: datetime | None = None) -> 
         store = _read_store(hass)
         _purge(store, moment)
         caller = caller_identity(hass, request)
+        if caller["kind"] == "ios":
+            # Prefer the name the phone sends on this POST (UIDevice.current.name).
+            payload_name = _safe_name(payload.get("deviceName"))
+            if payload_name:
+                caller = {
+                    "kind": "ios",
+                    "label": payload_name,
+                    "key": "ios:" + payload_name,
+                }
         message_id = str(uuid4())
         nonce, ciphertext = _seal(key, message_id, text)
         row = {

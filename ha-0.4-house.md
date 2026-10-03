@@ -52,7 +52,7 @@ Energy, coordinates, tokens on patrimony/state, schema bump, deleting Weather/Pe
 House members. On this HA only. Not on `patrimony/state`.
 
 - `GET /api/patrimony_collection/chat`
-- `POST /api/patrimony_collection/chat` with `{ "text", "retention" }`. `retention` is `keep` (default), `1h`, `1d`, or `7d`.
+- `POST /api/patrimony_collection/chat` with `{ "text", "retention" }` and optional `deviceName`. `retention` is `keep` (default), `1h`, `1d`, or `7d`. An iOS caller prefers a non-empty trimmed `deviceName` (max 80) as the sender label; otherwise it uses the stored iOS session device name. A panel caller uses the Home Assistant user name and ignores `deviceName`.
 - `DELETE /api/patrimony_collection/chat/{message_id}` removes the row. The sender can delete their own. The HA panel user can delete any.
 
 At rest the text and any photo are encrypted with a host key that is not in git, the presentation document, or push. Not end-to-end. A photo is optional `imageBase64` (standard base64, no `data:` prefix) plus `imageContentType` (`image/jpeg`, `image/png`, or `image/webp`). Text may be empty when a photo is present. Decoded photos are capped at 4 MB. The list sets `hasImage` and does not inline the bytes. `GET /api/patrimony_collection/chat/{message_id}/image` returns the raw bytes. Delete and expiry remove the photo with the message.
