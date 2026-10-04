@@ -13,7 +13,15 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from .const import CONTACT_APP_PATTERN, CONTACTS_FILE, CONTACTS_METHODS, CONTACTS_PATH, MAX_CONTACTS
+from .const import (
+    CONTACT_APP_PATTERN,
+    CONTACT_TEL_MAX,
+    CONTACT_TEXT_MAX,
+    CONTACTS_FILE,
+    CONTACTS_METHODS,
+    CONTACTS_PATH,
+    MAX_CONTACTS,
+)
 
 
 def contacts_path(hass) -> Path:
@@ -42,9 +50,9 @@ def normalize_contact(row: Any) -> dict[str, str] | None:
         return None
     return {
         "id": cid,
-        "function": function[:80],
-        "name": name[:80],
-        "tel": tel[:40],
+        "function": function[:CONTACT_TEXT_MAX],
+        "name": name[:CONTACT_TEXT_MAX],
+        "tel": tel[:CONTACT_TEL_MAX],
         "method": method,
         "app": app,
     }

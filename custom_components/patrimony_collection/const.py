@@ -16,6 +16,10 @@ CONTACTS_METHODS: Final = ("cellular", "viber", "whatsapp")
 # kept, so a newer phone can add an app without a house update.
 CONTACT_APP_PATTERN: Final = r"[a-z0-9][a-z0-9-]{0,31}"
 MAX_CONTACTS: Final = 200
+# Role and name keep this many characters, the number CONTACT_TEL_MAX. The panel and
+# the iPhone editor enforce the same limits so nothing is cut off silently.
+CONTACT_TEXT_MAX: Final = 80
+CONTACT_TEL_MAX: Final = 40
 
 PHOTO_PATH: Final = "/api/patrimony_collection/photo"
 PHOTO_FILE: Final = "patrimony_collection/face.jpg"
