@@ -435,6 +435,43 @@ def test_push_payload_is_the_fixed_sentence_not_the_message(tmp_path, monkeypatc
     assert SECRET not in captured["data"].decode()
 
 
+def test_push_skips_the_sender_device_when_given(tmp_path, monkeypatch) -> None:
+    hass = _Hass(tmp_path, _Entry("North House"))
+    captured = {}
+
+    class _Resp:
+        status = 202
+
+        def read(self):
+            return b"{}"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    def _urlopen(req, timeout=8):
+        captured["data"] = req.data
+        return _Resp()
+
+    monkeypatch.setattr(notify_mod, "urlopen", _urlopen)
+    device = "ab" * 32
+    body, status = handle_post(hass, _panel(), {"text": SECRET, "senderDevice": device}, now=T0)
+    assert status == 201
+    payload = json.loads(captured["data"].decode())
+    assert set(payload) == {"cardId", "severity", "title", "excludeDevice"}
+    assert payload["excludeDevice"] == device
+    assert device not in _raw(hass)
+    assert "senderDevice" not in body
+
+    # Anything that is not a 64-character lowercase hex hash is dropped, never forwarded.
+    for bad in ("AB" * 32, "ab" * 31, "not-a-hash", 42, None):
+        captured.clear()
+        handle_post(hass, _panel(), {"text": "Hi", "senderDevice": bad}, now=T0)
+        assert set(json.loads(captured["data"].decode())) == {"cardId", "severity", "title"}
+
+
 def test_missing_key_still_stores_without_a_push(tmp_path, monkeypatch) -> None:
     hass = _Hass(tmp_path, _Entry("North House", key=""))
     called = {"n": 0}
