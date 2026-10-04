@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 import logging
 import threading
@@ -146,6 +147,7 @@ def load_card_id_and_post(
     timeout: int = 8,
     severity: str = "attention",
     manual: bool = True,
+    exclude_device: str | None = None,
 ) -> int:
     """Disk load/create cardId then POST events — safe to run in an executor.
 
@@ -156,8 +158,10 @@ def load_card_id_and_post(
         severity = "attention"
     card_id = load_card_id(hass)
     _event_tls.devices = None
+    # Only chat passes a sender to skip; alerts and manual sends post exactly as before.
+    extra = {"exclude_device": exclude_device} if exclude_device else {}
     status = post_house_event(
-        property_id, key, card_id, title, timeout=timeout, severity=severity
+        property_id, key, card_id, title, timeout=timeout, severity=severity, **extra
     )
     # Gold Send shows Sent only on 2xx. FIRE logs itself; do not double-write.
     if manual and 200 <= int(status) < 300:
@@ -170,6 +174,11 @@ def manual_event(key: Any, title: Any) -> dict[str, str] | None:
     return manual_notify_decision(is_usable_house_event_key(key), title)
 
 
+def is_device_hash(value: Any) -> bool:
+    """SHA-256 hex of an APNs token, as the phone sends it. Never the token itself."""
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
 def post_house_event(
     property_id: str,
     key: str,
@@ -177,14 +186,17 @@ def post_house_event(
     title: str,
     timeout: int = 8,
     severity: str = "attention",
+    exclude_device: str | None = None,
 ) -> int:
     if severity != "alert":
         severity = "attention"
     if not title_is_safe(title):
         return 400
-    payload = json.dumps(
-        {"cardId": card_id, "severity": severity, "title": title}
-    ).encode()
+    body: dict[str, str] = {"cardId": card_id, "severity": severity, "title": title}
+    # The phone that wrote a chat message does not need a push about it.
+    if is_device_hash(exclude_device):
+        body["excludeDevice"] = exclude_device
+    payload = json.dumps(body).encode()
     req = Request(
         events_url(property_id),
         data=payload,

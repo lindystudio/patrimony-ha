@@ -35,6 +35,9 @@ and is not the 20-minute attention debounce. It sends only
 "New chat message in {display_name}", or "New chat message" when the
 stored display name is empty. The events body is {cardId, severity, title}.
 It is not given the message text, the sender, a preview, or image bytes.
+A POST may carry "senderDevice" (SHA-256 hex of that phone's APNs token);
+it is forwarded once as "excludeDevice" so the sender gets no push, and is
+never stored.
 This is not end-to-end: the house can read messages so the panel can
 show them. TLS covers the phone link.
 """
@@ -774,10 +777,11 @@ def create_message(hass, request, payload: Any, now: datetime | None = None) -> 
     return _public_row(caller, row, text, rows, _active_clients(hass), _cursors(store)), 201
 
 
-def notify_house_chat(hass) -> int | None:
+def notify_house_chat(hass, exclude_device: str | None = None) -> int | None:
     """Existing events POST. Fixed sentence only. Not the attention debounce.
 
     Does not take message text or image bytes. One POST per call.
+    `exclude_device` is the sender's hashed push token, so the sender is not notified.
     """
     entry = _first_entry(hass)
     if entry is None:
@@ -797,6 +801,7 @@ def notify_house_chat(hass) -> int | None:
             title,
             severity="attention",
             manual=False,
+            exclude_device=exclude_device,
         )
     except Exception:
         _LOGGER.error("patrimony_chat_notice_failed")
@@ -811,8 +816,10 @@ def notify_house_chat(hass) -> int | None:
 def handle_post(hass, request, payload: Any, now: datetime | None = None) -> tuple[dict[str, Any], int]:
     body, status = create_message(hass, request, payload, now=now)
     if status == 201:
+        # Passed straight to the events POST; never stored with the message.
+        sender_device = payload.get("senderDevice") if isinstance(payload, dict) else None
         try:
-            notify_house_chat(hass)
+            notify_house_chat(hass, exclude_device=sender_device)
         except Exception:
             _LOGGER.error("patrimony_chat_notice_failed")
     return body, status
