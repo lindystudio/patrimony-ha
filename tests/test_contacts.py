@@ -59,9 +59,52 @@ def test_not_on_presentation_document(tmp_path):
     assert "Mike" not in blob
 
 
-def test_normalize_unknown_method_becomes_cellular():
-    rows = normalize_list([{"function": "X", "name": "Y", "tel": "1", "method": "telegram"}])
-    assert rows[0]["method"] == "cellular"
+def test_app_is_kept_and_method_stays_legacy():
+    rows = normalize_list([
+        {"function": "Boat", "tel": "1", "app": "telegram"},
+        {"function": "Pool", "tel": "2", "method": "whatsapp"},
+        {"function": "Gate", "tel": "3", "method": "telegram"},
+        {"function": "Odd", "tel": "4", "app": "Not An App!"},
+    ])
+    assert [(r["method"], r["app"]) for r in rows] == [
+        ("cellular", "telegram"),
+        ("whatsapp", "whatsapp"),
+        ("cellular", "telegram"),
+        ("cellular", "cellular"),
+    ]
+
+
+def test_older_phone_save_keeps_a_newer_phones_app(tmp_path):
+    hass = _Hass(tmp_path)
+    cid = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    save_contacts(hass, [{"id": cid, "function": "Boat", "tel": "1", "method": "cellular", "app": "signal"}])
+    # An older app build round-trips only `method`.
+    saved = save_contacts(hass, [{"id": cid, "function": "Boat captain", "tel": "1", "method": "cellular"}])
+    assert saved[0]["function"] == "Boat captain"
+    assert saved[0]["app"] == "signal"
+    # Choosing a different legacy method on the older phone wins.
+    saved = save_contacts(hass, [{"id": cid, "function": "Boat captain", "tel": "1", "method": "viber"}])
+    assert (saved[0]["method"], saved[0]["app"]) == ("viber", "viber")
+
+
+def test_cap_allows_long_lists():
+    rows = normalize_list([{"function": f"Person {i}", "tel": str(i)} for i in range(250)])
+    assert len(rows) == 200
+
+
+def test_addon_web_contacts_match_the_integration(tmp_path):
+    import importlib.util
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("patrimony_addon_web_contacts", root / "addons" / "patrimony_collection" / "web.py")
+    web = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(web)
+    web.CONTACTS_PATH = tmp_path / "contacts.json"
+    cid = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    doc = web.save_contacts({"contacts": [{"id": cid, "function": "Boat", "tel": "1", "app": "telegram"}]})
+    assert (doc["contacts"][0]["method"], doc["contacts"][0]["app"]) == ("cellular", "telegram")
+    doc = web.save_contacts({"contacts": [{"id": cid, "function": "Boat", "tel": "1", "method": "cellular"}]})
+    assert doc["contacts"][0]["app"] == "telegram"
+    assert web.load_contacts()["contacts"][0]["app"] == "telegram"
 
 
 if __name__ == "__main__":
@@ -73,5 +116,6 @@ if __name__ == "__main__":
         test_empty_file_is_empty_list(Path(d))
     with tempfile.TemporaryDirectory() as d:
         test_not_on_presentation_document(Path(d))
-    test_normalize_unknown_method_becomes_cellular()
+    test_app_is_kept_and_method_stays_legacy()
+    test_cap_allows_long_lists()
     print("ok")

@@ -210,7 +210,8 @@ Internal mapping that would produce it is **not** in the fixture (`fixtures/demo
 House-only REST, same HA Bearer as `/api/patrimony_collection/state`. Not on `patrimony/state` or PresentationDocument.
 
 - `GET` / `PUT` `/api/patrimony_collection/contacts`
-- Body: `{ "schemaVersion": 1, "propertyId": "<uuid>", "contacts": [{ "id", "function", "name", "tel", "method": "cellular"|"viber"|"whatsapp" }] }`
+- Body: `{ "schemaVersion": 1, "propertyId": "<uuid>", "contacts": [{ "id", "function", "name", "tel", "method": "cellular"|"viber"|"whatsapp", "app": "<slug>" }] }`
+- `app` is how the person is reached (`cellular`, `sms`, `facetime`, `facetime-audio`, `whatsapp`, `viber`, `telegram`, `signal`, or any lowercase slug up to 32 characters). `method` is derived from it for older app builds: the same value when it is cellular, viber, or whatsapp, else cellular. A row saved without `app` keeps the stored one while `method` still matches. Up to 200 contacts.
 - Order is array order. Store `config/patrimony_collection/contacts.json` (never mapping.json).
 - Empty list is valid (iOS first Call). PUT replaces the list.
 

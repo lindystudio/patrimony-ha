@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -22,8 +23,10 @@ NOTIFY_PATH = Path("/config/patrimony_collection/notify.json")
 IOS_SESSION_PATH = Path("/config/patrimony_collection/ios_session.json")
 AUTH_STORAGE_PATH = Path("/config/.storage/auth")
 PAIR_CLIENT_NAME = "Patrimony iOS"
+# Same rules as the integration: `method` for older app builds, `app` for the real choice.
 CONTACTS_METHODS = ("cellular", "viber", "whatsapp")
-MAX_CONTACTS = 40
+CONTACT_APP_PATTERN = r"[a-z0-9][a-z0-9-]{0,31}"
+MAX_CONTACTS = 200
 PHOTO_MAX_BYTES = 2 * 1024 * 1024
 NOTES_MAX_CHARS = 8000
 NOTIFY_TITLE_MAX = 120
@@ -397,9 +400,10 @@ def normalize_contacts(raw) -> list:
         function = str(row.get("function") or row.get("title") or "").strip()[:80]
         name = str(row.get("name") or "").strip()[:80]
         tel = str(row.get("tel") or row.get("phone") or "").strip()[:40]
-        method = str(row.get("method") or "cellular").strip().lower()
-        if method not in CONTACTS_METHODS:
-            method = "cellular"
+        app = str(row.get("app") or row.get("method") or "cellular").strip().lower()
+        if not re.fullmatch(CONTACT_APP_PATTERN, app):
+            app = "cellular"
+        method = app if app in CONTACTS_METHODS else "cellular"
         cid = str(row.get("id") or "").strip() or str(uuid.uuid4())
         digits = "".join(ch for ch in tel if ch.isdigit() or ch == "+")
         if not function and not name and not digits:
@@ -407,7 +411,7 @@ def normalize_contacts(raw) -> list:
         if cid in seen:
             cid = str(uuid.uuid4())
         seen.add(cid)
-        out.append({"id": cid, "function": function, "name": name, "tel": tel, "method": method})
+        out.append({"id": cid, "function": function, "name": name, "tel": tel, "method": method, "app": app})
         if len(out) >= MAX_CONTACTS:
             break
     return out
@@ -424,9 +428,25 @@ def load_contacts() -> dict:
     return {"schemaVersion": 1, "contacts": []}
 
 
+def keep_stored_apps(incoming, stored: list) -> list:
+    """An older phone sends only `method`; keep the stored `app` while it still matches."""
+    if not isinstance(incoming, list):
+        return incoming
+    by_id = {row["id"]: row for row in stored}
+    out = []
+    for row in incoming:
+        if isinstance(row, dict) and "app" not in row:
+            previous = by_id.get(str(row.get("id") or "").strip())
+            sent = str(row.get("method") or "cellular").strip().lower()
+            if previous and previous.get("method") == sent:
+                row = {**row, "app": previous.get("app", sent)}
+        out.append(row)
+    return out
+
+
 def save_contacts(raw) -> dict:
     rows = raw.get("contacts") if isinstance(raw, dict) else raw
-    contacts = normalize_contacts(rows)
+    contacts = normalize_contacts(keep_stored_apps(rows, load_contacts()["contacts"]))
     CONTACTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     payload = {"schemaVersion": 1, "contacts": contacts}
     CONTACTS_PATH.write_text(json.dumps(payload, indent=2) + "\n")

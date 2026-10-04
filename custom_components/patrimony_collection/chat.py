@@ -22,6 +22,7 @@ HTTP (same HA Bearer as /api/patrimony_collection/state):
 - GET  /api/patrimony_collection/chat/{message_id}/image
     raw image bytes. 404 when that message has no image.
 - DELETE /api/patrimony_collection/chat/{message_id}
+    Any panel user or phone may delete any message, for everyone.
 - POST /api/patrimony_collection/chat/read
     {"lastSeenMessageId": "<id>"}
     Paired client only. Cursor is per client and monotonic.
@@ -473,13 +474,8 @@ def caller_identity(hass, request) -> dict[str, str]:
 
 
 def _can_delete(caller: dict[str, str], row: dict[str, Any]) -> bool:
-    if caller.get("kind") == "panel":
-        return True
-    return (
-        caller.get("kind") == "ios"
-        and row.get("senderKind") == "ios"
-        and row.get("senderKey") == caller.get("key")
-    )
+    """Any member of the house may delete any message: panel users and paired phones."""
+    return caller.get("kind") in ("panel", "ios")
 
 
 def _active_clients(hass) -> list[dict[str, Any]]:
@@ -850,7 +846,7 @@ def delete_message(hass, request, message_id: str, now: datetime | None = None) 
         if not found:
             return _error("not_found", "Message not found", 404)
         if not allowed:
-            return _error("forbidden", "You can only delete your own message", 403)
+            return _error("forbidden", "You cannot delete this message", 403)
     except Exception:
         _LOGGER.error("patrimony_chat_delete_failed")
         return _error("store_failed", "Could not delete the message", 500)

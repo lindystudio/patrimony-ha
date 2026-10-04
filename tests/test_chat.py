@@ -164,12 +164,6 @@ def test_delete_removes_the_row(tmp_path) -> None:
     hass = _Hass(tmp_path, _Entry())
     created, status = create_message(hass, _panel("Ada Lovelace", "user-ada"), {"text": SECRET}, now=T0)
     assert status == 201
-    ios = _ios_request(hass, "Kitchen iPad")
-    denied, code = delete_message(hass, ios, created["id"], now=T0)
-    assert code == 403
-    assert SECRET not in _raw(hass)
-    still, _ = handle_get(hass, _panel(), now=T0)
-    assert still["messages"][0]["text"] == SECRET
 
     other = _panel("Blake House", "user-blake")
     deleted, code = delete_message(hass, other, created["id"], now=T0)
@@ -180,21 +174,32 @@ def test_delete_removes_the_row(tmp_path) -> None:
     assert SECRET not in _raw(hass)
     assert created["id"] not in _raw(hass)
 
+    gone, code = delete_message(hass, other, created["id"], now=T0)
+    assert code == 404
 
-def test_ios_can_delete_own_message_only(tmp_path) -> None:
+
+def test_any_phone_can_delete_any_message(tmp_path) -> None:
     hass = _Hass(tmp_path, _Entry())
-    ios = _ios_request(hass, "Kitchen iPad", user_name="Ada Lovelace", client_id="rt-ios-kitchen")
-    own, status = create_message(hass, ios, {"text": SECRET}, now=T0)
+    # _ios_request records the phone label on the house, so build each request just before use.
+    kitchen = _ios_request(hass, "Kitchen iPad", user_name="Ada Lovelace", client_id="rt-ios-kitchen")
+    from_kitchen, status = create_message(hass, kitchen, {"text": SECRET}, now=T0)
     assert status == 201
-    assert own["sender"] == "Kitchen iPad"
-    assert own["sender"] != "Ada Lovelace"
-    other = _ios_request(hass, "Studio iPad", user_name="Ada Lovelace", client_id="rt-ios-studio")
-    denied, code = delete_message(hass, other, own["id"], now=T0)
-    assert code == 403
-    again = _ios_request(hass, "Kitchen iPad", user_name="Ada Lovelace", client_id="rt-ios-kitchen")
-    deleted, code = delete_message(hass, again, own["id"], now=T0)
+    assert from_kitchen["sender"] == "Kitchen iPad"
+    from_panel, status = create_message(hass, _panel("Ada Lovelace", "user-ada"), {"text": "From the panel"}, now=T0)
+    assert status == 201
+
+    studio = _ios_request(hass, "Studio iPad", user_name="Ada Lovelace", client_id="rt-ios-studio")
+
+    listed, _ = handle_get(hass, studio, now=T0)
+    assert all(row["canDelete"] is True for row in listed["messages"])
+
+    deleted, code = delete_message(hass, studio, from_kitchen["id"], now=T0)
     assert code == 200
     assert SECRET not in _raw(hass)
+    deleted, code = delete_message(hass, studio, from_panel["id"], now=T0)
+    assert code == 200
+    listed, _ = handle_get(hass, kitchen, now=T0)
+    assert listed["messages"] == []
 
 
 def test_expiry_removes_the_message(tmp_path) -> None:

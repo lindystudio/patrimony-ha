@@ -10,8 +10,12 @@ WS_TYPE_GET_STATE: Final = "patrimony/get_state"
 REST_PATH: Final = "/api/patrimony_collection/state"
 CONTACTS_PATH: Final = "/api/patrimony_collection/contacts"
 CONTACTS_FILE: Final = "patrimony_collection/contacts.json"
+# `method` stays one of these so phones on older app builds can still decode the list.
 CONTACTS_METHODS: Final = ("cellular", "viber", "whatsapp")
-MAX_CONTACTS: Final = 40
+# `app` is the real choice (facetime, sms, telegram, signal, ...). Any short slug is
+# kept, so a newer phone can add an app without a house update.
+CONTACT_APP_PATTERN: Final = r"[a-z0-9][a-z0-9-]{0,31}"
+MAX_CONTACTS: Final = 200
 
 PHOTO_PATH: Final = "/api/patrimony_collection/photo"
 PHOTO_FILE: Final = "patrimony_collection/face.jpg"

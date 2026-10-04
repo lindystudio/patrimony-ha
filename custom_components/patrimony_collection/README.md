@@ -106,7 +106,7 @@ Same HA Bearer as `GET /api/patrimony_collection/state`.
 
 - `GET /api/patrimony_collection/chat` — messages for an authorized caller.
 - `POST /api/patrimony_collection/chat` — `{ "text": "<plain text>", "retention": "keep" | "1h" | "1d" | "7d" }`. `retention` is optional and defaults to `keep`.
-- `DELETE /api/patrimony_collection/chat/{message_id}` — the sender may delete their own message. A Home Assistant panel user may delete any message in the house. Delete removes the row. It is not a tombstone.
+- `DELETE /api/patrimony_collection/chat/{message_id}` — any member of the house (a Home Assistant panel user or a paired phone) may delete any message, for everyone. Delete removes the row. It is not a tombstone.
 
 Text is encrypted at rest with a key that stays on the HA host. That key is not in git, not in the presentation document, and not in push. The phone link is already TLS. This is not end-to-end: the house holds the plaintext so the panel can show it.
 
