@@ -24,6 +24,7 @@ from .const import (
     PHOTO_PATH,
     PHOTO_SOURCE_HEADER,
     REST_PATH,
+    VERSION_PATH,
 )
 from . import clients as house_clients
 from . import contacts as house_contacts
@@ -32,6 +33,7 @@ from . import notes as house_notes
 from . import notify as house_notify
 from . import pair as house_pair
 from . import photo as house_photo
+from . import version as house_version
 from .mapping import build_presentation_document
 from .panel import _deny_if_not_admin
 
@@ -232,6 +234,23 @@ class PatrimonyPhotoView(HomeAssistantView):
         if house_photo.delete_photo(self.hass):
             return web.Response(status=204)
         return web.Response(status=404)
+
+
+class PatrimonyVersionView(HomeAssistantView):
+    """Integration version, for the app's home settings. Answers before setup too,
+    so a phone can tell which version it reached even when the house is not configured."""
+
+    url = VERSION_PATH
+    name = "api:patrimony_collection:version"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def get(self, request):
+        from aiohttp import web
+
+        return web.json_response(house_version.document())
 
 
 class PatrimonyNotesView(HomeAssistantView):
@@ -691,6 +710,7 @@ async def async_setup_http(hass: HomeAssistant) -> None:
     hass.http.register_view(PatrimonyContactsView(hass))
     hass.http.register_view(PatrimonyPhotoView(hass))
     hass.http.register_view(PatrimonyNotesView(hass))
+    hass.http.register_view(PatrimonyVersionView(hass))
     hass.http.register_view(PatrimonyPairView(hass))
     hass.http.register_view(PatrimonyPairClaimView(hass))
     hass.http.register_view(PatrimonyNotifyView(hass))

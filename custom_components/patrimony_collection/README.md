@@ -98,6 +98,10 @@ Demo fixture: Weather card with Outdoor 18°C and Condition Cloudy. Coordinates 
 Energy sensors, if shown, stay kind `custom`. Energy is not a kind.
 
 
+## Version
+
+`GET /api/patrimony_collection/version` — `{ "schemaVersion": 1, "version": "0.4.83" }`, the version in `manifest.json` (the add-on is bumped in lockstep). Same HA Bearer as `GET /api/patrimony_collection/state`. Answers even before the integration is configured. The app shows it in a home's settings.
+
 ## House chat
 
 Members of one house. Stored on this Home Assistant only. Not on the presentation document and not in a Patrimony cloud store.
@@ -106,7 +110,7 @@ Same HA Bearer as `GET /api/patrimony_collection/state`.
 
 - `GET /api/patrimony_collection/chat` — messages for an authorized caller.
 - `POST /api/patrimony_collection/chat` — `{ "text": "<plain text>", "retention": "keep" | "1h" | "1d" | "7d" }`. `retention` is optional and defaults to `keep`.
-- `DELETE /api/patrimony_collection/chat/{message_id}` — the sender may delete their own message. A Home Assistant panel user may delete any message in the house. Delete removes the row. It is not a tombstone.
+- `DELETE /api/patrimony_collection/chat/{message_id}` — any member of the house (a Home Assistant panel user or a paired phone) may delete any message, for everyone. Delete removes the row. It is not a tombstone.
 
 Text is encrypted at rest with a key that stays on the HA host. That key is not in git, not in the presentation document, and not in push. The phone link is already TLS. This is not end-to-end: the house holds the plaintext so the panel can show it.
 

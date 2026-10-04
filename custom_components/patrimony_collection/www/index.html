@@ -1944,15 +1944,29 @@
             <input data-p="tel" data-i="${i}" value="${esc(row.tel || "")}" placeholder="+45" />
           </div>
           <div class="people-field">
-            <span class="k">Method</span>
-            <select data-p="method" data-i="${i}">
-              <option value="cellular"${row.method === "cellular" ? " selected" : ""}>Cellular</option>
-              <option value="viber"${row.method === "viber" ? " selected" : ""}>Viber</option>
-              <option value="whatsapp"${row.method === "whatsapp" ? " selected" : ""}>WhatsApp</option>
-            </select>
+            <span class="k">Reach via</span>
+            <select data-p="app" data-i="${i}">${contactAppOptions(row.app || row.method || "cellular")}</select>
           </div>`;
         host.appendChild(wrap);
       });
+    }
+    // `app` is the real choice; the house derives `method` for older phones.
+    const CONTACT_APPS = [
+      ["cellular", "Phone"],
+      ["facetime-audio", "FaceTime Audio"],
+      ["facetime", "FaceTime"],
+      ["sms", "Messages"],
+      ["whatsapp", "WhatsApp"],
+      ["viber", "Viber"],
+      ["telegram", "Telegram"],
+      ["signal", "Signal"],
+    ];
+    function contactAppOptions(current) {
+      const known = CONTACT_APPS.some(([value]) => value === current);
+      const list = known ? CONTACT_APPS : CONTACT_APPS.concat([[current, current]]);
+      return list
+        .map(([value, label]) => `<option value="${esc(value)}"${value === current ? " selected" : ""}>${esc(label)}</option>`)
+        .join("");
     }
     function readPeopleForm() {
       $("people_list").querySelectorAll("[data-p]").forEach((el) => {
@@ -1998,7 +2012,7 @@
     $("people_add").onclick = () => {
       readPeopleForm();
       const id = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now());
-      people.push({ id, function: "", name: "", tel: "", method: "cellular" });
+      people.push({ id, function: "", name: "", tel: "", method: "cellular", app: "cellular" });
       drawPeople();
       schedulePeopleSave();
     };
