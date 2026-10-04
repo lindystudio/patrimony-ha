@@ -107,6 +107,28 @@ def test_addon_web_contacts_match_the_integration(tmp_path):
     assert web.load_contacts()["contacts"][0]["app"] == "telegram"
 
 
+
+def test_panels_use_the_house_limits():
+    import re
+    from custom_components.patrimony_collection.const import CONTACT_TEL_MAX, CONTACT_TEXT_MAX, MAX_CONTACTS
+    root = Path(__file__).resolve().parents[1]
+    for panel in (
+        root / "custom_components" / "patrimony_collection" / "www" / "index.html",
+        root / "addons" / "patrimony_collection" / "static" / "index.html",
+    ):
+        html = panel.read_text()
+        assert re.search(rf"const PEOPLE_MAX = {MAX_CONTACTS};", html), panel
+        assert re.search(rf"const PEOPLE_MAX_TEXT = {CONTACT_TEXT_MAX};", html), panel
+        assert re.search(rf"const PEOPLE_MAX_TEL = {CONTACT_TEL_MAX};", html), panel
+        assert 'placeholder="Role"' in html and ">Number</span>" in html, panel
+
+
+def test_long_fields_are_cut_to_the_limits():
+    rows = normalize_list([{"function": "R" * 100, "name": "N" * 100, "tel": "1" * 60}])
+    assert len(rows[0]["function"]) == 80
+    assert len(rows[0]["name"]) == 80
+    assert len(rows[0]["tel"]) == 40
+
 if __name__ == "__main__":
     import tempfile
     from pathlib import Path

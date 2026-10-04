@@ -317,6 +317,9 @@
       text-transform: uppercase; font-weight: 500; color: var(--cream); opacity: .65;
     }
     .people-actions { margin-top: 4px; }
+    .people-search { width: 100%; margin: 4px 0 12px; }
+    .people-hint { margin: 6px 0 0 calc(4.4em + 8px); font-size: 12px; color: var(--gold); }
+    .people-hint[hidden] { display: none; }
     #people_save { display: none; }
     .soon-card {
       background: var(--panel); border: 1px solid var(--line);
@@ -448,6 +451,7 @@
       </section>
     </div>
     <div id="pane_people" class="pane" role="tabpanel" hidden>
+      <input class="people-search" id="people_search" type="search" placeholder="Search name, role, or number" aria-label="Search people" hidden />
       <div id="people_list"></div>
       <div class="actions people-actions">
         <button class="ghost add-cta" type="button" id="people_add">Add person</button>
@@ -1921,14 +1925,16 @@
       host.innerHTML = "";
       if (!people.length) {
         host.innerHTML = '<p class="quiet people-empty">No one mapped yet.</p>';
+        refreshPeopleChrome();
         return;
       }
       people.forEach((row, i) => {
         const wrap = document.createElement("article");
         wrap.className = "people-card";
+        wrap.dataset.i = String(i);
         wrap.innerHTML = `
           <div class="people-card-head">
-            <input class="people-fn" data-p="function" data-i="${i}" value="${esc(row.function || "")}" placeholder="Function" aria-label="Function" />
+            <input class="people-fn" data-p="function" data-i="${i}" value="${esc(row.function || "")}" placeholder="Role" aria-label="Role" maxlength="${PEOPLE_MAX_TEXT}" />
             <div class="people-tools">
               <button class="ghost btn-icon" type="button" data-up="${i}" ${i === 0 ? "disabled" : ""} aria-label="Up">↑</button>
               <button class="ghost btn-icon" type="button" data-down="${i}" ${i === people.length - 1 ? "disabled" : ""} aria-label="Down">↓</button>
@@ -1937,18 +1943,57 @@
           </div>
           <div class="people-field">
             <span class="k">Name</span>
-            <input data-p="name" data-i="${i}" value="${esc(row.name || "")}" placeholder="Name" />
+            <input data-p="name" data-i="${i}" value="${esc(row.name || "")}" placeholder="Name" maxlength="${PEOPLE_MAX_TEXT}" />
           </div>
           <div class="people-field">
-            <span class="k">Tel</span>
-            <input data-p="tel" data-i="${i}" value="${esc(row.tel || "")}" placeholder="+45" />
+            <span class="k">Number</span>
+            <input data-p="tel" data-i="${i}" value="${esc(row.tel || "")}" placeholder="+45 12 34 56 78" maxlength="${PEOPLE_MAX_TEL}" inputmode="tel" />
           </div>
+          <p class="people-hint" data-hint="${i}" ${personNeedsNumber(row) ? "" : "hidden"}>Add a number so phones can reach them.</p>
           <div class="people-field">
             <span class="k">Reach via</span>
             <select data-p="app" data-i="${i}">${contactAppOptions(row.app || row.method || "cellular")}</select>
           </div>`;
         host.appendChild(wrap);
       });
+      refreshPeopleChrome();
+    }
+    // Same limits as the house (contacts.py) and the iPhone editor.
+    const PEOPLE_MAX = 200;
+    const PEOPLE_MAX_TEXT = 80;
+    const PEOPLE_MAX_TEL = 40;
+    function personDigits(row) {
+      return String(row.tel || "").replace(/[^0-9]/g, "");
+    }
+    // Same rule as the iPhone: reachable needs a number, plus a role or a name.
+    function personNeedsNumber(row) {
+      const known = String(row.function || "").trim() || String(row.name || "").trim();
+      return Boolean(known) && !personDigits(row);
+    }
+    function personMatches(row, query) {
+      const q = query.trim().toLowerCase();
+      if (!q) return true;
+      if (String(row.name || "").toLowerCase().includes(q)) return true;
+      if (String(row.function || "").toLowerCase().includes(q)) return true;
+      const digits = q.replace(/[^0-9]/g, "");
+      return Boolean(digits) && personDigits(row).includes(digits);
+    }
+    function refreshPeopleChrome() {
+      const search = $("people_search");
+      if (search) {
+        search.hidden = people.length <= 5 && !search.value;
+        $("people_list").querySelectorAll(".people-card").forEach((card) => {
+          const row = people[Number(card.dataset.i)];
+          card.hidden = Boolean(row) && !personMatches(row, search.value);
+        });
+      }
+      $("people_list").querySelectorAll("[data-hint]").forEach((hint) => {
+        const row = people[Number(hint.dataset.hint)];
+        hint.hidden = !row || !personNeedsNumber(row);
+      });
+      const full = people.length >= PEOPLE_MAX;
+      $("people_add").disabled = full;
+      $("people_add").title = full ? "Up to " + PEOPLE_MAX + " people per house." : "";
     }
     // `app` is the real choice; the house derives `method` for older phones.
     const CONTACT_APPS = [
@@ -2011,6 +2056,7 @@
     }
     $("people_add").onclick = () => {
       readPeopleForm();
+      if (people.length >= PEOPLE_MAX) return;
       const id = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now());
       people.push({ id, function: "", name: "", tel: "", method: "cellular", app: "cellular" });
       drawPeople();
@@ -2021,7 +2067,12 @@
       $("status").textContent = "Save failed";
       $("status").style.color = "var(--alert)";
     });
-    $("people_list").addEventListener("input", () => schedulePeopleSave());
+    $("people_list").addEventListener("input", () => {
+      readPeopleForm();
+      refreshPeopleChrome();
+      schedulePeopleSave();
+    });
+    $("people_search").addEventListener("input", () => refreshPeopleChrome());
     $("people_list").addEventListener("change", () => schedulePeopleSave());
     $("people_list").addEventListener("click", (ev) => {
       const t = ev.target.closest("[data-del], [data-up], [data-down]") || ev.target;
