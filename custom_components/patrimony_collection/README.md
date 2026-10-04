@@ -98,6 +98,10 @@ Demo fixture: Weather card with Outdoor 18°C and Condition Cloudy. Coordinates 
 Energy sensors, if shown, stay kind `custom`. Energy is not a kind.
 
 
+## Version
+
+`GET /api/patrimony_collection/version` — `{ "schemaVersion": 1, "version": "0.4.83" }`, the version in `manifest.json` (the add-on is bumped in lockstep). Same HA Bearer as `GET /api/patrimony_collection/state`. Answers even before the integration is configured. The app shows it in a home's settings.
+
 ## House chat
 
 Members of one house. Stored on this Home Assistant only. Not on the presentation document and not in a Patrimony cloud store.

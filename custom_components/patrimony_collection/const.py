@@ -22,6 +22,7 @@ PHOTO_FILE: Final = "patrimony_collection/face.jpg"
 PHOTO_MAX_BYTES: Final = 2 * 1024 * 1024
 PHOTO_SOURCE_HEADER: Final = "X-Patrimony-Photo-Source"
 NOTES_PATH: Final = "/api/patrimony_collection/notes"
+VERSION_PATH: Final = "/api/patrimony_collection/version"
 HOUSE_PATH: Final = "/api/patrimony_collection/house"
 NOTES_FILE: Final = "patrimony_collection/notes.json"
 NOTES_MAX_CHARS: Final = 8000
