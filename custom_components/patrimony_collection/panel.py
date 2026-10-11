@@ -224,6 +224,12 @@ class PatrimonyMappingView(HomeAssistantView):
             path.write_text(json.dumps(payload, indent=2) + "\n")
         except Exception:
             pass
+        try:
+            from . import async_rebind
+
+            async_rebind(self.hass, entry)
+        except Exception:
+            pass
         document = build_presentation_document(self.hass, dict(entry.data), options)
         return web.json_response({"ok": True, "document": document})
 

@@ -32,7 +32,7 @@ from custom_components.patrimony_collection.mapping import build_presentation_do
 from custom_components.patrimony_collection import notify as notify_mod
 
 PROPERTY_ID = "550e8400-e29b-41d4-a716-446655440000"
-SECRET = "lane-quartz-7719"
+SECRET = "test-chat-placeholder"
 T0 = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
 
 
@@ -259,16 +259,16 @@ def test_ios_post_prefers_payload_device_name(tmp_path) -> None:
     preferred, status = create_message(
         hass,
         ios,
-        {"text": "phone-line-device", "deviceName": "  Petros iPhone 17 Pro  "},
+        {"text": "phone-line-device", "deviceName": "  Study iPhone 15  "},
         now=T0,
     )
     assert status == 201
-    assert preferred["sender"] == "Petros iPhone 17 Pro"
+    assert preferred["sender"] == "Study iPhone 15"
     assert preferred["senderKind"] == "ios"
     assert preferred["sender"] != "Stored Session Phone"
     assert preferred["sender"] != "Ada Lovelace"
     store = json.loads(_raw(hass))
-    assert store["messages"][0]["senderLabel"] == "Petros iPhone 17 Pro"
+    assert store["messages"][0]["senderLabel"] == "Study iPhone 15"
     assert store["messages"][0]["senderKey"] == "ios:rt-ios-1"
 
     # First posted deviceName seeded the paired client; later blanks keep it.
@@ -276,31 +276,31 @@ def test_ios_post_prefers_payload_device_name(tmp_path) -> None:
         hass, ios, {"text": "phone-line-fallback"}, now=T0
     )
     assert status == 201
-    assert missing["sender"] == "Petros iPhone 17 Pro"
+    assert missing["sender"] == "Study iPhone 15"
     assert missing["sender"] != "Ada Lovelace"
 
     blank, status = create_message(
         hass, ios, {"text": "phone-line-blank", "deviceName": "   "}, now=T0
     )
     assert status == 201
-    assert blank["sender"] == "Petros iPhone 17 Pro"
+    assert blank["sender"] == "Study iPhone 15"
 
     too_long, status = create_message(
         hass, ios, {"text": "phone-line-long", "deviceName": "x" * 81}, now=T0
     )
     assert status == 201
-    assert too_long["sender"] == "Petros iPhone 17 Pro"
+    assert too_long["sender"] == "Study iPhone 15"
 
     # A posted deviceName is the label even when the caller is the panel
     # user. The panel window itself does not send deviceName.
     posted_panel, status = create_message(
         hass,
         _panel("Ada Lovelace"),
-        {"text": "panel-line-with-name", "deviceName": "Petros iPhone 17 Pro"},
+        {"text": "panel-line-with-name", "deviceName": "Study iPhone 15"},
         now=T0,
     )
     assert status == 201
-    assert posted_panel["sender"] == "Petros iPhone 17 Pro"
+    assert posted_panel["sender"] == "Study iPhone 15"
     assert posted_panel["senderKind"] == "ios"
     assert posted_panel["sender"] != "Ada Lovelace"
     assert posted_panel["sender"] != "Stored Session Phone"
@@ -910,3 +910,95 @@ def test_old_row_without_sender_client_id_matches_display_name(tmp_path) -> None
     assert listed["messages"][0]["readByOther"] is False
     assert listed["messages"][1]["readByOther"] is True
     assert listed["messages"][1]["deliveredToOther"] is True
+
+
+def _ok_urlopen(captured, code=202):
+    class _Resp:
+        status = code
+
+        def read(self):
+            return b'{"deviceCount": 1}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    def _urlopen(req, timeout=8):
+        captured.append(json.loads(req.data.decode()))
+        return _Resp()
+
+    return _urlopen
+
+
+def test_chat_push_writes_log_row_without_sender_or_text(tmp_path, monkeypatch) -> None:
+    hass = _Hass(tmp_path, _Entry())
+    sender = _pair(hass, "rt-sender", "Study iPhone 15")
+    _pair(hass, "rt-other", "Kitchen iPad")
+    sent = []
+    monkeypatch.setattr(notify_mod, "urlopen", _ok_urlopen(sent))
+    body, status = handle_post(
+        hass, sender, {"text": SECRET, "senderDevice": "ab" * 32}, now=T0
+    )
+    assert status == 201 and len(sent) == 1
+    rows = notify_mod.push_log_document(hass)["rows"]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["kind"] == "chat" and row["rule"] == "chat.message"
+    assert row["ok"] is True and row["status"] == 202
+    assert row["devices"] == ["Kitchen iPad"]
+    assert row["reason"] == "New chat message"
+    blob = json.dumps(rows)
+    assert SECRET not in blob and "ab" * 32 not in blob
+
+
+def test_chat_push_without_exclude_lists_all_clients(tmp_path, monkeypatch) -> None:
+    hass = _Hass(tmp_path, _Entry())
+    _pair(hass, "rt-a", "Study iPhone 15")
+    sent = []
+    monkeypatch.setattr(notify_mod, "urlopen", _ok_urlopen(sent))
+    handle_post(hass, _panel(), {"text": "hello"}, now=T0)
+    row = notify_mod.push_log_document(hass)["rows"][-1]
+    assert row["devices"] == ["Study iPhone 15"]
+
+
+def test_failed_push_logs_http_status_and_timeout(tmp_path, monkeypatch) -> None:
+    from urllib.error import HTTPError, URLError
+
+    hass = _Hass(tmp_path, _Entry())
+    _pair(hass, "rt-a", "Study iPhone 15")
+
+    def _401(req, timeout=8):
+        raise HTTPError(req.full_url, 401, "Unauthorized", {}, None)
+
+    monkeypatch.setattr(notify_mod, "urlopen", _401)
+    status, outcome = notify_mod.manual_send(hass, "property-1", "hek_house", "Push test")
+    assert status == 401 and outcome["status"] == 401 and outcome["ok"] is False
+
+    def _timeout(req, timeout=8):
+        raise URLError(TimeoutError("timed out"))
+
+    monkeypatch.setattr(notify_mod, "urlopen", _timeout)
+    status, outcome = notify_mod.manual_send(hass, "property-1", "hek_house", "Push test")
+    assert outcome == {"status": None, "error": "timeout", "ok": False}
+    rows = notify_mod.push_log_document(hass)["rows"]
+    assert [r["status"] for r in rows] == [401, None]
+    assert rows[1]["error"] == "timeout"
+    assert all(r["kind"] == "manual" and r["ok"] is False for r in rows)
+    assert rows[0]["devices"] == ["Study iPhone 15"]
+    assert "Push test" not in json.dumps(rows)
+
+
+def test_old_push_log_rows_still_parse(tmp_path) -> None:
+    hass = _Hass(tmp_path, _Entry())
+    path = notify_mod.notify_path(hass)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"pushLog": [
+        {"at": "2026-10-03T10:00:00+02:00", "fire_class": "manual.send", "devices": ["iPhone"]},
+        {"at": "2026-10-03T11:00:00+02:00", "fire_class": "security.smoke", "devices": "No iOS client registered"},
+    ]}))
+    rows = notify_mod.push_log_document(hass)["rows"]
+    assert rows[0]["kind"] == "manual" and rows[0]["ok"] is True and rows[0]["status"] is None
+    assert rows[1]["kind"] == "attention" and rows[1]["rule"] == "security.smoke"
+    assert rows[0]["devices"] == ["iPhone"]

@@ -375,13 +375,15 @@ def test_manual_send_writes_one_row_fire_unchanged_quiet_silent(tmp_path, monkey
 
     statuses["code"] = 502
     assert load_card_id_and_post(hass, "property-1", "hek_house", "Guest arriving") == 502
-    assert push_log_document(hass)["rows"] == []
+    failed = push_log_document(hass)["rows"]
+    assert len(failed) == 1 and failed[0]["ok"] is False and failed[0]["status"] == 502
 
     statuses["code"] = 200
     assert load_card_id_and_post(hass, "property-1", "hek_house", "Guest arriving") == 200
     doc = push_log_document(hass)
-    assert len(doc["rows"]) == 1
-    row = doc["rows"][0]
+    assert len(doc["rows"]) == 2
+    row = doc["rows"][1]
+    assert row["ok"] is True and row["status"] == 200
     assert row["fire_class"] == MANUAL_SEND_CLASS == "manual.send"
     assert row["fire_class"] != "security.smoke"
     assert row["devices"] == NO_IOS_CLIENT
@@ -397,7 +399,7 @@ def test_manual_send_writes_one_row_fire_unchanged_quiet_silent(tmp_path, monkey
     assert push_log_document(hass)["rows"][0]["fire_class"] == "manual.send"
     assert dispatch_attention_pushes(hass, [on], "property-1", "hek_house", now=20) == 1
     classes = [item["fire_class"] for item in push_log_document(hass)["rows"]]
-    assert classes == ["manual.send", "security.smoke"]
+    assert classes == ["manual.send", "manual.send", "security.smoke"]
     stored = json.loads((tmp_path / "patrimony_collection" / "notify.json").read_text())
     assert "hek_" not in json.dumps(stored)
 

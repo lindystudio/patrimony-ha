@@ -118,6 +118,9 @@ MAX_EVENTS: Final = 8
 MAX_EVENT_MESSAGE_CHARS: Final = 80
 DEFAULT_PRIORITY: Final = 100
 SNAPSHOT_DEBOUNCE_SECONDS: Final = 0.3
+# Push-state coalescing: burst cap and minimum spacing between snapshot emits.
+SNAPSHOT_MAX_WAIT_SECONDS: Final = 2.0
+SNAPSHOT_MIN_INTERVAL_SECONDS: Final = 1.0
 
 FORBIDDEN_WIRE_KEYS: Final = frozenset(
     {

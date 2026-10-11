@@ -31,37 +31,119 @@ def _error(code: str, message: str) -> dict[str, Any]:
     return {"error": {"code": code, "message": message}}
 
 
-def _try_ha_get_url(hass) -> str | None:
-    """Home Assistant network helper, including Nabu Casa Cloud."""
+CONF_HOUSE_URL_OVERRIDE = "house_url"
+
+NO_PUBLIC_URL_CODE = "no_public_url"
+NO_PUBLIC_URL_MESSAGE = (
+    "No public house URL. Set External URL in Home Assistant "
+    "(Settings → System → Network) or enable Home Assistant Cloud remote access."
+)
+
+
+def _host_is_public(host: str) -> bool:
+    """Only publicly routable DNS names or public IPs."""
+    import ipaddress
+
+    h = str(host or "").strip().lower().strip("[]").rstrip(".")
+    if not h or "." not in h and ":" not in h:
+        return False
     try:
-        from homeassistant.helpers.network import get_url
-    except ImportError:
+        ip = ipaddress.ip_address(h)
+    except ValueError:
+        ip = None
+    if ip is not None:
+        nets = (
+            "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8",
+            "169.254.0.0/16", "100.64.0.0/10", "0.0.0.0/8", "fc00::/7", "fe80::/10", "::1/128",
+        )
+        return not any(ip in ipaddress.ip_network(n) for n in nets) and not ip.is_unspecified
+    if h in {"localhost", "homeassistant", "supervisor", "hassio"}:
+        return False
+    for suffix in (".local", ".lan", ".localdomain", ".internal", ".home.arpa", ".localhost", ".home"):
+        if h.endswith(suffix):
+            return False
+    if h.startswith(("homeassistant.", "supervisor.", "hassio.")) and h.count(".") == 1:
+        return False
+    return True
+
+
+def is_public_url(url) -> bool:
+    try:
+        parsed = urlparse(str(url or "").strip())
+    except Exception:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    if port == 8123 and (parsed.hostname or "").lower().startswith("homeassistant"):
+        return False
+    if "/api/hassio_ingress" in (parsed.path or ""):
+        return False
+    return _host_is_public(parsed.hostname or "")
+
+
+def _override_url(hass) -> str | None:
+    try:
+        from .const import DOMAIN as _D
+
+        entries = hass.config_entries.async_entries(_D)
+    except Exception:
+        return None
+    for entry in entries or []:
+        for src in (getattr(entry, "options", None) or {}, getattr(entry, "data", None) or {}):
+            raw = str(src.get(CONF_HOUSE_URL_OVERRIDE) or "").strip()
+            if raw:
+                return raw
+    return None
+
+
+def _cloud_url(hass) -> str | None:
+    try:
+        from homeassistant.components import cloud
+    except Exception:
         return None
     try:
-        raw = get_url(hass, prefer_external=True, allow_cloud=True)
-    except TypeError:
-        try:
-            raw = get_url(hass, prefer_external=True)
-        except Exception:
-            return None
+        raw = cloud.async_remote_ui_url(hass)
     except Exception:
         return None
     text = str(raw or "").strip()
     return text or None
 
 
-def _config_house_url(hass) -> str | None:
+def _external_config_url(hass) -> str | None:
     cfg = getattr(hass, "config", None)
-    if cfg is None:
-        return None
-    raw = getattr(cfg, "external_url", None) or getattr(cfg, "internal_url", None)
-    text = str(raw or "").strip()
+    text = str(getattr(cfg, "external_url", None) or "").strip() if cfg is not None else ""
     return text or None
 
 
+def public_url_candidates(hass) -> list[tuple[str, str]]:
+    """Override, then HA external_url, then HA Cloud. internal_url never."""
+    out = []
+    for source, fn in (("override", _override_url), ("external_url", _external_config_url), ("cloud", _cloud_url)):
+        try:
+            value = fn(hass)
+        except Exception:
+            value = None
+        if value:
+            out.append((source, value))
+    return out
+
+
+def resolve_public_house_url(hass) -> tuple[str | None, str | None]:
+    for source, value in public_url_candidates(hass):
+        norm = _normalize_https(value)
+        if is_public_url(norm) and house_url_is_usable(norm):
+            return norm, source
+    return None, None
+
+
 def resolve_house_url(hass) -> str:
-    """Prefer HA get_url (Cloud allowed), then config external/internal."""
-    return _try_ha_get_url(hass) or _config_house_url(hass) or DEFAULT_HOUSE_URL or ""
+    """Public house URL or empty. Never internal_url or a local host."""
+    url, _ = resolve_public_house_url(hass)
+    return url or ""
 
 
 def _normalize_https(raw) -> str:
@@ -76,17 +158,21 @@ def _normalize_https(raw) -> str:
 
 
 def https_house_url(hass) -> str:
-    return _normalize_https(resolve_house_url(hass))
+    return resolve_house_url(hass)
 
 
 def house_url_status(hass) -> dict[str, Any]:
     """Same resolved house URL pairing uses, plus whether it is usable."""
-    url = https_house_url(hass)
-    return {
-        "externalUrl": url,
-        "houseUrl": url,
-        "usable": house_url_is_usable(url),
+    url, source = resolve_public_house_url(hass)
+    out: dict[str, Any] = {
+        "externalUrl": url or "",
+        "houseUrl": url or "",
+        "usable": bool(url),
+        "houseUrlSource": source,
     }
+    if not url:
+        out["error"] = {"code": NO_PUBLIC_URL_CODE, "message": NO_PUBLIC_URL_MESSAGE}
+    return out
 
 
 def _display_resolved_url(url: str) -> str:
@@ -100,11 +186,9 @@ def house_url_error_message(hass, house: str) -> str:
     """Concrete diagnostic for an unusable house URL. Short tip only as suffix."""
     cfg = getattr(hass, "config", None)
     ext = getattr(cfg, "external_url", None) if cfg is not None else None
-    inn = getattr(cfg, "internal_url", None) if cfg is not None else None
     return (
         f"House URL unusable: {_display_resolved_url(house)}. "
-        f"hass.config.external_url={ext!r} hass.config.internal_url={inn!r}. "
-        "Tip: Settings → System → Network (or Home Assistant Cloud)."
+        f"hass.config.external_url={ext!r}. " + NO_PUBLIC_URL_MESSAGE
     )
 
 
@@ -130,7 +214,12 @@ def house_url_is_usable(url: str) -> bool:
 
 
 def pairing_uri(url: str, token: str) -> str:
-    return f"patrimony://pair?url={quote(str(url), safe='')}&token={quote(str(token), safe='')}"
+    u = quote(str(url), safe="")
+    return f"patrimony://pair?url={u}&public_url={u}&token={quote(str(token), safe='')}"
+
+
+def no_public_url_body() -> dict[str, Any]:
+    return _error(NO_PUBLIC_URL_CODE, NO_PUBLIC_URL_MESSAGE)
 
 
 def claim_url(hass, code: str) -> str:
@@ -250,7 +339,7 @@ async def mint_pairing(hass, user) -> tuple[int, dict[str, Any]]:
     if not house_url_is_usable(house):
         message = house_url_error_message(hass, house)
         _LOGGER.warning("pairing mint refused: %s", message)
-        return 503, _error("external_url_required", message)
+        return 503, _error(NO_PUBLIC_URL_CODE, message)
     try:
         auth_user = user
         get_user = getattr(auth, "async_get_user", None)

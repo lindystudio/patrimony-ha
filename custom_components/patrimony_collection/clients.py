@@ -413,12 +413,16 @@ def pairing_document(hass, request, *, now: datetime | None = None) -> dict[str,
     pid = property_id(hass)
     client_id = request_client_id(request) or ""
     row = get_client(hass, client_id) if client_id else None
+    from .notify import event_key_status_fields
+
+    key_fields = event_key_status_fields(hass)
     if row is not None and row["status"] == STATUS_UNPAIRED:
         return {
             "status": STATUS_UNPAIRED,
             "propertyId": pid,
             "clientId": client_id,
             "reason": "unpaired",
+            **key_fields,
         }
     display = ""
     if row is not None:
@@ -432,6 +436,7 @@ def pairing_document(hass, request, *, now: datetime | None = None) -> dict[str,
         "propertyId": pid,
         "clientId": client_id,
         "displayName": display,
+        **key_fields,
     }
 
 
@@ -552,11 +557,13 @@ def client_sender_label(hass, request, posted_device_name: Any = None) -> dict[s
     return None
 
 
-def active_display_names(hass) -> list[str]:
-    """Labels for push-log local clients. Active rows only."""
+def active_display_names(hass, exclude_client_id: str | None = None) -> list[str]:
+    """Labels for push-log local clients. Active rows only, minus an excluded sender."""
     names: list[str] = []
     for row in load_clients(hass):
         if row["status"] != STATUS_ACTIVE:
+            continue
+        if exclude_client_id and row.get("clientId") == exclude_client_id:
             continue
         name = _safe_display(row.get("displayName"))
         if name and name not in names:

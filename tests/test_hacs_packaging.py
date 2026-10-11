@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "patrimony_collection"
 PUBLIC_REPO = "https://github.com/lindystudio/patrimony-ha"
 PUBLIC_ISSUES = "https://github.com/lindystudio/patrimony-ha/issues"
-FORBIDDEN_HOUSE_NAMES = ("copenhagen", "halkidiki")
+FORBIDDEN_HOUSE_NAMES = ("copen" + "hagen", "halki" + "diki")
 # Split so a repo-wide grep for the retired names stays empty.
 FORBIDDEN_PUBLIC_NAMES = (
     "petros" + "beli",
@@ -177,3 +177,18 @@ def test_tracked_files_have_no_private_org_or_legacy_product_names() -> None:
             if token in lowered:
                 hits.append(f"{rel}: {token}")
     assert hits == [], "forbidden public names remain:\n" + "\n".join(hits)
+
+
+def test_push_log_panel_render_is_safe_and_complete() -> None:
+    html = (COMPONENT / "www" / "index.html").read_text(encoding="utf-8")
+    start = html.find("function renderPushLog(")
+    end = html.find("async function loadPushLog(")
+    body = html[start:end]
+    assert start > 0 and end > start
+    assert "innerHTML" not in body
+    assert "textContent" in body
+    assert "chatWhen(" in body  # house timezone
+    assert '" failed"' in body
+    assert '"Rule"' in body
+    assert ".pushlog-row .conn-row .v { white-space: normal" in html
+    assert "Could not load the push log." in html

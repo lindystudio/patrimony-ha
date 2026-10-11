@@ -412,6 +412,8 @@
     .conn-pq-block { margin-top: 8px; }
     .pushlog-row { padding: 10px 0; border-top: 1px solid var(--line); }
     .pushlog-row:first-child { border-top: 0; }
+    .pushlog-row.failed { border-left: 3px solid var(--gold); padding-left: 10px; }
+    .pushlog-row .conn-row .v { white-space: normal; overflow-wrap: anywhere; overflow: visible; }
 </style>
 </head>
 <body>
@@ -2757,14 +2759,14 @@
       const text = pushLogText(devices);
       return text || PUSH_LOG_NO_DEVICES;
     }
-    function renderPushLog(rows) {
+    function renderPushLog(rows, emptyText) {
       const empty = $("pushlog_empty");
       const host = $("pushlog_rows");
       const list = Array.isArray(rows) ? rows : [];
       if (!list.length) {
         if (empty) {
           empty.hidden = false;
-          empty.textContent = "No attention pushes yet.";
+          empty.textContent = emptyText || "No pushes yet.";
         }
         if (host) host.replaceChildren();
         return;
@@ -2774,12 +2776,23 @@
       host.replaceChildren();
       list.slice().reverse().forEach((row) => {
         const wrap = document.createElement("div");
-        wrap.className = "pushlog-row";
         const fire = pushLogText(row && row.fire_class);
         const manual = fire === "manual" || fire === MANUAL_SEND_CLASS;
+        const kind = pushLogText(row && row.kind);
+        const isChat = kind === "chat";
+        const ok = !(row && row.ok === false);
+        const status = row && typeof row.status === "number" ? String(row.status) : "";
+        const err = pushLogText(row && row.error);
+        const statusText = status ? status : (err ? err.replace(/_/g, " ") : "—");
+        const rule = pushLogText(row && row.rule);
+        wrap.className = "pushlog-row" + (ok ? "" : " failed");
         const fields = [
-          ["Timestamp", pushLogText(row && row.at)],
-          [manual ? "Send" : "FIRE class", manual ? "Manual send" : fire],
+          ["Timestamp", chatWhen(pushLogText(row && row.at)) || pushLogText(row && row.at) || "—"],
+          [manual ? "Send" : (isChat ? "Chat" : "FIRE class"), manual ? "Manual send" : (fire || "—")],
+          ["Rule", rule && rule !== fire ? rule : "—"],
+          ["Result", (ok ? "OK" : "Failed") + " · " + statusText, ok ? "ok" : "warn"],
+          ["Reason", pushLogText(row && row.reason) || "—"],
+          ["Severity", pushLogText(row && row.severity) || "—"],
           ["Devices", pushLogDeviceList(row && row.devices)]
         ];
         fields.forEach((pair) => {
@@ -2789,7 +2802,7 @@
           k.className = "k";
           k.textContent = pair[0];
           const v = document.createElement("span");
-          v.className = "v";
+          v.className = "v" + (pair[2] ? " " + pair[2] : "");
           v.textContent = pair[1];
           line.appendChild(k);
           line.appendChild(v);
@@ -2804,7 +2817,7 @@
         const doc = await api(PUSH_LOG_PATH);
         renderPushLog(doc && doc.rows);
       } catch (e) {
-        renderPushLog([]);
+        renderPushLog([], "Could not load the push log.");
       }
     }
 

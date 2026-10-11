@@ -148,6 +148,10 @@ def load_card_id_and_post(
     severity: str = "attention",
     manual: bool = True,
     exclude_device: str | None = None,
+    kind: str | None = None,
+    rule: str | None = None,
+    reason: str | None = None,
+    exclude_client: str | None = None,
 ) -> int:
     """Disk load/create cardId then POST events — safe to run in an executor.
 
@@ -158,15 +162,44 @@ def load_card_id_and_post(
         severity = "attention"
     card_id = load_card_id(hass)
     _event_tls.devices = None
+    _event_tls.http_status = None
+    _event_tls.error = None
     # Only chat passes a sender to skip; alerts and manual sends post exactly as before.
     extra = {"exclude_device": exclude_device} if exclude_device else {}
     status = post_house_event(
         property_id, key, card_id, title, timeout=timeout, severity=severity, **extra
     )
-    # Gold Send shows Sent only on 2xx. FIRE logs itself; do not double-write.
-    if manual and 200 <= int(status) < 300:
-        record_manual_send(hass, devices=getattr(_event_tls, "devices", None))
+    outcome = last_post_outcome(status)
+    _event_tls.outcome = outcome
+    # Phone-readable last auth rejection; every kind of attempt counts.
+    try:
+        note_event_key_attempt(hass, outcome)
+    except Exception:
+        _LOGGER.error("patrimony_event_key_status_write_failed")
+    # Every attempt is logged, success or failure. Manual sends always; others when tagged.
+    log_kind = "manual" if manual else kind
+    if log_kind:
+        try:
+            record_push(
+                hass,
+                kind=log_kind,
+                rule=MANUAL_SEND_CLASS if manual else (rule or log_kind),
+                outcome=outcome,
+                reason=reason or ("Manual send from panel" if manual else None),
+                severity=severity,
+                devices=getattr(_event_tls, "devices", None),
+                exclude_client=exclude_client if is_device_hash(exclude_device) else None,
+            )
+        except Exception:
+            _LOGGER.error("patrimony_push_log_write_failed")
     return status
+
+
+def manual_send(hass, property_id: str, key: str, title: str) -> tuple[int, dict[str, Any]]:
+    """POST /notify worker: status plus the events-API outcome (same thread)."""
+    status = load_card_id_and_post(hass, property_id, key, title)
+    outcome = dict(getattr(_event_tls, "outcome", None) or last_post_outcome(status))
+    return status, outcome
 
 
 def manual_event(key: Any, title: Any) -> dict[str, str] | None:
@@ -190,7 +223,11 @@ def post_house_event(
 ) -> int:
     if severity != "alert":
         severity = "attention"
+    _event_tls.http_status = None
+    _event_tls.error = None
+    _event_tls.upstream_error = None
     if not title_is_safe(title):
+        _event_tls.error = "unsafe_title"
         return 400
     body: dict[str, str] = {"cardId": card_id, "severity": severity, "title": title}
     # The phone that wrote a chat message does not need a push about it.
@@ -218,13 +255,148 @@ def post_house_event(
                 except Exception:
                     raw = b""
             _event_tls.devices = devices_from_event_body(raw)
+            _event_tls.http_status = status
             return status
     except HTTPError as exc:
         _event_tls.devices = None
+        _event_tls.http_status = int(exc.code or 502)
+        _event_tls.upstream_error = _upstream_error_code(exc)
         return int(exc.code or 502)
-    except (URLError, TimeoutError, OSError):
+    except (URLError, TimeoutError, OSError) as exc:
         _event_tls.devices = None
+        _event_tls.error = _error_kind(exc)
         return 502
+
+
+def _error_kind(exc: BaseException) -> str:
+    """Short fixed label for a POST with no HTTP reply. Never the exception text."""
+    reason = getattr(exc, "reason", None)
+    if isinstance(exc, TimeoutError) or isinstance(reason, TimeoutError):
+        return "timeout"
+    text = type(reason or exc).__name__.lower()
+    if "timeout" in text:
+        return "timeout"
+    if "ssl" in text or "certificate" in text:
+        return "tls_error"
+    return "connection_error"
+
+
+def last_post_outcome(status: int) -> dict[str, Any]:
+    """Events-API status of the last post on this thread: number, or None + error kind."""
+    http_status = getattr(_event_tls, "http_status", None)
+    error = getattr(_event_tls, "error", None)
+    if http_status is None and error is None:
+        # post_house_event replaced (tests) or older path: trust the returned int.
+        http_status = int(status)
+    out = {"status": http_status, "error": error, "ok": http_status is not None and 200 <= int(http_status) < 300 and error is None}
+    upstream = getattr(_event_tls, "upstream_error", None)
+    if upstream:
+        out["upstreamError"] = upstream
+    return out
+
+
+_SAFE_CODE = re.compile(r"[A-Za-z0-9_.\-]{1,64}")
+
+
+def _upstream_error_code(exc: BaseException) -> str | None:
+    """Events-API error code string from an HTTP error body. Never the body itself."""
+    try:
+        reader = getattr(exc, "read", None)
+        raw = reader() if callable(reader) else b""
+        data = json.loads(raw or b"{}")
+    except Exception:
+        return None
+    code = None
+    if isinstance(data, dict):
+        err = data.get("error")
+        if isinstance(err, dict):
+            code = err.get("code")
+        elif isinstance(err, str):
+            code = err
+        if code is None and isinstance(data.get("code"), str):
+            code = data.get("code")
+    if isinstance(code, str) and _SAFE_CODE.fullmatch(code) and not code.startswith("hek_"):
+        return code
+    return None
+
+
+EVENT_KEY_STATUS_STORE = "eventKeyStatus"
+AUTH_REJECT_STATUSES = (401, 403)
+
+
+def _load_notify_doc(hass) -> dict[str, Any]:
+    path = notify_path(hass)
+    try:
+        if path.is_file():
+            data = json.loads(path.read_text())
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
+
+def _save_notify_doc(hass, data: dict[str, Any]) -> None:
+    path = notify_path(hass)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + "\n")
+
+
+def auth_rejection_from_outcome(outcome: dict[str, Any] | None, at: str) -> dict[str, Any] | None:
+    """401/403 → phone status object; anything else (2xx, 5xx, timeout) → None."""
+    if not isinstance(outcome, dict):
+        return None
+    status = outcome.get("status")
+    if outcome.get("error") or not isinstance(status, int) or isinstance(status, bool):
+        return None
+    if status not in AUTH_REJECT_STATUSES:
+        return None
+    upstream = outcome.get("upstreamError")
+    code = upstream if isinstance(upstream, str) and _SAFE_CODE.fullmatch(upstream) else "invalid_house_event_key"
+    return {"code": status, "error": code, "at": at}
+
+
+def note_event_key_attempt(hass, outcome: dict[str, Any] | None, at: str | None = None) -> None:
+    """Most recent events-API attempt decides eventKeyLastPushStatus. Persisted."""
+    stamp = at or datetime.now().astimezone().isoformat(timespec="seconds")
+    data = _load_notify_doc(hass)
+    block = data.get(EVENT_KEY_STATUS_STORE)
+    block = dict(block) if isinstance(block, dict) else {}
+    block["lastPushStatus"] = auth_rejection_from_outcome(outcome, stamp)
+    data[EVENT_KEY_STATUS_STORE] = block
+    _save_notify_doc(hass, data)
+
+
+def mark_event_key_installed(hass, at: str | None = None) -> None:
+    """POST /event_key success: clear the rejection, stamp installedAt. No key stored here."""
+    stamp = at or datetime.now().astimezone().isoformat(timespec="seconds")
+    data = _load_notify_doc(hass)
+    block = data.get(EVENT_KEY_STATUS_STORE)
+    block = dict(block) if isinstance(block, dict) else {}
+    block["lastPushStatus"] = None
+    block["installedAt"] = stamp
+    data[EVENT_KEY_STATUS_STORE] = block
+    _save_notify_doc(hass, data)
+
+
+def event_key_status_fields(hass) -> dict[str, Any]:
+    """{eventKeyLastPushStatus, eventKeyInstalledAt}. Never the key or fingerprint."""
+    block = _load_notify_doc(hass).get(EVENT_KEY_STATUS_STORE)
+    block = block if isinstance(block, dict) else {}
+    last = block.get("lastPushStatus")
+    if isinstance(last, dict) and last.get("code") in AUTH_REJECT_STATUSES:
+        last = {
+            "code": int(last["code"]),
+            "error": str(last.get("error") or "invalid_house_event_key"),
+            "at": str(last.get("at") or ""),
+        }
+    else:
+        last = None
+    installed = block.get("installedAt")
+    return {
+        "eventKeyLastPushStatus": last,
+        "eventKeyInstalledAt": installed if isinstance(installed, str) and installed else None,
+    }
 
 
 def ingest_host() -> str:
@@ -582,10 +754,50 @@ def record_manual_send(hass, devices: Any = None, at: str | None = None) -> None
 
 
 def record_attention_push(hass, fire_class: str, devices: Any = None, at: str | None = None) -> None:
-    """Append one FIRE push row. Caller must not use this for QUIET."""
+    """Append one successful row (legacy helper). Caller must not use this for QUIET."""
     fire = _public_text(fire_class)
     if not fire:
         return
+    kind = "manual" if fire == MANUAL_SEND_CLASS else "attention"
+    record_push(hass, kind=kind, rule=fire, outcome=None, devices=devices, at=at)
+
+
+PUSH_KINDS = ("attention", "manual", "chat", "pq")
+
+
+def _client_names(hass, exclude_client: str | None = None) -> list[str]:
+    """Saved display names of active paired clients, minus the excluded sender."""
+    try:
+        from .clients import active_display_names
+
+        return active_display_names(hass, exclude_client_id=exclude_client)
+    except Exception:
+        return []
+
+
+def record_push(
+    hass,
+    kind: str,
+    rule: str | None,
+    outcome: dict[str, Any] | None,
+    reason: str | None = None,
+    severity: str | None = None,
+    devices: Any = None,
+    at: str | None = None,
+    exclude_client: str | None = None,
+) -> None:
+    """Append one push-log row, success or failure. No title text, keys or tokens."""
+    fire = _public_text(rule) or _public_text(kind)
+    if not fire:
+        return
+    kind_text = kind if kind in PUSH_KINDS else "attention"
+    if outcome is None:
+        outcome = {"status": None, "error": None, "ok": True}
+    status = outcome.get("status")
+    ok = bool(outcome.get("ok"))
+    error = outcome.get("error") if outcome.get("error") in (
+        "timeout", "connection_error", "tls_error", "unsafe_title"
+    ) else None
     stamp = at or datetime.now().astimezone().isoformat(timespec="seconds")
     stamp = _public_text(stamp) or ""
     path = notify_path(hass)
@@ -608,11 +820,29 @@ def record_attention_push(hass, fire_class: str, devices: Any = None, at: str | 
         kept["devices"] = _devices_field(existing.get("devices"))
         normalized.append(kept)
     rows = normalized
+    names = _client_names(hass, exclude_client)
+    if names:
+        devices_cell: Any = names
+    elif exclude_client:
+        devices_cell = NO_IOS_CLIENT
+    else:
+        devices_cell = _devices_field(devices, local=registered_ios_clients(hass))
+    reason_text = _public_text(reason)
+    if reason_text and len(reason_text) > 120:
+        reason_text = reason_text[:120]
+    sev = str(severity).strip().lower() if severity else None
     rows.append(
         {
             "at": stamp,
             "fire_class": fire,
-            "devices": _devices_field(devices, local=registered_ios_clients(hass)),
+            "devices": devices_cell,
+            "kind": kind_text,
+            "rule": fire,
+            "status": int(status) if isinstance(status, int) else None,
+            "error": error,
+            "ok": ok,
+            "reason": reason_text,
+            "severity": sev if sev in ("attention", "alert", "info") else None,
         }
     )
     data["pushLog"] = rows[-PUSH_LOG_MAX:]
@@ -648,11 +878,24 @@ def push_log_document(hass) -> dict[str, Any]:
         if not fire:
             continue
         at = _public_text(row.get("at")) or ""
+        status = row.get("status")
+        kind = row.get("kind")
+        if kind not in PUSH_KINDS:
+            kind = "manual" if fire == MANUAL_SEND_CLASS else "attention"
+        sev = row.get("severity")
         public.append(
             {
                 "at": at,
                 "fire_class": fire,
                 "devices": devices,
+                "kind": kind,
+                "rule": _public_text(row.get("rule")) or fire,
+                # Old rows were only written after a 2xx: status unknown, ok true.
+                "status": status if isinstance(status, int) and not isinstance(status, bool) else None,
+                "error": row.get("error") if isinstance(row.get("error"), str) else None,
+                "ok": bool(row.get("ok", True)),
+                "reason": _public_text(row.get("reason")),
+                "severity": sev if sev in ("attention", "alert", "info") else None,
             }
         )
     if changed and isinstance(loaded, dict):
@@ -691,18 +934,14 @@ def dispatch_attention_pushes(hass, facts, property_id, key, now: float | None =
             title,
             severity=push.get("severity") or "alert",
             manual=False,
+            kind="attention",
+            rule=str(push.get("fire_class") or ""),
+            # The title is a fixed rule sentence plus the card label; never user text.
+            reason=f"{push.get('fire_class')}: {title}",
         )
         if 200 <= int(status) < 300:
             sent += 1
             _LOGGER.info("patrimony_attention_push class=%s", push.get("fire_class"))
-            # Events body rarely names devices (deviceCount only). Record who we targeted.
-            # QUIET never reaches here.
-            record_attention_push(
-                hass,
-                str(push.get("fire_class") or ""),
-                devices=getattr(_event_tls, "devices", None),
-                at=None,
-            )
         else:
             _LOGGER.warning(
                 "patrimony_attention_push_failed class=%s status=%s",

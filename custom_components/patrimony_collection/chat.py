@@ -777,7 +777,9 @@ def create_message(hass, request, payload: Any, now: datetime | None = None) -> 
     return _public_row(caller, row, text, rows, _active_clients(hass), _cursors(store)), 201
 
 
-def notify_house_chat(hass, exclude_device: str | None = None) -> int | None:
+def notify_house_chat(
+    hass, exclude_device: str | None = None, sender_client: str | None = None
+) -> int | None:
     """Existing events POST. Fixed sentence only. Not the attention debounce.
 
     Does not take message text or image bytes. One POST per call.
@@ -802,6 +804,10 @@ def notify_house_chat(hass, exclude_device: str | None = None) -> int | None:
             severity="attention",
             manual=False,
             exclude_device=exclude_device,
+            kind="chat",
+            rule="chat.message",
+            reason="New chat message",
+            exclude_client=sender_client,
         )
     except Exception:
         _LOGGER.error("patrimony_chat_notice_failed")
@@ -819,7 +825,11 @@ def handle_post(hass, request, payload: Any, now: datetime | None = None) -> tup
         # Passed straight to the events POST; never stored with the message.
         sender_device = payload.get("senderDevice") if isinstance(payload, dict) else None
         try:
-            notify_house_chat(hass, exclude_device=sender_device)
+            try:
+                sender_client = house_clients.request_client_id(request)
+            except Exception:
+                sender_client = None
+            notify_house_chat(hass, exclude_device=sender_device, sender_client=sender_client)
         except Exception:
             _LOGGER.error("patrimony_chat_notice_failed")
     return body, status

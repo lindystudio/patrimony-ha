@@ -51,7 +51,7 @@ from custom_components.patrimony_collection.mapping import (
 )
 from custom_components.patrimony_collection import ios_session as ios_session_mod
 
-DEVICE = "Petros's iPhone"
+DEVICE = "Guest's iPhone"
 VERSION = "1.2.3"
 IOS = "iOS 18.6"
 MODEL = "iPhone17,1"

@@ -9,7 +9,7 @@ import logging
 from typing import Any
 
 from .activity import record_mapped_activity
-from .const import CONF_HOUSE_EVENT_KEY, CONF_MAPPINGS, CONF_PQ_SHIELD, CONF_PROPERTY_ID, DOMAIN, SNAPSHOT_DEBOUNCE_SECONDS
+from .const import CONF_HOUSE_EVENT_KEY, CONF_MAPPINGS, CONF_PQ_SHIELD, CONF_PROPERTY_ID, DOMAIN
 from .http import async_setup_http
 from .mapping import build_presentation_document, load_shared_mapping, merge_options, seed_shared_mapping
 from .websocket import async_fire_state, async_setup_websocket
@@ -50,12 +50,25 @@ def _mapped_ids(entry: ConfigEntry, hass: HomeAssistant | None = None) -> list[s
 
 
 def _cancel_debounce(runtime: dict[str, Any]) -> None:
-    pending = runtime.pop("debounce", None)
-    if pending:
-        try:
-            pending()
-        except Exception:
-            pass
+    scheduler = runtime.get("scheduler")
+    if scheduler is not None:
+        scheduler.cancel()
+
+
+def _scheduler(hass: HomeAssistant, entry: ConfigEntry, runtime: dict[str, Any]):
+    from .push import SnapshotScheduler
+
+    scheduler = runtime.get("scheduler")
+    if scheduler is None:
+        def _emit() -> None:
+            create = getattr(hass, "async_create_task", None)
+            current = runtime.get("entry") or entry
+            if create is not None:
+                create(_emit_snapshot(hass, current))
+
+        scheduler = SnapshotScheduler(hass.loop, _emit)
+        runtime["scheduler"] = scheduler
+    return scheduler
 
 
 async def _emit_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -77,6 +90,8 @@ async def _emit_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> None:
         [card.get("kind") for card in cards],
     )
     async_fire_state(hass, document)
+    if isinstance(runtime, dict) and runtime.get("scheduler") is not None:
+        runtime["scheduler"].note_emitted()
     await _consider_attention(hass, entry)
 
 
@@ -120,26 +135,23 @@ def _bind_mapped_listener(hass: HomeAssistant, entry: ConfigEntry, runtime: dict
         except Exception:
             pass
     runtime["unsub"] = []
+    runtime["tracked"] = []
 
     @callback
     def _on_state(event: Event) -> None:
         # Mapped-only via async_track_state_change_event. Never log entity_id.
-        _cancel_debounce(runtime)
+        # Coalesced + throttled (push.SnapshotScheduler).
         loop = getattr(hass, "loop", None)
         create = getattr(hass, "async_create_task", None)
-        if loop is None or create is None:
-            create and create(_emit_snapshot(hass, entry))
+        if loop is None:
+            create and create(_emit_snapshot(hass, runtime.get("entry") or entry))
             return
-
-        handle = loop.call_later(
-            SNAPSHOT_DEBOUNCE_SECONDS,
-            lambda: create(_emit_snapshot(hass, entry)),
-        )
-        runtime["debounce"] = handle.cancel
+        _scheduler(hass, entry, runtime).request()
 
     mapped = _mapped_ids(entry, hass)
     if mapped:
         runtime["unsub"].append(async_track_state_change_event(hass, mapped, _on_state))
+    runtime["tracked"] = list(mapped)
     _LOGGER.info(
         "Patrimony mapping loaded cards=%s items=%s",
         len((entry.options or {}).get("cards") or []),
@@ -197,5 +209,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None) or {}
     _cancel_debounce(runtime)
     for unsub in runtime.get("unsub") or []:
-        unsub()
+        try:
+            unsub()
+        except Exception:
+            pass
+    runtime["unsub"] = []
+    runtime["tracked"] = []
     return True
+
+
+def async_rebind(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Re-subscribe after a mapping save (panel writes mapping.json)."""
+    runtime = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if isinstance(runtime, dict):
+        runtime["entry"] = entry
+        _bind_mapped_listener(hass, entry, runtime)

@@ -181,7 +181,7 @@ def test_bundled_default_matches_addon_and_ui_copy_is_generic():
         html = (root / rel).read_text(encoding="utf-8")
         assert "Restore default" in html
         low = html.lower()
-        assert "copenhagen" not in low
+        assert ("copen" + "hagen") not in low
         assert "nyhavn" not in low
         assert "soon_units" not in html
         assert "usesFahrenheit" not in html
@@ -235,11 +235,12 @@ def test_mint_refuses_missing_external_url(tmp_path):
     calls = {}
     status, payload = asyncio.run(_mint_with_stub_auth(hass, calls))
     assert status == 503
-    assert payload["error"]["code"] == "external_url_required"
+    assert payload["error"]["code"] == "no_public_url"
     message = payload["error"]["message"]
     assert "House URL unusable: (empty)." in message
     assert "hass.config.external_url=None" in message
-    assert "hass.config.internal_url=None" in message
+    assert "internal_url" not in message
+    assert "External URL" in message
     canned = (
         "Set Home Assistant External URL (Settings → System → Network) to your "
         "public https host, then show a pairing code again."
@@ -254,7 +255,7 @@ def test_mint_accepts_cloud_url_when_config_external_empty(tmp_path, monkeypatch
     hass = _Hass(tmp_path, external_url=None)
     cloud = "https://abcd1234.ui.nabu.casa"
     monkeypatch.setattr(
-        "custom_components.patrimony_collection.pair._try_ha_get_url",
+        "custom_components.patrimony_collection.pair._cloud_url",
         lambda _hass: cloud,
     )
     import asyncio
@@ -267,37 +268,10 @@ def test_mint_accepts_cloud_url_when_config_external_empty(tmp_path, monkeypatch
     assert calls.get("access", 0) == 1
 
 
-def test_try_ha_get_url_passes_prefer_external_and_allow_cloud(monkeypatch):
-    import sys
-    from types import ModuleType
-
-    from custom_components.patrimony_collection import pair as pair_mod
-
-    seen: dict[str, object] = {}
-
-    def get_url(_hass, **kwargs):
-        seen.update(kwargs)
-        return "https://cloudstyle.ui.nabu.casa"
-
-    net = ModuleType("homeassistant.helpers.network")
-    net.get_url = get_url
-    helpers = ModuleType("homeassistant.helpers")
-    helpers.network = net
-    ha = ModuleType("homeassistant")
-    ha.helpers = helpers
-    monkeypatch.setitem(sys.modules, "homeassistant", ha)
-    monkeypatch.setitem(sys.modules, "homeassistant.helpers", helpers)
-    monkeypatch.setitem(sys.modules, "homeassistant.helpers.network", net)
-
-    assert pair_mod._try_ha_get_url(object()) == "https://cloudstyle.ui.nabu.casa"
-    assert seen.get("prefer_external") is True
-    assert seen.get("allow_cloud") is True
-
-
 def test_https_house_url_falls_back_when_get_url_empty(tmp_path, monkeypatch):
     hass = _Hass(tmp_path, external_url="https://ha.example.com")
     monkeypatch.setattr(
-        "custom_components.patrimony_collection.pair._try_ha_get_url",
+        "custom_components.patrimony_collection.pair._cloud_url",
         lambda _hass: None,
     )
     assert https_house_url(hass) == "https://ha.example.com"
@@ -306,7 +280,7 @@ def test_https_house_url_falls_back_when_get_url_empty(tmp_path, monkeypatch):
 def test_house_url_status_matches_pairing_when_usable(tmp_path, monkeypatch):
     hass = _Hass(tmp_path, external_url="https://ha.example.com")
     monkeypatch.setattr(
-        "custom_components.patrimony_collection.pair._try_ha_get_url",
+        "custom_components.patrimony_collection.pair._cloud_url",
         lambda _hass: None,
     )
     status = house_url_status(hass)
@@ -319,7 +293,7 @@ def test_house_url_status_matches_pairing_when_usable(tmp_path, monkeypatch):
 def test_house_url_status_unusable_when_external_missing(tmp_path, monkeypatch):
     hass = _Hass(tmp_path, external_url=None)
     monkeypatch.setattr(
-        "custom_components.patrimony_collection.pair._try_ha_get_url",
+        "custom_components.patrimony_collection.pair._cloud_url",
         lambda _hass: None,
     )
     status = house_url_status(hass)
@@ -332,7 +306,7 @@ def test_house_url_status_uses_cloud_get_url(tmp_path, monkeypatch):
     hass = _Hass(tmp_path, external_url=None)
     cloud = "https://abcd1234.ui.nabu.casa"
     monkeypatch.setattr(
-        "custom_components.patrimony_collection.pair._try_ha_get_url",
+        "custom_components.patrimony_collection.pair._cloud_url",
         lambda _hass: cloud,
     )
     status = house_url_status(hass)
@@ -345,7 +319,7 @@ def test_house_url_status_uses_cloud_get_url(tmp_path, monkeypatch):
 def test_notify_status_payload_includes_pairing_house_url(tmp_path, monkeypatch):
     hass = _Hass(tmp_path, external_url="https://ha.example.com")
     monkeypatch.setattr(
-        "custom_components.patrimony_collection.pair._try_ha_get_url",
+        "custom_components.patrimony_collection.pair._cloud_url",
         lambda _hass: None,
     )
     get_doc = notify_status_payload(hass, None)
@@ -365,7 +339,7 @@ def test_notify_status_payload_includes_pairing_house_url(tmp_path, monkeypatch)
 def test_notify_status_payload_marks_missing_house_url(tmp_path, monkeypatch):
     hass = _Hass(tmp_path, external_url=None)
     monkeypatch.setattr(
-        "custom_components.patrimony_collection.pair._try_ha_get_url",
+        "custom_components.patrimony_collection.pair._cloud_url",
         lambda _hass: None,
     )
     doc = notify_status_payload(hass, None, reachable=False)
@@ -496,3 +470,86 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as d:
         test_pairing_helper_does_not_write_token(Path(d))
     print("ok")
+
+
+class _HassUrls(_Hass):
+    def __init__(self, root, external_url=None, internal_url=None):
+        super().__init__(root, external_url=external_url)
+        self.config.internal_url = internal_url
+
+
+def _no_cloud(monkeypatch, value=None):
+    monkeypatch.setattr(
+        "custom_components.patrimony_collection.pair._cloud_url", lambda _h: value
+    )
+
+
+def test_internal_only_returns_no_public_url(tmp_path, monkeypatch):
+    _no_cloud(monkeypatch)
+    hass = _HassUrls(tmp_path, external_url=None, internal_url="http://homeassistant.local:8123")
+    status = house_url_status(hass)
+    assert status["usable"] is False
+    assert status["houseUrl"] == ""
+    assert status["error"]["code"] == "no_public_url"
+    assert "External URL" in status["error"]["message"]
+    import asyncio
+    code, payload = asyncio.run(_mint_with_stub_auth(hass))
+    assert code == 503 and payload["error"]["code"] == "no_public_url"
+    assert "homeassistant.local" not in payload["error"]["message"]
+
+
+def test_external_set_wins_over_internal_and_cloud(tmp_path, monkeypatch):
+    _no_cloud(monkeypatch, "https://abcd.ui.nabu.casa")
+    hass = _HassUrls(tmp_path, external_url="https://house.example.com", internal_url="http://192.168.1.5:8123")
+    status = house_url_status(hass)
+    assert status["houseUrl"] == "https://house.example.com"
+    assert status["houseUrlSource"] == "external_url"
+    assert "error" not in status
+
+
+def test_cloud_only(tmp_path, monkeypatch):
+    _no_cloud(monkeypatch, "https://abcd.ui.nabu.casa")
+    hass = _HassUrls(tmp_path, external_url=None, internal_url="http://10.0.0.4:8123")
+    status = house_url_status(hass)
+    assert status["houseUrl"] == "https://abcd.ui.nabu.casa"
+    assert status["houseUrlSource"] == "cloud"
+
+
+def test_private_ip_external_rejected(tmp_path, monkeypatch):
+    _no_cloud(monkeypatch)
+    for bad in (
+        "http://192.168.1.10:8123", "https://10.1.2.3", "https://172.20.0.1",
+        "https://127.0.0.1", "https://169.254.1.1", "https://[fd00::1]", "https://[fe80::1]",
+        "http://homeassistant:8123", "https://ha.lan", "https://ha.local", "http://supervisor/core",
+    ):
+        hass = _HassUrls(tmp_path, external_url=bad)
+        status = house_url_status(hass)
+        assert status["usable"] is False, bad
+        assert status["error"]["code"] == "no_public_url", bad
+
+
+def test_private_external_falls_through_to_cloud(tmp_path, monkeypatch):
+    _no_cloud(monkeypatch, "https://abcd.ui.nabu.casa")
+    hass = _HassUrls(tmp_path, external_url="http://192.168.1.10:8123")
+    assert house_url_status(hass)["houseUrl"] == "https://abcd.ui.nabu.casa"
+
+
+def test_pairing_uri_carries_public_url():
+    from urllib.parse import parse_qs, urlparse
+    q = parse_qs(urlparse(pairing_uri("https://house.example.com", SECRET_TOKEN)).query)
+    assert q["url"] == ["https://house.example.com"]
+    assert q["public_url"] == ["https://house.example.com"]
+
+
+def test_cgnat_and_suffixes_and_bare_hosts_rejected():
+    from custom_components.patrimony_collection.pair import is_public_url
+    for bad in ("https://100.64.1.1", "https://ha.home", "https://ha.internal",
+                "https://ha.home.arpa", "https://homeassistant", "http://homeassistant:8123"):
+        assert is_public_url(bad) is False, bad
+    assert is_public_url("https://house.example.com") is True
+
+
+def test_no_public_url_body_contains_code():
+    from custom_components.patrimony_collection.pair import no_public_url_body
+    import json
+    assert "no_public_url" in json.dumps(no_public_url_body())

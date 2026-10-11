@@ -28,7 +28,7 @@ from custom_components.patrimony_collection.ios_session import (
     store_resolved_hostname,
 )
 
-PROPERTY_ID = "00000000-0000-4000-8000-000000000099"
+PROPERTY_ID = "00000000-0000-4000-8000-000000000001"
 T0 = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
 
 
@@ -58,8 +58,8 @@ class _Entry:
         self.data = {
             "property_id": PROPERTY_ID,
             "display_name": "QA Reconnect Home",
-            "location_label": "example",
-            "timezone": "Europe/Copenhagen",
+            "location_label": "Example House",
+            "timezone": "Europe/Lisbon",
         }
         self.options = {"house_event_key": "hek_test_not_real"}
         self.entry_id = "entry-1"
@@ -82,7 +82,7 @@ class _Hass:
             (),
             {
                 "path": lambda _self, rel, root=root: str(root / rel),
-                "time_zone": "Europe/Copenhagen",
+                "time_zone": "Europe/Lisbon",
             },
         )()
         self.config_entries = _Entries(self.entry)
@@ -122,20 +122,20 @@ def test_list_clients_and_rename_rejects_blank(tmp_path) -> None:
     clients_mod.upsert_client(
         hass,
         "rt-phone-1",
-        device_name="Petros iPhone 17 Pro",
+        device_name="Study iPhone 15",
         ha_username="admin",
         now=T0,
     )
     doc = clients_mod.panel_clients_document(hass)
     assert len(doc["clients"]) == 1
-    assert doc["clients"][0]["displayName"] == "Petros iPhone 17 Pro"
+    assert doc["clients"][0]["displayName"] == "Study iPhone 15"
     assert doc["clients"][0]["clientId"] == "rt-phone-1"
-    assert "Europe/Copenhagen" in doc["clients"][0]["pairedAtDisplay"]
-    assert doc["timezone"] == "Europe/Copenhagen"
+    assert "Europe/Lisbon" in doc["clients"][0]["pairedAtDisplay"]
+    assert doc["timezone"] == "Europe/Lisbon"
 
     row, err = clients_mod.rename_client(hass, "rt-phone-1", "   ")
     assert err is None
-    assert row["displayName"] == "Petros iPhone 17 Pro"
+    assert row["displayName"] == "Study iPhone 15"
     assert row["nameEdited"] is False
 
     row, err = clients_mod.rename_client(hass, "rt-phone-1", "  Kitchen Phone  ")
@@ -191,6 +191,8 @@ def test_unpair_sets_reason_and_keeps_house(tmp_path) -> None:
         "propertyId": PROPERTY_ID,
         "clientId": "rt-phone-1",
         "reason": "unpaired",
+        "eventKeyLastPushStatus": None,
+        "eventKeyInstalledAt": None,
     }
     other = clients_mod.pairing_document(hass, _phone(hass, "rt-phone-2"))
     assert other["status"] == "active"
@@ -206,13 +208,13 @@ def test_unpair_sets_reason_and_keeps_house(tmp_path) -> None:
     assert hass.entry.data["timezone"] == before_tz
     assert hass.entry.options["house_event_key"] == before_hek
     assert before_name == "QA Reconnect Home"
-    assert before_tz == "Europe/Copenhagen"
+    assert before_tz == "Europe/Lisbon"
 
 
 def test_chat_uses_edited_display_name(tmp_path) -> None:
     hass = _Hass(tmp_path)
     clients_mod.upsert_client(
-        hass, "rt-phone-1", device_name="Petros iPhone 17 Pro", ha_username="admin", now=T0
+        hass, "rt-phone-1", device_name="Study iPhone 15", ha_username="admin", now=T0
     )
     clients_mod.rename_client(hass, "rt-phone-1", "House Phone")
     phone = _phone(hass, "rt-phone-1", user_name="admin")
@@ -258,7 +260,7 @@ def test_active_pairing_document(tmp_path) -> None:
 
 
 def test_ios_session_registers_non_patrimony_client_name(tmp_path) -> None:
-    """example phone bearer is not client_name Patrimony iOS."""
+    """House phone bearer is not client_name Patrimony iOS."""
     hass = _Hass(tmp_path)
     persist_ios_session(
         hass, device_name="Legacy Last Write", app_version="1.0", ip="127.0.0.1"

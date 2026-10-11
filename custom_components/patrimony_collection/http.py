@@ -102,6 +102,10 @@ class PatrimonyStateView(HomeAssistantView):
         # Session Present → AEAD envelope; else cleartext (default Off / fail closed).
         from .pq_shield.session import get_manager as _pq_get_manager
         payload = _pq_get_manager(self.hass).maybe_wrap_document(document)
+        if payload is not document:
+            # Plaintext pairing beside the envelope so the bearer reads key status.
+            payload = dict(payload)
+            payload["pairing"] = pairing
         if pairing.get("status") == house_clients.STATUS_UNPAIRED:
             client_id = str(pairing.get("clientId") or "")
             if client_id:
@@ -324,10 +328,14 @@ class PatrimonyPairClaimView(HomeAssistantView):
         ticket = house_pair.get_ticket(self.hass, code)
         if not ticket:
             return web.Response(text="This pairing code has expired.", status=404, content_type="text/plain")
+        if not house_pair.is_public_url(ticket.get("url")):
+            return web.json_response(house_pair.no_public_url_body(), status=503)
         deep = house_pair.pairing_uri(ticket["url"], ticket["token"])
         want = (request.headers.get("Accept") or "").lower()
         if "application/json" in want:
-            return web.json_response({"url": ticket["url"], "token": ticket["token"]})
+            return web.json_response(
+                {"url": ticket["url"], "public_url": ticket["url"], "token": ticket["token"]}
+            )
         return web.Response(text=house_pair.claim_html(deep), content_type="text/html", charset="utf-8")
 
 
@@ -400,15 +408,15 @@ class PatrimonyNotifyView(HomeAssistantView):
         job = getattr(self.hass, "async_add_executor_job", None)
         try:
             if job:
-                status = await job(
-                    house_notify.load_card_id_and_post,
+                status, outcome = await job(
+                    house_notify.manual_send,
                     self.hass,
                     property_id,
                     key,
                     title,
                 )
             else:
-                status = house_notify.load_card_id_and_post(
+                status, outcome = house_notify.manual_send(
                     self.hass, property_id, key, title
                 )
         except Exception:
@@ -417,11 +425,15 @@ class PatrimonyNotifyView(HomeAssistantView):
                 status=424,
             )
         if 200 <= int(status) < 300:
-            return web.json_response({"ok": True})
-        return web.json_response(
-            {"ok": False, "error": {"code": "backend_error", "message": "Push failed"}},
-            status=424,
-        )
+            return web.json_response({"ok": True, "upstreamStatus": outcome.get("status")})
+        error: dict[str, Any] = {
+            "code": "backend_error",
+            "message": "Push failed",
+            "upstreamStatus": outcome.get("status"),
+        }
+        if outcome.get("error"):
+            error["upstreamError"] = outcome.get("error")
+        return web.json_response({"ok": False, "error": error}, status=424)
 
 
 class PatrimonyEventKeyView(HomeAssistantView):
@@ -455,6 +467,10 @@ class PatrimonyEventKeyView(HomeAssistantView):
             updater(entry, options=options)
         else:
             entry.options = options
+        try:
+            house_notify.mark_event_key_installed(self.hass)
+        except Exception:
+            pass
         return web.json_response(body, status=status)
 
 
