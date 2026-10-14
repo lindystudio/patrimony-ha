@@ -161,6 +161,11 @@ def _bind_mapped_listener(hass: HomeAssistant, entry: ConfigEntry, runtime: dict
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
+    # 0.4.99: warm every Patrimony store into the off-loop I/O cache first.
+    from . import fileio
+    from .photo import default_photo_path
+
+    await fileio.async_warm(hass, (default_photo_path(),))
     await async_setup_http(hass)
     await async_setup_websocket(hass)
     return True
@@ -175,6 +180,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "presented": {},
     }
     hass.data[DOMAIN][entry.entry_id] = runtime
+    from . import fileio
+
+    if not fileio.on_loop():
+        await fileio.async_warm(hass)
+
+    # C9: latch already-claimed entries before any adopt write is possible.
+    try:
+        from .adopt import migrate_adopt_lock
+
+        migrate_adopt_lock(hass, entry)
+    except Exception:
+        _LOGGER.warning("patrimony_adopt_lock_migration_failed")
 
     seed_shared_mapping(hass, dict(entry.data), dict(entry.options or {}))
 
@@ -197,8 +214,9 @@ async def _options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     # Feature Off → cleartext live path; wipe session/keypair (fail closed).
     if not bool((entry.options or {}).get(CONF_PQ_SHIELD, True)):
         try:
-            from .pq_shield.session import get_manager
-            get_manager(hass).disable(wipe_keypair=True)
+            from .pq_shield.session import get_manager, run_blocking
+            _mgr = get_manager(hass)
+            await run_blocking(hass, lambda: _mgr.disable(wipe_keypair=True))
         except Exception:
             _LOGGER.debug("pq_shield_disable_on_options_off_skipped")
     _bind_mapped_listener(hass, entry, runtime)

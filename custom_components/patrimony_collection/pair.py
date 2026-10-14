@@ -1,4 +1,4 @@
-"""Mint a Patrimony iOS long-lived token. Never persist it to disk."""
+"""Mint a Patrimony iOS long-lived token. Never persist it in the clear."""
 
 from __future__ import annotations
 
@@ -226,44 +226,17 @@ def claim_url(hass, code: str) -> str:
     return f"{https_house_url(hass)}/api/patrimony_collection/p/{code}"
 
 
-def _tickets(hass) -> dict:
-    data = getattr(hass, "data", None)
-    if data is None:
-        hass.data = {}
-        data = hass.data
-    bucket = data.setdefault(DOMAIN, {})
-    return bucket.setdefault("pair_tickets", {})
-
-
-def put_ticket(hass, house_url: str, token: str) -> str:
-    """Memory only. Short code for a Camera-scannable https QR."""
-    _purge(hass)
-    code = secrets.token_hex(5)
-    _tickets(hass)[code] = {
-        "url": house_url,
-        "token": token,
-        "exp": time.time() + PAIR_TICKET_TTL_SECONDS,
-    }
-    return code
-
-
-def _purge(hass) -> None:
-    now = time.time()
-    tickets = _tickets(hass)
-    dead = [k for k, v in tickets.items() if float(v.get("exp") or 0) < now]
-    for k in dead:
-        tickets.pop(k, None)
+# 0.4.95: tickets live in pair_tickets.py (hashed id, payload sealed with a
+# key derived from the code, persisted atomically, single-use).
+from .pair_tickets import (  # noqa: E402
+    claim_ticket,
+    put_ticket,
+)
 
 
 def get_ticket(hass, code: str) -> dict[str, str] | None:
-    _purge(hass)
-    row = _tickets(hass).get(str(code or "").strip().lower())
-    if not row:
-        # codes are hex; accept as stored
-        row = _tickets(hass).get(str(code or "").strip())
-    if not row:
-        return None
-    return {"url": str(row["url"]), "token": str(row["token"])}
+    """Single-use claim. Kept for callers; same as claim_ticket."""
+    return claim_ticket(hass, code)
 
 
 def claim_html(deep: str) -> str:
@@ -379,5 +352,13 @@ async def mint_pairing(hass, user) -> tuple[int, dict[str, Any]]:
             "unavailable",
             f"Access token was empty or not a string ({type(token).__name__})",
         )
-    code = put_ticket(hass, house, token)
+    try:
+        add_job = getattr(hass, "async_add_executor_job", None)
+        if add_job is not None:
+            code = await add_job(put_ticket, hass, house, token)
+        else:
+            code = put_ticket(hass, house, token)
+    except Exception as err:
+        _LOGGER.warning("pairing ticket store failed: %s", type(err).__name__)
+        return 503, _error("unavailable", "Pairing ticket store is unavailable")
     return 200, {"pairing": claim_url(hass, code)}

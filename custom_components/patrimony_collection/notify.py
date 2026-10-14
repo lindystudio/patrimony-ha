@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from . import fileio
+
 import json
+import os
 import re
 from datetime import datetime
 import logging
@@ -49,6 +52,52 @@ def notify_path(hass) -> Path:
         return Path(hass.config.path(NOTIFY_FILE))
     except Exception:
         return Path("/config") / NOTIFY_FILE
+
+
+# notify.json holds cardId, attention baseline, eventKeyStatus and pushLog. Several
+# executor threads (and the add-on process) read-modify-write it. Writes are atomic
+# (tmp + os.replace) so no reader ever sees a torn file, and a file that exists but
+# cannot be parsed is never replaced by a fresh document (that used to wipe the log).
+_NOTIFY_LOCK = threading.RLock()
+
+
+class NotifyDocUnreadable(Exception):
+    """notify.json exists but is not a JSON object. Do not overwrite it."""
+
+
+def _read_notify_file(path: Path) -> dict[str, Any]:
+    for attempt in range(3):
+        try:
+            raw = fileio.read_text(path)
+            if raw is None:
+                return {}
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+        fileio.maybe_sleep(0.05 * (attempt + 1))
+    raise NotifyDocUnreadable(str(path))
+
+
+def _write_notify_file(path: Path, data: dict[str, Any]) -> None:
+    # Atomic (tmp + fsync + os.replace), serialized, cache write-through.
+    fileio.write_text(path, json.dumps(data, indent=2) + "\n")
+
+
+def _update_notify_doc(hass, mutate) -> bool:
+    """Locked read-modify-write. Unreadable file → leave it alone, return False."""
+    path = notify_path(hass)
+    with _NOTIFY_LOCK:
+        try:
+            data = _read_notify_file(path)
+        except NotifyDocUnreadable:
+            _LOGGER.error("patrimony_notify_unreadable_not_overwritten")
+            return False
+        if mutate(data) is False:
+            return True
+        _write_notify_file(path, data)
+        return True
 
 
 def looks_like_ha_token(key: Any) -> bool:
@@ -119,20 +168,20 @@ def clip_title(title: Any) -> str | None:
 
 
 def load_card_id(hass) -> str:
-    path = notify_path(hass)
-    try:
-        if path.is_file():
-            data = json.loads(path.read_text())
-            if isinstance(data, dict):
-                cid = str(data.get("cardId") or "").strip()
-                if cid:
-                    return cid
-    except Exception:
-        pass
-    cid = str(uuid4())
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"cardId": cid}, indent=2) + "\n")
-    return cid
+    """Stable cardId. Added to the existing document; never replaces it."""
+    found: dict[str, str] = {}
+
+    def mutate(data: dict[str, Any]):
+        cid = str(data.get("cardId") or "").strip()
+        if cid:
+            found["cid"] = cid
+            return False
+        found["cid"] = data["cardId"] = str(uuid4())
+        return True
+
+    if not _update_notify_doc(hass, mutate):
+        return str(uuid4())
+    return found["cid"]
 
 
 def events_url(property_id: str) -> str:
@@ -325,21 +374,11 @@ AUTH_REJECT_STATUSES = (401, 403)
 
 
 def _load_notify_doc(hass) -> dict[str, Any]:
-    path = notify_path(hass)
+    """Read-only view; {} when missing or unreadable."""
     try:
-        if path.is_file():
-            data = json.loads(path.read_text())
-            if isinstance(data, dict):
-                return data
-    except Exception:
-        pass
-    return {}
-
-
-def _save_notify_doc(hass, data: dict[str, Any]) -> None:
-    path = notify_path(hass)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n")
+        return _read_notify_file(notify_path(hass))
+    except NotifyDocUnreadable:
+        return {}
 
 
 def auth_rejection_from_outcome(outcome: dict[str, Any] | None, at: str) -> dict[str, Any] | None:
@@ -359,24 +398,28 @@ def auth_rejection_from_outcome(outcome: dict[str, Any] | None, at: str) -> dict
 def note_event_key_attempt(hass, outcome: dict[str, Any] | None, at: str | None = None) -> None:
     """Most recent events-API attempt decides eventKeyLastPushStatus. Persisted."""
     stamp = at or datetime.now().astimezone().isoformat(timespec="seconds")
-    data = _load_notify_doc(hass)
-    block = data.get(EVENT_KEY_STATUS_STORE)
-    block = dict(block) if isinstance(block, dict) else {}
-    block["lastPushStatus"] = auth_rejection_from_outcome(outcome, stamp)
-    data[EVENT_KEY_STATUS_STORE] = block
-    _save_notify_doc(hass, data)
+
+    def mutate(data: dict[str, Any]) -> None:
+        block = data.get(EVENT_KEY_STATUS_STORE)
+        block = dict(block) if isinstance(block, dict) else {}
+        block["lastPushStatus"] = auth_rejection_from_outcome(outcome, stamp)
+        data[EVENT_KEY_STATUS_STORE] = block
+
+    _update_notify_doc(hass, mutate)
 
 
 def mark_event_key_installed(hass, at: str | None = None) -> None:
     """POST /event_key success: clear the rejection, stamp installedAt. No key stored here."""
     stamp = at or datetime.now().astimezone().isoformat(timespec="seconds")
-    data = _load_notify_doc(hass)
-    block = data.get(EVENT_KEY_STATUS_STORE)
-    block = dict(block) if isinstance(block, dict) else {}
-    block["lastPushStatus"] = None
-    block["installedAt"] = stamp
-    data[EVENT_KEY_STATUS_STORE] = block
-    _save_notify_doc(hass, data)
+
+    def mutate(data: dict[str, Any]) -> None:
+        block = data.get(EVENT_KEY_STATUS_STORE)
+        block = dict(block) if isinstance(block, dict) else {}
+        block["lastPushStatus"] = None
+        block["installedAt"] = stamp
+        data[EVENT_KEY_STATUS_STORE] = block
+
+    _update_notify_doc(hass, mutate)
 
 
 def event_key_status_fields(hass) -> dict[str, Any]:
@@ -422,8 +465,9 @@ def load_attention_store(hass) -> dict[str, Any]:
     """Debounce + baseline next to the stable notify card. Never stores hek_."""
     path = notify_path(hass)
     try:
-        if path.is_file():
-            data = json.loads(path.read_text())
+        raw = fileio.read_text(path)
+        if raw is not None:
+            data = json.loads(raw)
             if isinstance(data, dict) and isinstance(data.get("attention"), dict):
                 att = data["attention"]
                 classes = att.get("classes") if isinstance(att.get("classes"), dict) else {}
@@ -443,20 +487,9 @@ def load_attention_store(hass) -> dict[str, Any]:
 
 
 def save_attention_store(hass, store: dict[str, Any]) -> None:
-    path = notify_path(hass)
-    data: dict[str, Any] = {}
-    try:
-        if path.is_file():
-            loaded = json.loads(path.read_text())
-            if isinstance(loaded, dict):
-                data = loaded
-    except Exception:
-        data = {}
-    if not str(data.get("cardId") or "").strip():
-        data["cardId"] = str(uuid4())
     classes = store.get("classes") if isinstance(store.get("classes"), dict) else {}
     pushed = store.get("pushed") if isinstance(store.get("pushed"), dict) else {}
-    data["attention"] = {
+    block = {
         "seeded": bool(store.get("seeded")),
         "classes": {str(k): str(v) for k, v in classes.items() if v},
         "pushed": {
@@ -465,8 +498,13 @@ def save_attention_store(hass, store: dict[str, Any]) -> None:
             if isinstance(v, (int, float))
         },
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n")
+
+    def mutate(data: dict[str, Any]) -> None:
+        if not str(data.get("cardId") or "").strip():
+            data["cardId"] = str(uuid4())
+        data["attention"] = block
+
+    _update_notify_doc(hass, mutate)
 
 
 
@@ -800,71 +838,55 @@ def record_push(
     ) else None
     stamp = at or datetime.now().astimezone().isoformat(timespec="seconds")
     stamp = _public_text(stamp) or ""
-    path = notify_path(hass)
-    data: dict[str, Any] = {}
-    try:
-        if path.is_file():
-            loaded = json.loads(path.read_text())
-            if isinstance(loaded, dict):
-                data = loaded
-    except Exception:
-        data = {}
-    rows = data.get("pushLog")
-    if not isinstance(rows, list):
-        rows = []
-    normalized: list[Any] = []
-    for existing in rows:
-        if not isinstance(existing, dict):
-            continue
-        kept = dict(existing)
-        kept["devices"] = _devices_field(existing.get("devices"))
-        normalized.append(kept)
-    rows = normalized
-    names = _client_names(hass, exclude_client)
-    if names:
-        devices_cell: Any = names
-    elif exclude_client:
-        devices_cell = NO_IOS_CLIENT
-    else:
-        devices_cell = _devices_field(devices, local=registered_ios_clients(hass))
-    reason_text = _public_text(reason)
-    if reason_text and len(reason_text) > 120:
-        reason_text = reason_text[:120]
-    sev = str(severity).strip().lower() if severity else None
-    rows.append(
-        {
-            "at": stamp,
-            "fire_class": fire,
-            "devices": devices_cell,
-            "kind": kind_text,
-            "rule": fire,
-            "status": int(status) if isinstance(status, int) else None,
-            "error": error,
-            "ok": ok,
-            "reason": reason_text,
-            "severity": sev if sev in ("attention", "alert", "info") else None,
-        }
-    )
-    data["pushLog"] = rows[-PUSH_LOG_MAX:]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n")
+
+    def mutate(data: dict[str, Any]) -> None:
+        rows = data.get("pushLog")
+        if not isinstance(rows, list):
+            rows = []
+        normalized: list[Any] = []
+        for existing in rows:
+            if not isinstance(existing, dict):
+                continue
+            kept = dict(existing)
+            kept["devices"] = _devices_field(existing.get("devices"))
+            normalized.append(kept)
+        rows = normalized
+        names = _client_names(hass, exclude_client)
+        if names:
+            devices_cell: Any = names
+        elif exclude_client:
+            devices_cell = NO_IOS_CLIENT
+        else:
+            devices_cell = _devices_field(devices, local=registered_ios_clients(hass))
+        reason_text = _public_text(reason)
+        if reason_text and len(reason_text) > 120:
+            reason_text = reason_text[:120]
+        sev = str(severity).strip().lower() if severity else None
+        rows.append(
+            {
+                "at": stamp,
+                "fire_class": fire,
+                "devices": devices_cell,
+                "kind": kind_text,
+                "rule": fire,
+                "status": int(status) if isinstance(status, int) else None,
+                "error": error,
+                "ok": ok,
+                "reason": reason_text,
+                "severity": sev if sev in ("attention", "alert", "info") else None,
+            }
+        )
+        data["pushLog"] = rows[-PUSH_LOG_MAX:]
+
+    _update_notify_doc(hass, mutate)
 
 
 def push_log_document(hass) -> dict[str, Any]:
     """Panel payload. Last 50. Never includes hek_ or tokens."""
-    path = notify_path(hass)
     rows: list[Any] = []
-    loaded: dict[str, Any] | None = None
-    try:
-        if path.is_file():
-            parsed = json.loads(path.read_text())
-            if isinstance(parsed, dict):
-                loaded = parsed
-                if isinstance(parsed.get("pushLog"), list):
-                    rows = parsed["pushLog"]
-    except Exception:
-        rows = []
-        loaded = None
+    loaded = _load_notify_doc(hass)
+    if isinstance(loaded.get("pushLog"), list):
+        rows = loaded["pushLog"]
     public: list[dict[str, Any]] = []
     changed = False
     for row in rows[-PUSH_LOG_MAX:]:
@@ -898,11 +920,20 @@ def push_log_document(hass) -> dict[str, Any]:
                 "severity": sev if sev in ("attention", "alert", "info") else None,
             }
         )
-    if changed and isinstance(loaded, dict):
+    if changed:
+        # Re-read under the lock and only normalise devices; never write a stale copy.
+        def mutate(data: dict[str, Any]):
+            fresh = data.get("pushLog")
+            if not isinstance(fresh, list):
+                return False
+            for row in fresh:
+                if isinstance(row, dict):
+                    row["devices"] = _devices_field(row.get("devices"))
+            data["pushLog"] = fresh[-PUSH_LOG_MAX:]
+            return True
+
         try:
-            loaded["pushLog"] = rows[-PUSH_LOG_MAX:]
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(loaded, indent=2) + "\n")
+            _update_notify_doc(hass, mutate)
         except Exception:
             pass
     return {"rows": public}

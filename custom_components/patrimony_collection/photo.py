@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from . import fileio
+
 from pathlib import Path
 
 from .const import PHOTO_FILE, PHOTO_MAX_BYTES
@@ -44,9 +46,9 @@ def reject_put(content_type: str | None, data: bytes) -> str | None:
 def load_default_photo() -> bytes | None:
     path = default_photo_path()
     try:
-        if not path.is_file():
+        data = fileio.read_bytes(path)
+        if data is None:
             return None
-        data = path.read_bytes()
     except Exception:
         return None
     if not data or len(data) > PHOTO_MAX_BYTES:
@@ -59,9 +61,7 @@ def load_default_photo() -> bytes | None:
 def load_photo(hass) -> bytes | None:
     path = photo_path(hass)
     try:
-        if not path.is_file():
-            return None
-        return path.read_bytes()
+        return fileio.read_bytes(path)
     except Exception:
         return None
 
@@ -79,8 +79,7 @@ def resolve_photo(hass) -> tuple[bytes, str, str] | None:
 
 def save_photo(hass, data: bytes) -> None:
     path = photo_path(hass)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
+    fileio.write_bytes(path, data)
 
 
 def restore_default_photo(hass) -> bool:
@@ -94,9 +93,6 @@ def restore_default_photo(hass) -> bool:
 def delete_photo(hass) -> bool:
     path = photo_path(hass)
     try:
-        if not path.is_file():
-            return False
-        path.unlink()
-        return True
+        return fileio.delete(path)
     except FileNotFoundError:
         return False

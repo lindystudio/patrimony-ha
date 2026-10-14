@@ -296,6 +296,7 @@
     input:focus, select:focus, textarea:focus { outline: 1px solid var(--gold); border-color: var(--gold-deep); }
     #pair_qr[hidden] { display: none; }
     .soon-sec .confirm-bar { margin: 10px 0 0; }
+      button:focus-visible, [role="tab"]:focus-visible, summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
   </style>
 </head>
 <body>
@@ -307,7 +308,7 @@
           <span class="wordmark">Patrimony</span>
         </div>
         <div class="head-actions">
-          <span class="status" id="status"></span>
+          <span class="status" id="status" role="status" aria-live="polite"></span>
           <button class="primary" type="button" id="save">Save</button>
         </div>
       </div>
@@ -318,7 +319,7 @@
         <span id="house_id"></span>
       </p>
     </header>
-    <nav class="tab-bar" id="tab_bar" role="tablist">
+    <nav class="tab-bar" id="tab_bar" role="tablist" aria-label="Sections">
       <button type="button" class="tab is-active" id="tab_cards" data-tab="cards" role="tab" aria-selected="true">Cards</button>
       <button type="button" class="tab" id="tab_people" data-tab="people" role="tab" aria-selected="false">People</button>
       <button type="button" class="tab" id="tab_soon" data-tab="soon" role="tab" aria-selected="false">Soon</button>
@@ -341,7 +342,7 @@
         <button class="ghost add-cta" type="button" id="people_add">Add person</button>
         <button class="primary" type="button" id="people_save" hidden>Save people</button>
       </div>
-      <p class="status" id="people_status"></p>
+      <p class="status" id="people_status" role="status" aria-live="polite"></p>
     </div>
     <div id="pane_soon" class="pane soon-pane" role="tabpanel" hidden>
       <section class="soon-sec" id="soon_photo">
@@ -362,13 +363,13 @@
           <button class="danger" type="button" id="photo_confirm_yes">Remove</button>
           <button class="ghost" type="button" id="photo_confirm_no">Keep</button>
         </div>
-        <p class="status" id="photo_status"></p>
+        <p class="status" id="photo_status" role="status" aria-live="polite"></p>
       </section>
       <section class="soon-sec" id="soon_notes">
         <h3>Notepad</h3>
         <p class="quiet">The same page on the phone.</p>
         <textarea id="notes_text" maxlength="8000" placeholder="A quiet note"></textarea>
-        <p class="status" id="notes_status"></p>
+        <p class="status" id="notes_status" role="status" aria-live="polite"></p>
       </section>
       <section class="soon-sec" id="soon_pair">
         <h3>Pair</h3>
@@ -377,11 +378,11 @@
       <section class="soon-sec" id="soon_notify">
         <h3>Notify</h3>
         <p class="quiet">Sends an Apple push notification (APNs). It shows as a banner on the principal’s iOS devices.</p>
-        <input id="notify_title" maxlength="120" placeholder="Guest arriving" />
+        <input id="notify_title" maxlength="120" placeholder="Guest arriving" aria-label="Banner text" />
         <div class="actions">
           <button class="primary" type="button" id="notify_send">Send</button>
         </div>
-        <p class="status" id="notify_status"></p>
+        <p class="status" id="notify_status" role="status" aria-live="polite"></p>
       </section>
     </div>
   </div>
@@ -694,8 +695,8 @@
           <label class="pass-check"><input type="checkbox" data-pass="${esc(m.item_id)}" ${chk} ${dis} /> On the pass</label>
           <input class="line-label" data-label="${esc(m.item_id)}" value="${esc(m.label || "")}" aria-label="Label" />
           <span class="line-live ${esc(sev)}" data-live="${esc(m.item_id)}">${esc(live)}</span>
-          <button type="button" class="ghost btn-icon" data-act="line-up" data-id="${esc(m.item_id)}" ${idx===0?"disabled":""} aria-label="Up">↑</button>
-          <button type="button" class="ghost btn-icon" data-act="line-down" data-id="${esc(m.item_id)}" ${idx===len-1?"disabled":""} aria-label="Down">↓</button>
+          <button type="button" class="ghost btn-icon" data-act="line-up" data-id="${esc(m.item_id)}" ${idx===0?"disabled":""} aria-label="Move line up">↑</button>
+          <button type="button" class="ghost btn-icon" data-act="line-down" data-id="${esc(m.item_id)}" ${idx===len-1?"disabled":""} aria-label="Move line down">↓</button>
           <button type="button" class="ghost btn-icon" data-act="adv" data-id="${esc(m.item_id)}" aria-expanded="${adv?"true":"false"}" aria-label="Advanced">…</button>
         </div>
         ${adv ? drawAdvanced(m) : ""}
@@ -715,12 +716,12 @@
         ${lines}
         <div class="card-foot">
           <label for="q">Add from the house</label>
-          <input id="q" placeholder="Search by name" autocomplete="off" />
+          <input id="q" placeholder="Search by name" aria-label="Search entities by name" autocomplete="off" />
           <div id="hits"></div>
           <div class="add-line-head">Add a line</div>
           <div class="add-line">
-            <input id="ph_label" placeholder="Label" autocomplete="off" />
-            <input id="ph_value" placeholder="Value" autocomplete="off" />
+            <input id="ph_label" placeholder="Label" aria-label="Line label" autocomplete="off" />
+            <input id="ph_value" placeholder="Value" aria-label="Line value" autocomplete="off" />
             <button class="primary" type="button" data-act="add-line" id="ph_add">Add</button>
           </div>
         </div>
@@ -737,7 +738,7 @@
     function newCardControls() {
       if (addingCard) {
         return `<div class="new-card-row">
-          <input id="new_card_title" placeholder="Card title" autocomplete="off" />
+          <input id="new_card_title" placeholder="Card title" aria-label="New card title" autocomplete="off" />
           <button type="button" class="primary" data-act="commit-card">Add</button>
           <button type="button" class="ghost" data-act="cancel-card">Cancel</button>
         </div>`;
@@ -768,8 +769,8 @@
             ${titleBit}
             <div class="card-tools">
             <span class="count">${n} ${n===1?"line":"lines"}</span>
-            <button type="button" class="ghost btn-icon" data-act="card-up" data-id="${esc(card.id)}" ${idx===0?"disabled":""} aria-label="Up">↑</button>
-            <button type="button" class="ghost btn-icon" data-act="card-down" data-id="${esc(card.id)}" ${idx===cards.length-1?"disabled":""} aria-label="Down">↓</button>
+            <button type="button" class="ghost btn-icon" data-act="card-up" data-id="${esc(card.id)}" ${idx===0?"disabled":""} aria-label="Move card up">↑</button>
+            <button type="button" class="ghost btn-icon" data-act="card-down" data-id="${esc(card.id)}" ${idx===cards.length-1?"disabled":""} aria-label="Move card down">↓</button>
             <button type="button" class="ghost" data-act="rename" data-id="${esc(card.id)}">Rename</button>
             <button type="button" class="danger" data-act="del-card" data-id="${esc(card.id)}">Delete</button>
             </div>
@@ -1313,8 +1314,8 @@
           <div class="people-card-head">
             <input class="people-fn" data-p="function" data-i="${i}" value="${esc(row.function || "")}" placeholder="Role" aria-label="Role" maxlength="${PEOPLE_MAX_TEXT}" />
             <div class="people-tools">
-              <button class="ghost btn-icon" type="button" data-up="${i}" ${i === 0 ? "disabled" : ""} aria-label="Up">↑</button>
-              <button class="ghost btn-icon" type="button" data-down="${i}" ${i === people.length - 1 ? "disabled" : ""} aria-label="Down">↓</button>
+              <button class="ghost btn-icon" type="button" data-up="${i}" ${i === 0 ? "disabled" : ""} aria-label="Move person up">↑</button>
+              <button class="ghost btn-icon" type="button" data-down="${i}" ${i === people.length - 1 ? "disabled" : ""} aria-label="Move person down">↓</button>
               <button class="danger" type="button" data-del="${i}">Remove</button>
             </div>
           </div>

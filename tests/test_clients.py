@@ -430,6 +430,10 @@ def test_member_list_shape_has_no_secrets_and_phone_bearer_may_read(tmp_path) ->
     item = doc["clients"][0]
     assert set(item) == {
         "clientId",
+        "role",
+        "memberName",
+        "inviteId",
+        "principalId",
         "displayName",
         "pairedAt",
         "lastAccessAt",

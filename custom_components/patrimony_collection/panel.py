@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from . import fileio
+
 import json
 from pathlib import Path
 from typing import Any
@@ -203,25 +205,27 @@ class PatrimonyMappingView(HomeAssistantView):
             options[CONF_HOUSE_EVENT_KEY] = entry.options.get(CONF_HOUSE_EVENT_KEY)
         self.hass.config_entries.async_update_entry(entry, options=options)
         seed_shared_mapping(self.hass, dict(entry.data), options)
-        # Force rewrite mapping.json with the saved union
-        try:
+        # Force rewrite mapping.json with the saved union (file I/O off the event loop).
+        payload = {
+            "property_id": entry.data.get(CONF_PROPERTY_ID),
+            "display_name": entry.data.get(CONF_DISPLAY_NAME),
+            "location_label": entry.data.get(CONF_LOCATION_LABEL),
+            "timezone": entry.data.get(CONF_TIMEZONE),
+            "cards": cards,
+            "mappings": mappings,
+        }
+
+        def _write_mapping() -> None:
+            # Explicit editor save replaces file contents with the edited set.
             path = Path(self.hass.config.path("patrimony_collection/mapping.json"))
-            existing = {}
-            if path.is_file():
-                existing = json.loads(path.read_text())
-            payload = {
-                "property_id": entry.data.get(CONF_PROPERTY_ID),
-                "display_name": entry.data.get(CONF_DISPLAY_NAME),
-                "location_label": entry.data.get(CONF_LOCATION_LABEL),
-                "timezone": entry.data.get(CONF_TIMEZONE),
-                "cards": cards,
-                "mappings": mappings,
-            }
-            if isinstance(existing, dict) and (existing.get("cards") or existing.get("mappings")):
-                # explicit editor save replaces file contents with the edited set
-                pass
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(payload, indent=2) + "\n")
+            fileio.write_text(path, json.dumps(payload, indent=2) + "\n")
+
+        try:
+            runner = getattr(self.hass, "async_add_executor_job", None)
+            if runner is not None:
+                await runner(_write_mapping)
+            else:
+                _write_mapping()
         except Exception:
             pass
         try:
@@ -294,10 +298,10 @@ def _mapped_entity_ids(hass: HomeAssistant) -> set:
 
 
 def _component_version() -> str:
-    try:
-        return str(json.loads((Path(__file__).resolve().parent / "manifest.json").read_text()).get("version") or "0")
-    except Exception:
-        return "0"
+    """Read once at import by version.py (off the event loop); no disk I/O here."""
+    from .version import INTEGRATION_VERSION
+
+    return INTEGRATION_VERSION or "0"
 
 
 async def async_setup_panel(hass: HomeAssistant) -> None:

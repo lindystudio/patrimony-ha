@@ -7,6 +7,8 @@ Reverse DNS is best-effort and must never block the POST heartbeat.
 
 from __future__ import annotations
 
+from . import fileio
+
 import asyncio
 import json
 import socket
@@ -123,9 +125,10 @@ def validate_ios_session_payload(payload: Any) -> dict[str, str] | None:
 def load_ios_session(hass) -> dict[str, Any] | None:
     path = ios_session_path(hass)
     try:
-        if not path.is_file():
+        raw = fileio.read_text(path)
+        if raw is None:
             return None
-        data = json.loads(path.read_text())
+        data = json.loads(raw)
     except Exception:
         return None
     return data if isinstance(data, dict) else None
@@ -195,9 +198,7 @@ def persist_ios_session(
     previous = load_ios_session(hass)
     if isinstance(previous, dict) and "clients" in previous:
         payload["clients"] = previous["clients"]
-    path = ios_session_path(hass)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2) + "\n")
+    fileio.write_text(ios_session_path(hass), json.dumps(payload, indent=2) + "\n")
     return payload
 
 
@@ -257,9 +258,7 @@ def store_resolved_hostname(hass, ip: str, hostname: str) -> None:
     raw["hostname"] = host
     # raw is the full document, including clients when present. Do not
     # rebuild it: displayName and nameEdited must survive PTR.
-    path = ios_session_path(hass)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(raw, indent=2) + "\n")
+    fileio.write_text(ios_session_path(hass), json.dumps(raw, indent=2) + "\n")
 
 
 async def async_resolve_and_store_hostname(hass, ip: str) -> None:

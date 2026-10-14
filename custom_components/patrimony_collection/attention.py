@@ -103,7 +103,14 @@ def local_failure_class(reason: str | None) -> str | None:
     return None
 
 
-def title_for(fire_class: str, label: Any = None) -> str:
+def title_for(fire_class: str, label: Any = None, test: bool = False) -> str:
+    title = _title_for(fire_class, label)
+    if test:
+        return f"TEST: {title}"[:120]
+    return title
+
+
+def _title_for(fire_class: str, label: Any = None) -> str:
     fixed = _FIXED_TITLES.get(fire_class)
     if fixed:
         return fixed
@@ -187,7 +194,7 @@ def plan_automatic_pushes(
             {
                 "fire_class": fire,
                 "severity": wire_severity(fire),
-                "title": title_for(fire, fact.get("label")),
+                "title": title_for(fire, fact.get("label"), test=fact.get("test") is True),
                 "card_id": card,
             }
         )

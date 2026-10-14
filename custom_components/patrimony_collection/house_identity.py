@@ -7,6 +7,8 @@ and does not read an iOS session name back into the house.
 
 from __future__ import annotations
 
+from . import fileio
+
 import json
 from pathlib import Path
 from typing import Any
@@ -154,14 +156,15 @@ def _patch_mapping_identity(hass, data: dict) -> None:
     except Exception:
         return
     path = Path(raw)
-    if not path.is_file():
+    text = fileio.read_text(path)
+    if text is None:
         return
     try:
-        existing = json.loads(path.read_text(encoding="utf-8"))
+        existing = json.loads(text)
     except Exception:
         return
     if not isinstance(existing, dict):
         return
     existing["display_name"] = data.get(CONF_DISPLAY_NAME)
     existing["timezone"] = data.get(CONF_TIMEZONE)
-    path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    fileio.write_text(path, json.dumps(existing, indent=2) + "\n")

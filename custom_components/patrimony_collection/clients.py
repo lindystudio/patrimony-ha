@@ -20,6 +20,8 @@ timezone, or house event key.
 
 from __future__ import annotations
 
+from . import fileio
+
 import json
 import logging
 from datetime import datetime, timezone
@@ -136,9 +138,64 @@ def _jwt_iss(token: str) -> str | None:
     return iss.strip()
 
 
+MEMBER_CLIENT_KEY = "patrimony_member_client_id"
+
+
+def _member_marker(request) -> str | None:
+    getter = getattr(request, "get", None) if request is not None else None
+    if callable(getter):
+        try:
+            value = getter(MEMBER_CLIENT_KEY)
+        except Exception:
+            value = None
+        if value:
+            return str(value)
+    return None
+
+
 def request_client_id(request) -> str | None:
-    """Stable id for THIS credential: JWT iss (HA refresh-token id)."""
-    return _jwt_iss(_bearer(request))
+    """Stable id for THIS credential: JWT iss (HA refresh-token id).
+
+    Member views (0.4.96) authenticate a pmt_ token themselves and set
+    request[MEMBER_CLIENT_KEY]; that wins (a pmt_ token has no JWT iss anyway).
+    """
+    return _member_marker(request) or _jwt_iss(_bearer(request))
+
+
+def _request_user(request):
+    user = None
+    getter = getattr(request, "get", None) if request is not None else None
+    if callable(getter):
+        try:
+            user = getter("hass_user")
+        except Exception:
+            user = None
+    if user is None and request is not None:
+        user = getattr(request, "hass_user", None)
+    return user
+
+
+def owner_or_admin(hass, request) -> bool:
+    """Owner APIs (member mint/list/revoke): an HA admin, or the owner's pair bearer.
+
+    A member pmt_ token is never accepted (HA auth rejects it on requires_auth views;
+    a member-marked request is refused here as well).
+    """
+    if _member_marker(request):
+        return False
+    user = _request_user(request)
+    if user is None or getattr(user, "is_admin", False):
+        return True
+    client_id = _jwt_iss(_bearer(request))
+    row = get_client(hass, client_id) if client_id else None
+    return bool(row and row["status"] == STATUS_ACTIVE and row.get("role") == ROLE_OWNER)
+
+
+def is_admin_request(request) -> bool:
+    if _member_marker(request):
+        return False
+    user = _request_user(request)
+    return user is None or bool(getattr(user, "is_admin", False))
 
 
 def _safe_display(value: Any) -> str | None:
@@ -179,9 +236,7 @@ def _read_store(hass) -> dict[str, Any]:
 
 
 def _write_store(hass, data: dict[str, Any]) -> None:
-    path = ios_session_path(hass)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n")
+    fileio.write_text(ios_session_path(hass), json.dumps(data, indent=2) + "\n")
 
 
 def _clients_list(store: dict[str, Any]) -> list[dict[str, Any]]:
@@ -211,6 +266,28 @@ def _normalize_client(row: dict[str, Any]) -> dict[str, Any]:
         "unpairServed": bool(row.get("unpairServed")),
         "deviceName": _safe_display(row.get("deviceName")) or "",
         "appVersion": str(row.get("appVersion") or "").strip()[:40],
+        **_role_fields(row, client_id),
+    }
+
+
+ROLE_OWNER = "owner"
+ROLE_MEMBER = "member"
+
+
+def _role_fields(row: dict[str, Any], client_id: str) -> dict[str, Any]:
+    """0.4.96: role owner|member plus memberName, inviteId, principalId. Legacy rows are owner.
+
+    Member clients (id ``m_<memberId>``) are always role member, whatever the row says.
+    """
+    is_member = client_id.startswith("m_")
+    name = _safe_display(row.get("memberName")) if is_member else None
+    invite = str(row.get("inviteId") or "").strip()[:128] if is_member else ""
+    principal = str(row.get("principalId") or "").strip()[:128] if is_member else ""
+    return {
+        "role": ROLE_MEMBER if is_member else ROLE_OWNER,
+        "memberName": name or None,
+        "inviteId": invite or None,
+        "principalId": principal or None,
     }
 
 
@@ -244,6 +321,9 @@ def upsert_client(
     ha_username: str | None = None,
     touch_access: bool = True,
     now: datetime | None = None,
+    member_name: str | None = None,
+    invite_id: str | None = None,
+    principal_id: str | None = None,
 ) -> dict[str, Any]:
     """Create or update a paired credential row. Does not overwrite an edited name."""
     ident = str(client_id or "").strip()
@@ -273,7 +353,12 @@ def upsert_client(
             "unpairServed": False,
             "deviceName": _safe_display(device_name) or "",
             "appVersion": str(app_version or "").strip()[:40],
+            "memberName": member_name,
+            "inviteId": invite_id,
+            "principalId": principal_id,
         }
+        if member_name and not device_name:
+            found["displayName"] = _safe_display(member_name) or seed
         clients.append(found)
     else:
         if found["status"] != STATUS_UNPAIRED:
@@ -475,6 +560,10 @@ def panel_clients_document(hass) -> dict[str, Any]:
             {
                 "clientId": row["clientId"],
                 "displayName": row["displayName"],
+                "role": row.get("role") or ROLE_OWNER,
+                "memberName": row.get("memberName"),
+                "inviteId": row.get("inviteId"),
+                "principalId": row.get("principalId"),
                 "pairedAt": row["pairedAt"],
                 "lastAccessAt": row["lastAccessAt"],
                 "pairedAtDisplay": format_in_house_tz(hass, row["pairedAt"]),

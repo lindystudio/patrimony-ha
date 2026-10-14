@@ -15,7 +15,7 @@ from ..const import (
     PQ_SHIELD_ROTATE_PATH,
 )
 from .hybrid import HYBRID_CT_LEN, b64d
-from .session import get_manager
+from .session import get_manager, run_blocking
 
 try:
     from homeassistant.components.http import HomeAssistantView
@@ -92,7 +92,7 @@ class PQShieldPublicView(HomeAssistantView):
             return _json_error("disabled", "PQ shield feature is Off", 409)
         from aiohttp import web
 
-        return web.json_response(mgr.public_material())
+        return web.json_response(await run_blocking(self.hass, mgr.public_material))
 
 
 class PQShieldAcceptEncapView(HomeAssistantView):
@@ -125,7 +125,7 @@ class PQShieldAcceptEncapView(HomeAssistantView):
         if len(encap) != HYBRID_CT_LEN:
             return _json_error("bad_encap", f"encap must be {HYBRID_CT_LEN} bytes", 400)
         try:
-            body = mgr.accept_encap(encap)
+            body = await run_blocking(self.hass, mgr.accept_encap, encap)
         except Exception:
             return _json_error("encap_failed", "decapsulation failed", 400)
         from aiohttp import web
@@ -152,7 +152,7 @@ class PQShieldRotateView(HomeAssistantView):
             return _json_error("disabled", "PQ shield feature is Off", 409)
         from aiohttp import web
 
-        return web.json_response(mgr.rotate())
+        return web.json_response(await run_blocking(self.hass, mgr.rotate))
 
 
 class PQShieldDisableView(HomeAssistantView):
@@ -170,7 +170,9 @@ class PQShieldDisableView(HomeAssistantView):
         mgr = get_manager(self.hass)
         from aiohttp import web
 
-        return web.json_response(mgr.disable(wipe_keypair=True))
+        return web.json_response(
+            await run_blocking(self.hass, lambda: mgr.disable(wipe_keypair=True))
+        )
 
 
 
@@ -224,7 +226,8 @@ class PQShieldFeatureView(HomeAssistantView):
         # Options Off also wipes via _options_updated; when On, session stays until iOS Enable.
         if not enabled:
             try:
-                get_manager(self.hass).disable(wipe_keypair=True)
+                _m = get_manager(self.hass)
+                await run_blocking(self.hass, lambda: _m.disable(wipe_keypair=True))
             except Exception:
                 pass
         mgr = get_manager(self.hass)

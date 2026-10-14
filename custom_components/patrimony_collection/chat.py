@@ -44,6 +44,8 @@ show them. TLS covers the phone link.
 
 from __future__ import annotations
 
+from . import fileio
+
 import base64
 import hashlib
 import hmac
@@ -51,6 +53,7 @@ import json
 import logging
 import os
 import secrets
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -238,34 +241,75 @@ def _open_image(key: bytes, message_id: str, nonce_b64: Any, blob_b64: Any) -> b
     return _open_raw(key, message_id, nonce_b64, blob_b64, _IMAGE_DOMAIN)
 
 
+_CHAT_KEY_CACHE: dict[str, bytes] = {}
+_CHAT_KEY_LOCK = threading.Lock()
+
+
 def load_chat_key(hass) -> bytes:
-    """32-byte host key. Created on first use. Never logged."""
+    """32-byte host key. Created on first use. Never logged.
+
+    Cached per path after the first (blocking) read; async_warm_chat_key loads it in
+    an executor at setup so request handlers never touch disk. First creation is an
+    atomic exclusive write (tmp + fsync + os.link, never clobbers an existing key).
+    """
     path = key_path(hass)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.is_file():
+    ck = str(path)
+    cached = _CHAT_KEY_CACHE.get(ck)
+    if cached is not None:
+        return cached
+    with _CHAT_KEY_LOCK:
+        cached = _CHAT_KEY_CACHE.get(ck)
+        if cached is not None:
+            return cached
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.is_file():
+            key = secrets.token_bytes(32)
+            tmp = path.with_name(path.name + f".tmp{os.getpid()}")
+            fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            try:
+                os.write(fd, key)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            try:
+                os.link(tmp, path)  # atomic; fails if another writer won
+            except FileExistsError:
+                pass
+            finally:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+            try:
+                os.chmod(path, 0o600)
+            except Exception:
+                pass
         data = path.read_bytes()
-        if len(data) == 32:
-            return data
-        raise OSError("chat_key_unreadable")
-    key = secrets.token_bytes(32)
-    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        if len(data) != 32:
+            raise OSError("chat_key_unreadable")
+        _CHAT_KEY_CACHE[ck] = data
+        return data
+
+
+async def async_warm_chat_key(hass) -> None:
+    """Load/create chat.key off the event loop and cache it."""
+    job = getattr(hass, "async_add_executor_job", None)
     try:
-        os.write(fd, key)
-    finally:
-        os.close(fd)
-    try:
-        os.chmod(path, 0o600)
+        if job is not None:
+            await job(load_chat_key, hass)
+        else:
+            load_chat_key(hass)
     except Exception:
-        pass
-    return key
+        _LOGGER.error("patrimony_chat_key_warm_failed")
 
 
 def _read_store(hass) -> dict[str, Any]:
     path = chat_path(hass)
     try:
-        if not path.is_file():
+        raw = fileio.read_text(path)
+        if raw is None:
             return {"schemaVersion": SCHEMA_VERSION, "messages": []}
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(raw)
     except Exception:
         return {"schemaVersion": SCHEMA_VERSION, "messages": []}
     if not isinstance(data, dict):
@@ -280,7 +324,6 @@ def _read_store(hass) -> dict[str, Any]:
 
 def _write_store(hass, store: dict[str, Any]) -> None:
     path = chat_path(hass)
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "schemaVersion": SCHEMA_VERSION,
         "messages": list(store.get("messages") or []),
@@ -293,10 +336,7 @@ def _write_store(hass, store: dict[str, Any]) -> None:
             if str(k).strip() and str(v).strip()
         }
     text = json.dumps(payload, indent=2) + "\n"
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.chmod(tmp, 0o600)
-    tmp.replace(path)
+    fileio.write_text(path, text)
 
 
 def _expired(row: dict[str, Any], now: datetime) -> bool:
@@ -477,7 +517,7 @@ def caller_identity(hass, request) -> dict[str, str]:
 
 
 def _can_delete(caller: dict[str, str], row: dict[str, Any]) -> bool:
-    """Any member of the house may delete any message: panel users and paired phones."""
+    """Any panel user or paired owner phone may delete any message. Members (pmt_) never reach this path."""
     return caller.get("kind") in ("panel", "ios")
 
 
@@ -955,7 +995,11 @@ class PatrimonyChatView(HomeAssistantView):
 
 
 class PatrimonyChatMessageView(HomeAssistantView):
-    """Delete one message. Panel may delete any. Sender may delete their own."""
+    """Delete one message (HA-auth only).
+
+    Any panel user or paired owner phone may delete ANY message. Members (pmt_
+    tokens) cannot delete: they have no route here and /m/chat sets canDelete=false.
+    """
 
     url = CHAT_MESSAGE_PATH
     name = "api:patrimony_collection:chat_message"

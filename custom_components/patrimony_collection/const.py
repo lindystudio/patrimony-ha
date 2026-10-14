@@ -42,6 +42,11 @@ PAIR_PATH: Final = "/api/patrimony_collection/pair"
 PAIR_CLAIM_PATH: Final = "/api/patrimony_collection/p/{code}"
 PAIR_CLIENT_NAME: Final = "Patrimony iOS"
 PAIR_TICKET_TTL_SECONDS: Final = 15 * 60
+PAIR_TICKET_FILE: Final = "patrimony_collection/pair_tickets.json"
+PAIR_CODE_BYTES: Final = 24  # 192 bits; token_urlsafe -> 32 chars
+PAIR_CLAIM_PER_IP_PER_MIN: Final = 10
+PAIR_CLAIM_GLOBAL_PER_MIN: Final = 60
+PAIR_CLAIM_REPLAY_GRACE_SECONDS: Final = 10.0
 NOTIFY_PATH: Final = "/api/patrimony_collection/notify"
 NOTIFY_FILE: Final = "patrimony_collection/notify.json"
 EVENT_KEY_PATH: Final = "/api/patrimony_collection/event_key"
@@ -50,6 +55,28 @@ IOS_SESSION_FILE: Final = "patrimony_collection/ios_session.json"
 PAIRING_PATH: Final = "/api/patrimony_collection/pairing"
 CLIENTS_PATH: Final = "/api/patrimony_collection/clients"
 CLIENT_PATH: Final = "/api/patrimony_collection/clients/{client_id}"
+# 0.4.96 member access (opaque scoped token; not an HA token)
+MEMBERS_FILE: Final = "patrimony_collection/members.json"
+MEMBERS_PATH: Final = "/api/patrimony_collection/members"
+MEMBERS_MINT_PATH: Final = "/api/patrimony_collection/members/mint"
+MEMBER_REVOKE_PATH: Final = "/api/patrimony_collection/members/{principal_id}/revoke"
+MEMBER_STATE_PATH: Final = "/api/patrimony_collection/m/state"
+MEMBER_PAIRING_PATH: Final = "/api/patrimony_collection/m/pairing"
+MEMBER_CHAT_PATH: Final = "/api/patrimony_collection/m/chat"
+# 0.4.98 member PQ shield: per-member session, same scheme/envelope as the owner.
+MEMBER_PQ_PUBLIC_PATH: Final = "/api/patrimony_collection/m/pq/public"
+MEMBER_PQ_ENCAP_PATH: Final = "/api/patrimony_collection/m/pq/encap"
+MEMBER_PQ_ACCEPT_ENCAP_PATH: Final = "/api/patrimony_collection/m/pq/accept_encap"  # alias of encap (mirrors owner name)
+MEMBER_PQ_ROTATE_PATH: Final = "/api/patrimony_collection/m/pq/rotate"
+# While owner PQ shield is ON, a member with no PQ session gets 428 pq_session_required.
+# Override per house with config-entry option CONF_MEMBER_PQ_REQUIRED (bool).
+MEMBER_PQ_REQUIRED: Final = True
+CONF_MEMBER_PQ_REQUIRED: Final = "member_pq_required"
+MEMBER_TOKEN_PREFIX: Final = "pmt_"
+MEMBER_TOKEN_TTL_DAYS_DEFAULT: Final = 30
+MEMBER_TOKEN_TTL_DAYS_MAX: Final = 365
+MEMBER_NAME_MAX: Final = 80
+MEMBER_INACTIVE_KEEP_DAYS: Final = 30
 CLIENT_UNPAIR_PATH: Final = "/api/patrimony_collection/clients/{client_id}/unpair"
 IOS_DEVICE_NAME_MAX: Final = 80
 IOS_APP_VERSION_MAX: Final = 40
@@ -219,3 +246,12 @@ WEATHER_LABELS: Final = {
     "windy-variant": "Windy",
     "exceptional": "Severe weather",
 }
+PROPERTY_PATH: Final = "/api/patrimony_collection/property"
+PROPERTY_ADOPT_LOG_PATH: Final = "/api/patrimony_collection/property/adopt_log"
+CONF_CLAIMED_AT: Final = "claimed_at"
+CONF_ADOPT_LOCK_MIGRATED: Final = "adopt_lock_migrated"
+CONF_PROPERTY_ID_SOURCE: Final = "property_id_source"
+CONF_PROPERTY_ID_HISTORY: Final = "property_id_history"
+ADOPT_LOG_MAX: Final = 50
+ADOPT_RATE_MAX: Final = 5
+ADOPT_RATE_WINDOW_SECONDS: Final = 600

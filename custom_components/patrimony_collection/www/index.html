@@ -414,7 +414,8 @@
     .pushlog-row:first-child { border-top: 0; }
     .pushlog-row.failed { border-left: 3px solid var(--gold); padding-left: 10px; }
     .pushlog-row .conn-row .v { white-space: normal; overflow-wrap: anywhere; overflow: visible; }
-</style>
+    button:focus-visible, [role="tab"]:focus-visible, summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  </style>
 </head>
 <body>
   <div class="chrome">
@@ -425,7 +426,7 @@
           <span class="wordmark">Patrimony</span>
         </div>
         <div class="head-actions">
-          <span class="status" id="status"></span>
+          <span class="status" id="status" role="status" aria-live="polite"></span>
           <button class="ghost" type="button" id="retry_session" hidden>Retry</button>
           <button class="primary" type="button" id="save">Save</button>
         </div>
@@ -437,7 +438,7 @@
         <span id="house_id"></span>
       </p>
     </header>
-    <nav class="tab-bar" id="tab_bar" role="tablist">
+    <nav class="tab-bar" id="tab_bar" role="tablist" aria-label="Sections">
       <button type="button" class="tab is-active" id="tab_cards" data-tab="cards" role="tab" aria-selected="true">Cards</button>
       <button type="button" class="tab" id="tab_people" data-tab="people" role="tab" aria-selected="false">People</button>
       <button type="button" class="tab" id="tab_soon" data-tab="soon" role="tab" aria-selected="false">House</button>
@@ -459,7 +460,7 @@
         <button class="ghost add-cta" type="button" id="people_add">Add person</button>
         <button class="primary" type="button" id="people_save" hidden>Save people</button>
       </div>
-      <p class="status" id="people_status"></p>
+      <p class="status" id="people_status" role="status" aria-live="polite"></p>
     </div>
     <div id="pane_soon" class="pane" role="tabpanel" hidden>
       <nav class="house-subnav" id="house_subnav" role="tablist" aria-label="House">
@@ -483,7 +484,7 @@
           <button class="ghost" type="button" id="house_tz_from_ha">Use this Home Assistant's timezone</button>
         </div>
         <p class="quiet" id="house_ha_zone_line">This Home Assistant's timezone is <span id="house_ha_zone">—</span>.</p>
-        <p class="status" id="house_identity_status"></p>
+        <p class="status" id="house_identity_status" role="status" aria-live="polite"></p>
         <h3>Photograph</h3>
         <p class="quiet">The face of the pass.</p>
         <div class="still still-empty" id="photo_still">
@@ -502,12 +503,12 @@
           <button type="button" class="danger" id="photo_confirm_yes">Remove</button>
           <button type="button" class="ghost" id="photo_keep">Keep</button>
         </div>
-        <p class="status" id="photo_status"></p>
+        <p class="status" id="photo_status" role="status" aria-live="polite"></p>
         <h3>Notepad</h3>
         <p class="quiet">The same page on the phone.</p>
         <textarea id="notes_text" maxlength="8000" aria-label="Notepad"></textarea>
         <div class="actions">
-          <span class="status" id="notes_status"></span>
+          <span class="status" id="notes_status" role="status" aria-live="polite"></span>
           <span class="quiet notes-cap" id="notes_cap">0/8000</span>
         </div>
         <h3>Invitation</h3>
@@ -521,7 +522,7 @@
             <button class="ghost" type="button" id="pair_dismiss">Dismiss</button>
           </div>
         </div>
-        <p class="status" id="pair_status"></p>
+        <p class="status" id="pair_status" role="status" aria-live="polite"></p>
         <div class="soon-meta">
           <p>Time zone <span id="soon_zone">—</span></p>
         </div>
@@ -539,7 +540,7 @@
         </div>
         <div class="actions">
           <button class="ghost" type="button" id="conn_check">Check links</button>
-          <span class="status" id="conn_status"></span>
+          <span class="status" id="conn_status" role="status" aria-live="polite"></span>
         </div>
         <h3>Latest iOS connection</h3>
         <div class="conn-list">
@@ -558,18 +559,18 @@
           <button class="ghost" type="button" id="conn_pq_rotate" hidden>Rotate</button>
           <button class="danger" type="button" id="conn_pq_disable" hidden>Disable</button>
         </div>
-        <p class="status" id="conn_pq_msg"></p>
+        <p class="status" id="conn_pq_msg" role="status" aria-live="polite"></p>
         <h3>Push</h3>
         <p class="quiet">Sends an Apple push notification (APNs). It shows as a banner on the principal’s iOS devices.</p>
-        <input id="notify_title" maxlength="120" aria-label="Banner text" />
+        <input id="notify_title" maxlength="120" aria-label="Banner text" placeholder="Guest arriving" />
         <div class="actions">
           <button class="primary" type="button" id="notify_send">Send</button>
-          <span class="status" id="notify_status"></span>
+          <span class="status" id="notify_status" role="status" aria-live="polite"></span>
         </div>
       </section>
       <section class="soon-card" id="soon_pushlog" hidden>
         <h2>Push log</h2>
-        <p class="quiet" id="pushlog_empty">No attention pushes yet.</p>
+        <p class="quiet" id="pushlog_empty">No pushes yet. Alerts and manual sends appear here.</p>
         <div id="pushlog_rows"></div>
       </section>
       <section class="soon-card" id="soon_chat" hidden>
@@ -588,7 +589,7 @@
         </select>
         <div class="actions">
           <button class="primary" type="button" id="chat_send">Send</button>
-          <span class="status" id="chat_status"></span>
+          <span class="status" id="chat_status" role="status" aria-live="polite"></span>
         </div>
       </section>
       <section class="soon-card" id="soon_phones" hidden>
@@ -596,7 +597,12 @@
         <p class="quiet">Names shown in chat for each paired iPhone. Times use this house timezone.</p>
         <p class="quiet" id="phones_empty">No paired phones yet.</p>
         <div id="phones_list"></div>
-        <p class="status" id="phones_status"></p>
+        <p class="status" id="phones_status" role="status" aria-live="polite"></p>
+        <h3 id="members_heading">Members and pending invites</h3>
+        <p class="quiet">Read-only access for invited people. Revoking ends all of that person's access at once.</p>
+        <p class="quiet" id="members_empty">No members or pending invites.</p>
+        <div id="members_list" aria-labelledby="members_heading"></div>
+        <p class="status" id="members_status" role="status" aria-live="polite"></p>
       </section>
     </div>
   </div>
@@ -1116,8 +1122,8 @@
           ${passBtns}
           <input class="line-label" data-label="${esc(m.item_id)}" value="${esc(m.label || "")}" aria-label="Label" />
           <span class="line-live ${esc(sev)}" data-live="${esc(m.item_id)}">${esc(live)}</span>
-          <button type="button" class="ghost btn-icon" data-act="line-up" data-id="${esc(m.item_id)}" ${idx===0?"disabled":""} aria-label="Up">↑</button>
-          <button type="button" class="ghost btn-icon" data-act="line-down" data-id="${esc(m.item_id)}" ${idx===len-1?"disabled":""} aria-label="Down">↓</button>
+          <button type="button" class="ghost btn-icon" data-act="line-up" data-id="${esc(m.item_id)}" ${idx===0?"disabled":""} aria-label="Move line up">↑</button>
+          <button type="button" class="ghost btn-icon" data-act="line-down" data-id="${esc(m.item_id)}" ${idx===len-1?"disabled":""} aria-label="Move line down">↓</button>
           <button type="button" class="ghost btn-icon" data-act="adv" data-id="${esc(m.item_id)}" aria-expanded="${adv?"true":"false"}" aria-label="Advanced">…</button>
         </div>
         ${adv ? drawAdvanced(m) : ""}
@@ -1139,12 +1145,12 @@
       const addOpen = addingLines;
       const addFields = addOpen ? `
           <label for="q">Add from the house</label>
-          <input id="q" placeholder="Search by name" autocomplete="off" />
+          <input id="q" placeholder="Search by name" aria-label="Search entities by name" autocomplete="off" />
           <div id="hits"></div>
           <div class="add-line-head">Add a line</div>
           <div class="add-line">
-            <input id="ph_label" placeholder="Label" autocomplete="off" />
-            <input id="ph_value" placeholder="Value" autocomplete="off" />
+            <input id="ph_label" placeholder="Label" aria-label="Line label" autocomplete="off" />
+            <input id="ph_value" placeholder="Value" aria-label="Line value" autocomplete="off" />
             <button class="primary" type="button" data-act="add-line" id="ph_add">Add</button>
           </div>` : "";
       return `<div class="card-body">
@@ -1164,7 +1170,7 @@
     function newCardControls() {
       if (addingCard) {
         return `<div class="new-card-row">
-          <input id="new_card_title" placeholder="Card title" autocomplete="off" />
+          <input id="new_card_title" placeholder="Card title" aria-label="New card title" autocomplete="off" />
           <button type="button" class="primary" data-act="commit-card">Add</button>
           <button type="button" class="ghost" data-act="cancel-card">Cancel</button>
         </div>`;
@@ -1195,8 +1201,8 @@
         const ask = pendingConfirm && pendingConfirm.id === card.id ? confirmBar(pendingConfirm.kind, card.id) : "";
         const tools = open ? `<div class="card-tools">
             <span class="count">${n} ${n===1?"line":"lines"}</span>
-            <button type="button" class="ghost btn-icon" data-act="card-up" data-id="${esc(card.id)}" ${idx===0?"disabled":""} aria-label="Up">↑</button>
-            <button type="button" class="ghost btn-icon" data-act="card-down" data-id="${esc(card.id)}" ${idx===cards.length-1?"disabled":""} aria-label="Down">↓</button>
+            <button type="button" class="ghost btn-icon" data-act="card-up" data-id="${esc(card.id)}" ${idx===0?"disabled":""} aria-label="Move card up">↑</button>
+            <button type="button" class="ghost btn-icon" data-act="card-down" data-id="${esc(card.id)}" ${idx===cards.length-1?"disabled":""} aria-label="Move card down">↓</button>
             <button class="ghost add-cta" type="button" data-act="toggle-add" aria-expanded="${addingLines?"true":"false"}">Add</button>
             ${addingLines ? `<button class="ghost" type="button" data-act="toggle-add">Done</button>` : ""}
             <button type="button" class="ghost" data-act="rename" data-id="${esc(card.id)}">Rename</button>
@@ -1860,6 +1866,7 @@
     const HOUSE_PATH = '/api/patrimony_collection/house';
     const CHAT_PATH = '/api/patrimony_collection/chat';
     const CLIENTS_PATH = '/api/patrimony_collection/clients';
+    const MEMBERS_PATH = '/api/patrimony_collection/members';
 
     let activeTab = "cards";
 
@@ -1938,8 +1945,8 @@
           <div class="people-card-head">
             <input class="people-fn" data-p="function" data-i="${i}" value="${esc(row.function || "")}" placeholder="Role" aria-label="Role" maxlength="${PEOPLE_MAX_TEXT}" />
             <div class="people-tools">
-              <button class="ghost btn-icon" type="button" data-up="${i}" ${i === 0 ? "disabled" : ""} aria-label="Up">↑</button>
-              <button class="ghost btn-icon" type="button" data-down="${i}" ${i === people.length - 1 ? "disabled" : ""} aria-label="Down">↓</button>
+              <button class="ghost btn-icon" type="button" data-up="${i}" ${i === 0 ? "disabled" : ""} aria-label="Move person up">↑</button>
+              <button class="ghost btn-icon" type="button" data-down="${i}" ${i === people.length - 1 ? "disabled" : ""} aria-label="Move person down">↓</button>
               <button class="danger" type="button" data-del="${i}">Remove</button>
             </div>
           </div>
@@ -3067,6 +3074,7 @@
           card.innerHTML =
             '<label for="' + nameId + '">Display name</label>' +
             '<input type="text" id="' + nameId + '" maxlength="80" aria-label="Display name" />' +
+            '<div class="phone-meta" data-k="role"></div>' +
             '<div class="phone-meta">Paired <span data-k="paired"></span></div>' +
             '<div class="phone-meta">Last access <span data-k="access"></span></div>' +
             '<div class="phone-actions">' +
@@ -3076,6 +3084,8 @@
             '</div>';
           const input = card.querySelector("input");
           if (input) input.value = String(row.displayName || "");
+          const roleEl = card.querySelector('[data-k="role"]');
+          if (roleEl) roleEl.textContent = row.role === "member" ? "Member" + (row.memberName ? " · " + String(row.memberName) : "") : "Owner";
           const paired = card.querySelector('[data-k="paired"]');
           const access = card.querySelector('[data-k="access"]');
           if (paired) paired.textContent = String(row.pairedAtDisplay || row.pairedAt || "—");
@@ -3088,8 +3098,81 @@
           list.appendChild(card);
         });
         if (status) status.textContent = rows.length ? "" : status.textContent;
+        loadMembers();
       } catch (e) {
         if (status) status.textContent = "Could not load phones";
+      }
+    }
+    let membersRevokeStep = {};
+    const MEMBER_STATUS_LABEL = { active: "Active", pending: "Pending", expired: "Expired", revoked: "Revoked" };
+    async function loadMembers() {
+      const list = $("members_list");
+      const empty = $("members_empty");
+      const status = $("members_status");
+      if (!list || sessionExpired) return;
+      try {
+        const r = await bin(MEMBERS_PATH);
+        if (!r.ok) {
+          if (status) status.textContent = "Could not load members";
+          return;
+        }
+        const doc = await r.json();
+        const rows = [].concat(doc.members || [], doc.pending || [], doc.inactive || []);
+        membersRevokeStep = {};
+        list.innerHTML = "";
+        if (empty) empty.hidden = rows.length > 0;
+        rows.forEach(function (row) {
+          const pid = String(row.principalId || "");
+          const st = String(row.status || "");
+          const card = document.createElement("div");
+          card.className = "phone-card";
+          card.dataset.memberId = String(row.memberId || "");
+          card.innerHTML =
+            '<div class="phone-meta"><strong data-k="name"></strong> · <span data-k="status"></span></div>' +
+            '<div class="phone-meta">Expires <span data-k="exp"></span></div>' +
+            '<div class="phone-meta">Last used <span data-k="used"></span></div>' +
+            '<div class="phone-actions">' +
+            '<button type="button" class="danger" data-act="revoke">Revoke</button>' +
+            '<span class="phone-confirm" data-k="confirm" hidden></span>' +
+            '</div>';
+          card.querySelector('[data-k="name"]').textContent = String(row.memberName || "Member");
+          card.querySelector('[data-k="status"]').textContent = MEMBER_STATUS_LABEL[st] || st;
+          card.querySelector('[data-k="exp"]').textContent = String(row.expiresAtDisplay || row.expiresAt || "—");
+          card.querySelector('[data-k="used"]').textContent = String(row.lastUsedAtDisplay || row.lastUsedAt || "Never");
+          const btn = card.querySelector('[data-act="revoke"]');
+          const confirm = card.querySelector('[data-k="confirm"]');
+          if ((st === "active" || st === "pending") && pid) {
+            btn.setAttribute("aria-label", "Revoke " + String(row.memberName || "member"));
+            btn.onclick = function () { revokeMember(pid, btn, confirm, status); };
+          } else {
+            btn.hidden = true;
+          }
+          list.appendChild(card);
+        });
+      } catch (e) {
+        if (status) status.textContent = "Could not load members";
+      }
+    }
+    async function revokeMember(principalId, btn, confirm, status) {
+      if (!membersRevokeStep[principalId]) {
+        membersRevokeStep[principalId] = 1;
+        if (confirm) { confirm.hidden = false; confirm.textContent = "Tap Revoke again to confirm. All of this person's member access ends now."; }
+        if (btn) btn.textContent = "Confirm revoke";
+        return;
+      }
+      try {
+        const r = await bin(MEMBERS_PATH + "/" + encodeURIComponent(principalId) + "/revoke", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}"
+        });
+        if (status) status.textContent = r.ok ? "Revoked" : "Could not revoke";
+        delete membersRevokeStep[principalId];
+        await loadMembers();
+        await loadPhones();
+      } catch (e) {
+        if (status) status.textContent = "Could not revoke";
+        membersRevokeStep[principalId] = 0;
       }
     }
     async function savePhoneName(clientId, input, status) {

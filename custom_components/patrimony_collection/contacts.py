@@ -7,6 +7,8 @@ When `app` is not one of the methods, `method` is cellular.
 
 from __future__ import annotations
 
+from . import fileio
+
 import json
 import re
 from pathlib import Path
@@ -95,9 +97,10 @@ def normalize_list(raw: Any) -> list[dict[str, str]]:
 def load_contacts(hass) -> list[dict[str, str]]:
     path = contacts_path(hass)
     try:
-        if not path.is_file():
+        raw = fileio.read_text(path)
+        if raw is None:
             return []
-        data = json.loads(path.read_text())
+        data = json.loads(raw)
     except Exception:
         return []
     if isinstance(data, dict):
@@ -108,9 +111,8 @@ def load_contacts(hass) -> list[dict[str, str]]:
 def save_contacts(hass, contacts: list[dict[str, str]]) -> list[dict[str, str]]:
     rows = normalize_list(keep_stored_apps(contacts, load_contacts(hass)))
     path = contacts_path(hass)
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"schemaVersion": 1, "contacts": rows}
-    path.write_text(json.dumps(payload, indent=2) + "\n")
+    fileio.write_text(path, json.dumps(payload, indent=2) + "\n")
     return rows
 
 

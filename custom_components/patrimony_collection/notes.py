@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from . import fileio
+
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,9 +35,10 @@ def _clip(text: str) -> str:
 def load_notes(hass) -> dict[str, Any] | None:
     path = notes_path(hass)
     try:
-        if not path.is_file():
+        raw = fileio.read_text(path)
+        if raw is None:
             return None
-        data = json.loads(path.read_text())
+        data = json.loads(raw)
     except Exception:
         return None
     return data if isinstance(data, dict) else None
@@ -70,7 +73,5 @@ def save_notes(hass, text: Any, property_id: str | None) -> dict[str, Any]:
         "text": clipped,
         "updatedAt": _utc_z(),
     }
-    path = notes_path(hass)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2) + "\n")
+    fileio.write_text(notes_path(hass), json.dumps(payload, indent=2) + "\n")
     return payload

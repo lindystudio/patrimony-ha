@@ -5,6 +5,8 @@ entity_id is consumed from HA storage and never copied onto the wire.
 
 from __future__ import annotations
 
+from . import fileio
+
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
@@ -52,11 +54,11 @@ def load_shared_mapping(hass: HomeAssistant | None) -> dict[str, Any] | None:
         path = "/config/patrimony_collection/mapping.json"
     try:
         from pathlib import Path
-        p = Path(path)
-        if not p.is_file():
+        raw = fileio.read_text(Path(path))
+        if raw is None:
             return None
         import json
-        data = json.loads(p.read_text())
+        data = json.loads(raw)
         return data if isinstance(data, dict) else None
     except Exception:
         return None
@@ -451,14 +453,14 @@ def seed_shared_mapping(hass: HomeAssistant | None, entry_data: dict[str, Any], 
     import json
     p = Path(path)
     existing = None
-    if p.is_file():
+    raw = fileio.read_text(p)
+    if raw is not None:
         try:
-            existing = json.loads(p.read_text())
+            existing = json.loads(raw)
         except Exception:
             existing = None
     if isinstance(existing, dict) and (_list(existing.get("cards")) or _list(existing.get("mappings"))):
         return
-    p.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "property_id": entry_data.get(CONF_PROPERTY_ID),
         "display_name": entry_data.get(CONF_DISPLAY_NAME),
@@ -467,7 +469,7 @@ def seed_shared_mapping(hass: HomeAssistant | None, entry_data: dict[str, Any], 
         "cards": cards,
         "mappings": mappings,
     }
-    p.write_text(json.dumps(payload, indent=2) + "\n")
+    fileio.write_text(p, json.dumps(payload, indent=2) + "\n")
 
 
 
@@ -1201,6 +1203,9 @@ def _build_item(
     return _attach_featured_rank(item, mapping)
 
 
+TEST_ENTITY_PREFIX = "patrimony_test_"
+
+
 def attention_facts(
     hass: HomeAssistant | None,
     entry_data: dict[str, Any],
@@ -1281,6 +1286,8 @@ def _attention_fact(
         "raw": lowered,
         "severity": severity,
         "on": bool(on),
+        # Simulated entities used for live push checks; title says TEST.
+        "test": entity_id.split(".", 1)[-1].startswith(TEST_ENTITY_PREFIX),
     }
 
 

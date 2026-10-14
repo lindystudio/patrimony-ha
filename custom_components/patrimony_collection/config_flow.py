@@ -175,6 +175,7 @@ class PatrimonyCollectionConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors[CONF_PROPERTY_ID] = "invalid_uuid"
             else:
                 self._property_id = property_id
+                self._property_id_source = "manual"
                 return await self._async_create_house()
 
         schema = vol.Schema({vol.Required(CONF_PROPERTY_ID): str})
@@ -212,7 +213,7 @@ class PatrimonyCollectionConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_create_entry(
             title=f"{display_name} ({property_id})",
             data=data,
-            options={CONF_CARDS: [], CONF_MAPPINGS: [], CONF_HOUSE_EVENT_KEY: None, CONF_PQ_SHIELD: True},
+            options={CONF_CARDS: [], CONF_MAPPINGS: [], CONF_HOUSE_EVENT_KEY: None, CONF_PQ_SHIELD: True, "property_id_source": getattr(self, "_property_id_source", "minted")},
         )
 
     async def async_set_unique_id(self, unique_id: str, **kwargs):

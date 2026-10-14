@@ -7,8 +7,12 @@ Never logs key material.
 
 from __future__ import annotations
 
+from .. import fileio
+
 import json
 import logging
+import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +31,15 @@ _LOGGER = logging.getLogger(__name__)
 
 STORE_VERSION = 1
 RUNTIME_KEY = "pq_shield"
+_WRITE_LOCK = threading.Lock()
+
+
+async def run_blocking(hass, func, *args):
+    """Run a blocking store op off the event loop (inline when no executor, e.g. unit fakes)."""
+    runner = getattr(hass, "async_add_executor_job", None)
+    if runner is None:
+        return func(*args)
+    return await runner(func, *args)
 
 
 def _store_path(hass) -> Path:
@@ -61,6 +74,8 @@ class PQShieldManager:
         self._aead_key: bytes | None = None
         self._available, self._probe_reason = probe_mlkem()
         self._loaded = False
+        # 0.4.98: per-member PQ sessions {memberId: aead_key(32)}. Never logged.
+        self._member_keys: dict[str, bytes] = {}
 
     @property
     def available(self) -> bool:
@@ -84,24 +99,20 @@ class PQShieldManager:
 
     def _read_disk(self) -> dict[str, Any]:
         path = _store_path(self.hass)
-        if not path.is_file():
+        raw = fileio.read_text(path)
+        if raw is None:
             return {}
         try:
-            data = json.loads(path.read_text())
+            data = json.loads(raw)
             return data if isinstance(data, dict) else {}
         except Exception:
             _LOGGER.warning("pq_shield_store_read_failed")
             return {}
 
     def _write_disk(self, payload: dict[str, Any]) -> None:
-        path = _store_path(self.hass)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Private file — best-effort restrictive mode.
-        path.write_text(json.dumps(payload) + "\n")
-        try:
-            path.chmod(0o600)
-        except Exception:
-            pass
+        """Atomic (tmp + fsync + os.replace), 0600, serialized, cache write-through."""
+        with _WRITE_LOCK:
+            fileio.write_text(_store_path(self.hass), json.dumps(payload) + "\n")
 
     def _persist(self) -> None:
         payload: dict[str, Any] = {"version": STORE_VERSION}
@@ -111,6 +122,8 @@ class PQShieldManager:
             payload["x25519Private"] = b64e(x25519_seed)
         if self._aead_key is not None:
             payload["aeadKey"] = b64e(self._aead_key)
+        if self._member_keys:
+            payload["memberSessions"] = {m: b64e(k) for m, k in self._member_keys.items()}
         self._write_disk(payload)
 
     def load(self) -> None:
@@ -132,10 +145,18 @@ class PQShieldManager:
                 key = b64d(aead_b64)
                 if len(key) == 32:
                     self._aead_key = key
+            members = data.get("memberSessions")
+            if isinstance(members, dict):
+                for mid, kb64 in members.items():
+                    if isinstance(mid, str) and isinstance(kb64, str):
+                        mk = b64d(kb64)
+                        if len(mk) == 32:
+                            self._member_keys[mid] = mk
         except Exception:
             _LOGGER.warning("pq_shield_store_corrupt_wiped")
             self._recipient = None
             self._aead_key = None
+            self._member_keys = {}
             self._write_disk({"version": STORE_VERSION})
 
     def ensure_recipient(self) -> PQShieldRecipient:
@@ -176,6 +197,7 @@ class PQShieldManager:
     def disable(self, *, wipe_keypair: bool = True) -> dict[str, Any]:
         self.load()
         self._aead_key = None
+        self._member_keys = {}
         if wipe_keypair:
             self._recipient = None
         self._write_disk({"version": STORE_VERSION})
@@ -198,18 +220,90 @@ class PQShieldManager:
         """Test-only accessor. Do not expose on HTTP."""
         return self._aead_key
 
+    # ---- 0.4.98 member PQ sessions (same KEM/AEAD/envelope as the owner) ----
+
+    @property
+    def shield_on(self) -> bool:
+        """Owner PQ shield ON for this house (feature enabled and ML-KEM available)."""
+        return bool(self.available and self.feature_enabled)
+
+    def member_session_present(self, member_id: str) -> bool:
+        self.load()
+        return len(self._member_keys.get(str(member_id), b"")) == 32
+
+    def member_capability(self, member_id: str) -> dict[str, Any]:
+        """Owner capability shape, with session = THIS member's session state."""
+        return capability_payload(
+            feature_enabled=self.feature_enabled,
+            session_present=self.member_session_present(member_id),
+            available=self.available,
+            reason=None if self.available else self._probe_reason,
+        )
+
+    def accept_member_encap(self, member_id: str, encap: bytes) -> dict[str, Any]:
+        """Blocking. Decapsulate a member's encap to the house recipient; store its own key."""
+        if not self.available:
+            raise RuntimeError("unavailable")
+        if not self.feature_enabled:
+            raise RuntimeError("disabled")
+        if len(encap) != HYBRID_CT_LEN:
+            raise ValueError("bad_encap")
+        mid = str(member_id or "")
+        if not mid:
+            raise ValueError("bad_member")
+        recipient = self.ensure_recipient()
+        self._member_keys[mid] = derive_aead_key(recipient.decapsulate(encap))
+        self._persist()
+        return {"ok": True, "session": "present"}
+
+    def drop_member_sessions(self, member_ids) -> int:
+        """Blocking. Delete member PQ sessions (revoke / expiry / member rotate)."""
+        self.load()
+        n = 0
+        for mid in {str(m) for m in (member_ids or ()) if m}:
+            if self._member_keys.pop(mid, None) is not None:
+                n += 1
+        if n:
+            self._persist()
+        return n
+
+    def wrap_for_member(self, member_id: str, document: dict[str, Any]) -> dict[str, Any] | None:
+        """Envelope with THIS member's key; plain doc when shield Off; None = no session (caller decides 428/plain)."""
+        self.load()
+        if not self.shield_on:
+            return document
+        key = self._member_keys.get(str(member_id))
+        if key is None or len(key) != 32:
+            return None
+        return seal_document(key, document).to_dict()
+
+    def member_aead_key_for_tests(self, member_id: str) -> bytes | None:
+        """Test-only accessor. Do not expose on HTTP."""
+        return self._member_keys.get(str(member_id))
+
+
+def _build_manager(hass) -> PQShieldManager:
+    """Blocking: probes ML-KEM and reads pq_shield.json. Run in an executor."""
+    mgr = PQShieldManager(hass)
+    mgr.load()
+    return mgr
+
 
 def get_manager(hass) -> PQShieldManager:
     domain = hass.data.setdefault(DOMAIN, {})
     mgr = domain.get(RUNTIME_KEY)
     if isinstance(mgr, PQShieldManager):
         return mgr
-    mgr = PQShieldManager(hass)
-    mgr.load()
+    # Fallback only (setup normally pre-warms off-loop via async_setup_pq_shield).
+    mgr = _build_manager(hass)
     domain[RUNTIME_KEY] = mgr
     return mgr
 
 
 async def async_setup_pq_shield(hass) -> None:
-    """Warm capability probe + load store into runtime."""
-    get_manager(hass)
+    """Warm capability probe + load store into runtime, off the event loop."""
+    domain = hass.data.setdefault(DOMAIN, {})
+    if isinstance(domain.get(RUNTIME_KEY), PQShieldManager):
+        return
+    mgr = await run_blocking(hass, _build_manager, hass)
+    domain.setdefault(RUNTIME_KEY, mgr)

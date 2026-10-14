@@ -478,7 +478,7 @@ def test_panel_push_log_tab_copy():
     button = 'data-house-sub="pushlog"'
     assert button in html
     assert ">Push log<" in html
-    assert "No attention pushes yet." in html
+    assert "No pushes yet. Alerts and manual sends appear here." in html
     assert "No iOS client registered" in html
     assert "device list not returned by the events API" not in html
     assert "manual.send" in html

@@ -564,19 +564,48 @@ def manual_notify_decision(key, title):
     return {"fire_class": "manual", "severity": "attention", "title": text}
 
 
-def load_notify_card_id() -> str:
-    try:
-        if NOTIFY_PATH.is_file():
+def _read_notify_doc():
+    """{} if missing, the dict if readable, None if the file exists but is unreadable."""
+    import time
+    for attempt in range(3):
+        try:
+            if not NOTIFY_PATH.is_file():
+                return {}
             data = json.loads(NOTIFY_PATH.read_text())
             if isinstance(data, dict):
-                cid = str(data.get("cardId") or "").strip()
-                if cid:
-                    return cid
-    except Exception:
-        pass
-    cid = str(uuid.uuid4())
+                return data
+        except Exception:
+            pass
+        time.sleep(0.05 * (attempt + 1))
+    return None
+
+
+def _write_notify_doc(data):
+    """Atomic replace so the component never reads a torn notify.json."""
+    import threading
     NOTIFY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    NOTIFY_PATH.write_text(json.dumps({"cardId": cid}, indent=2) + "\n")
+    tmp = NOTIFY_PATH.with_name(f".{NOTIFY_PATH.name}.addon.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        tmp.write_text(json.dumps(data, indent=2) + "\n")
+        os.replace(tmp, NOTIFY_PATH)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def load_notify_card_id() -> str:
+    data = _read_notify_doc()
+    if data is None:
+        # Never replace an unreadable notify.json (it holds the push log).
+        return str(uuid.uuid4())
+    cid = str(data.get("cardId") or "").strip()
+    if cid:
+        return cid
+    cid = str(uuid.uuid4())
+    data["cardId"] = cid
+    _write_notify_doc(data)
     return cid
 
 
@@ -798,14 +827,9 @@ def record_manual_send(devices=None, at=None):
     stamp = _public_log_text(at) if at else None
     if not stamp:
         stamp = datetime.now().astimezone().isoformat(timespec="seconds")
-    data = {}
-    try:
-        if NOTIFY_PATH.is_file():
-            loaded = json.loads(NOTIFY_PATH.read_text())
-            if isinstance(loaded, dict):
-                data = loaded
-    except Exception:
-        data = {}
+    data = _read_notify_doc()
+    if data is None:
+        return
     rows = data.get("pushLog")
     if not isinstance(rows, list):
         rows = []
@@ -823,8 +847,7 @@ def record_manual_send(devices=None, at=None):
         "devices": _devices_field(devices, local=registered_ios_clients()),
     })
     data["pushLog"] = rows[-PUSH_LOG_MAX:]
-    NOTIFY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    NOTIFY_PATH.write_text(json.dumps(data, indent=2) + "\n")
+    _write_notify_doc(data)
 
 
 def post_house_event(property_id, key, card_id, title):

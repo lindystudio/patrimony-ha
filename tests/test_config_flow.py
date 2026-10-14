@@ -83,6 +83,7 @@ def test_new_house_mints_uuid_and_shows_confirm() -> None:
         CONF_MAPPINGS: [],
         CONF_HOUSE_EVENT_KEY: None,
         CONF_PQ_SHIELD: True,
+        "property_id_source": "minted",
     }
 
 
