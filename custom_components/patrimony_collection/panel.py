@@ -218,6 +218,13 @@ class PatrimonyMappingView(HomeAssistantView):
         def _write_mapping() -> None:
             # Explicit editor save replaces file contents with the edited set.
             path = Path(self.hass.config.path("patrimony_collection/mapping.json"))
+            # Keep the 0.4.100 calendar settings (edited in their own panel section).
+            try:
+                prior = json.loads(fileio.read_text(path) or "{}")
+            except Exception:
+                prior = {}
+            if isinstance(prior, dict) and isinstance(prior.get("calendars"), dict):
+                payload["calendars"] = prior["calendars"]
             fileio.write_text(path, json.dumps(payload, indent=2) + "\n")
 
         try:
@@ -333,7 +340,13 @@ async def async_setup_panel(hass: HomeAssistant) -> None:
         from homeassistant.components import frontend
 
         try:
-            frontend.async_remove_panel(hass, "patrimony")
+            # 0.4.101: first setup has no panel yet; do not log "Removing unknown panel".
+            frontend.async_remove_panel(hass, "patrimony", warn_if_unknown=False)
+        except TypeError:  # HA before warn_if_unknown
+            try:
+                frontend.async_remove_panel(hass, "patrimony")
+            except Exception:
+                pass
         except Exception:
             pass
         frontend.async_register_built_in_panel(

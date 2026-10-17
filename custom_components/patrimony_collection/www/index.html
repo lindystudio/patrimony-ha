@@ -604,6 +604,13 @@
         <div id="members_list" aria-labelledby="members_heading"></div>
         <p class="status" id="members_status" role="status" aria-live="polite"></p>
       </section>
+      <section class="soon-card" id="soon_calendars">
+        <h2>Calendars</h2>
+        <p class="quiet">Read-only in the app, live from Home Assistant. Expose shows a calendar to the owner; Members can see also shares it with invited people. Guest stays show to members as "Guests".</p>
+        <p class="quiet" id="calendars_empty">No calendar entities found.</p>
+        <div id="calendars_list"></div>
+        <p class="status" id="calendars_status" role="status" aria-live="polite"></p>
+      </section>
     </div>
   </div>
 
@@ -1770,6 +1777,60 @@
         scheduleSave();
       }
     }
+    const CALENDARS_PATH = "/api/patrimony_collection/editor/calendars";
+    let calendarRows = [];
+    function drawCalendars() {
+      const list = $("calendars_list");
+      if (!list) return;
+      list.textContent = "";
+      $("calendars_empty").hidden = calendarRows.length > 0;
+      calendarRows.forEach((row, i) => {
+        const line = document.createElement("div");
+        line.className = "row";
+        const name = document.createElement("strong");
+        name.textContent = row.name;
+        line.appendChild(name);
+        const box = (label, key) => {
+          const l = document.createElement("label");
+          const c = document.createElement("input");
+          c.type = "checkbox";
+          c.checked = !!row[key];
+          c.addEventListener("change", () => { calendarRows[i][key] = c.checked; saveCalendars(); });
+          l.appendChild(c);
+          l.appendChild(document.createTextNode(" " + label));
+          return l;
+        };
+        line.appendChild(box("Expose", "expose"));
+        line.appendChild(box("Members can see", "sharedWithMembers"));
+        const sel = document.createElement("select");
+        [["", "No role"], ["stays", "Guest stays"], ["birthdays", "Birthdays"]].forEach(([v, t]) => {
+          const o = document.createElement("option"); o.value = v; o.textContent = t; sel.appendChild(o);
+        });
+        sel.value = row.role || "";
+        sel.addEventListener("change", () => { calendarRows[i].role = sel.value || null; saveCalendars(); });
+        line.appendChild(sel);
+        list.appendChild(line);
+      });
+    }
+    async function loadCalendars() {
+      const doc = await api(CALENDARS_PATH);
+      calendarRows = Array.isArray(doc.calendars) ? doc.calendars : [];
+      drawCalendars();
+    }
+    async function saveCalendars() {
+      $("calendars_status").textContent = "Saving…";
+      try {
+        const doc = await api(CALENDARS_PATH, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ calendars: calendarRows }),
+        });
+        calendarRows = Array.isArray(doc.calendars) ? doc.calendars : calendarRows;
+        $("calendars_status").textContent = "Saved";
+      } catch (e) {
+        $("calendars_status").textContent = "Save failed";
+      }
+    }
     async function load() {
       try {
         await MODE_LOAD();
@@ -1778,6 +1839,10 @@
         try { await loadPeople(); } catch (e) {
           if (sessionExpired) throw e;
           $("people_status").textContent = "Could not load people";
+        }
+        try { await loadCalendars(); } catch (e) {
+          if (sessionExpired) throw e;
+          $("calendars_status").textContent = "Could not load calendars";
         }
         loadFailed = false;
         sessionExpired = false;

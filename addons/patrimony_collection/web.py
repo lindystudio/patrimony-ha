@@ -260,6 +260,8 @@ def save_mapping(doc: dict) -> None:
         "cards": cards,
         "mappings": mappings,
     }
+    if isinstance(existing.get("calendars"), dict):
+        out["calendars"] = existing["calendars"]  # 0.4.100 calendar settings (integration panel)
     MAPPING_PATH.write_text(json.dumps(out, indent=2) + "\n")
 
 

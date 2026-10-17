@@ -1215,5 +1215,7 @@ async def async_setup_http(hass: HomeAssistant) -> None:
     from .pq_shield import async_setup_pq_shield, register_pq_shield_views
     await async_setup_pq_shield(hass)
     register_pq_shield_views(hass)
+    from .calendars import register_views as register_calendar_views
+    register_calendar_views(hass)
     from .panel import async_setup_panel
     await async_setup_panel(hass)
