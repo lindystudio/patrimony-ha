@@ -606,7 +606,7 @@
       </section>
       <section class="soon-card" id="soon_calendars">
         <h2>Calendars</h2>
-        <p class="quiet">Read-only in the app, live from Home Assistant. Expose shows a calendar to the owner; Members can see also shares it with invited people. Guest stays show to members as "Guests".</p>
+        <p class="quiet">Read-only in the app, live from Home Assistant. Expose shows a calendar to the owner and to everyone invited (titles and locations included).</p>
         <p class="quiet" id="calendars_empty">No calendar entities found.</p>
         <div id="calendars_list"></div>
         <p class="status" id="calendars_status" role="status" aria-live="polite"></p>
@@ -1801,7 +1801,6 @@
           return l;
         };
         line.appendChild(box("Expose", "expose"));
-        line.appendChild(box("Members can see", "sharedWithMembers"));
         const sel = document.createElement("select");
         [["", "No role"], ["stays", "Guest stays"], ["birthdays", "Birthdays"]].forEach(([v, t]) => {
           const o = document.createElement("option"); o.value = v; o.textContent = t; sel.appendChild(o);

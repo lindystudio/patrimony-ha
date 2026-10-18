@@ -126,7 +126,8 @@ def test_list_shape_opaque_ids_only_exposed(house):
                        "color": "#C9A86A", "sharedWithMembers": True, "role": "stays"}
     assert len(rentals["id"]) == 16 and "calendar." not in r.text
     bd = body["calendars"][0]
-    assert bd["sharedWithMembers"] is False and bd["role"] is None and "color" not in bd
+    # 0.4.102: Expose alone decides; sharedWithMembers is reported as always on.
+    assert bd["sharedWithMembers"] is True and bd["role"] is None and "color" not in bd
     assert cal.calendar_id("prop-2", "calendar.rentals") != rentals["id"]
 
 
@@ -295,35 +296,47 @@ def _plain_member(monkeypatch):
     monkeypatch.setattr(pqs.PQShieldManager, "feature_enabled", property(lambda self: False))
 
 
-def test_member_list_filtered_plain_when_shield_off(mhouse, monkeypatch):
+def test_member_list_every_exposed_plain_when_shield_off(mhouse, monkeypatch):
     _plain_member(monkeypatch)
     run(pqs.async_setup_pq_shield(mhouse))
     tok = _mint(mhouse)[1]["token"]
     b = run(cal.PatrimonyMemberCalendarsView(mhouse).get(_Q(tok))).json()
-    assert [c["name"] for c in b["calendars"]] == ["Irrigation", "Rentals"]  # Birthdays not shared
+    # 0.4.102: sharedWithMembers ignored; Birthdays (exposed, not shared) shows; Hidden (not exposed) never.
+    assert [c["name"] for c in b["calendars"]] == ["Birthdays", "Irrigation", "Rentals"]
+    assert all(c["sharedWithMembers"] is True for c in b["calendars"])
+    owner = run(cal.PatrimonyCalendarsView(mhouse).get(_Q())).json()
+    assert b == owner
 
 
-def test_member_events_no_location_stays_guests_and_birthdays_404(mhouse, monkeypatch):
+def test_member_events_same_as_owner_real_titles_and_location(mhouse, monkeypatch):
     _plain_member(monkeypatch)
     run(pqs.async_setup_pq_shield(mhouse))
     tok = _mint(mhouse)[1]["token"]
     v = cal.PatrimonyMemberCalendarEventsView(mhouse)
     r = run(v.get(_Q(tok, query=WIN)))
     b = r.json()
-    assert [e["title"] for e in b["events"]] == ["Zone 1", "Guests"]
-    assert all("location" not in e for e in b["events"])
-    assert "Visitor" not in r.text and "Villa" not in r.text and "Anna" not in r.text
+    # 0.4.102: no "Guests" rewrite, location kept, every exposed calendar (Birthdays too).
+    assert [e["title"] for e in b["events"]] == ["Zone 1", "Anna", "Visitor (4 adults)"]
+    assert next(e for e in b["events"] if e["calendarId"] == cid("calendar.rentals"))["location"] == "Villa Secret Road 1"
+    assert "Guests" not in r.text and "secret" not in r.text
+    owner = run(cal.PatrimonyCalendarEventsView(mhouse).get(_Q(query=WIN))).json()
+    assert b == owner
     r = run(v.get(_Q(tok, query={**WIN, "ids": cid("calendar.birthdays")})))
+    assert r.status == 200 and [e["title"] for e in r.json()["events"]] == ["Anna"]
+    r = run(v.get(_Q(tok, query={**WIN, "ids": cid("calendar.hidden")})))
     assert r.status == 404
     tag = run(v.get(_Q(tok, query=WIN))).headers["ETag"]
     assert run(v.get(_Q(tok, query=WIN, inm=tag))).status == 304
 
 
-def test_member_default_none(mhouse, monkeypatch):
+def test_member_sees_exposed_without_shared_flag_and_nothing_unexposed(mhouse, monkeypatch):
     _plain_member(monkeypatch)
     run(pqs.async_setup_pq_shield(mhouse))
     cal.save_config(mhouse, {k: {"expose": True} for k in CONFIG})
     tok = _mint(mhouse)[1]["token"]
+    names = [c["name"] for c in run(cal.PatrimonyMemberCalendarsView(mhouse).get(_Q(tok))).json()["calendars"]]
+    assert names == ["Birthdays", "Hidden", "Irrigation", "Rentals"]
+    cal.save_config(mhouse, {k: {"expose": False, "sharedWithMembers": True} for k in CONFIG})
     assert run(cal.PatrimonyMemberCalendarsView(mhouse).get(_Q(tok))).json()["calendars"] == []
     assert run(cal.PatrimonyMemberCalendarEventsView(mhouse).get(_Q(tok, query=WIN))).json()["events"] == []
 
@@ -357,12 +370,12 @@ def test_member_pq_428_then_wrapped_and_etag_on_plaintext(mhouse, monkeypatch):
     env = r.json()
     assert r.status == 200 and {"kem", "aead", "nonce", "ct"} <= set(env) and "events" not in env
     doc = hy.open_document(key, env)
-    assert [e["title"] for e in doc["events"]] == ["Zone 1", "Guests"]
+    assert [e["title"] for e in doc["events"]] == ["Zone 1", "Anna", "Visitor (4 adults)"]
     assert r.headers["ETag"] == cal.etag_for(doc)
     r304 = run(ev.get(_Q(tok, query=WIN, inm=r.headers["ETag"])))
     assert r304.status == 304 and r304.text == ""
     lst = run(lv.get(_Q(tok)))
-    assert hy.open_document(key, lst.json())["calendars"][0]["name"] == "Irrigation"
+    assert hy.open_document(key, lst.json())["calendars"][0]["name"] == "Birthdays"
     assert lst.headers["ETag"] == plain_tag
 
 
@@ -410,11 +423,11 @@ def test_uid_same_for_owner_and_member_on_original_title(mhouse, monkeypatch):
         EVENTS["calendar.rentals"].pop()
     o = next(e for e in owner if e["start"] == "2026-10-24")
     m = next(e for e in member if e["start"] == "2026-10-24")
-    assert m["title"] == "Guests" and o["title"].startswith("Visitor")
+    # 0.4.102: members get the real title, so owner and member rows are identical.
+    assert m["title"] == o["title"] and o["title"].startswith("Visitor")
     assert m["uid"] == o["uid"] and len(m["uid"]) == 16
     key = run(cal.async_uid_key(mhouse))
-    assert m["uid"] != cal.event_uid(key, o["calendarId"], None, "2026-10-24", "Guests")
-    assert "Visitor" not in r.text
+    assert m["uid"] == cal.event_uid(key, o["calendarId"], None, "2026-10-24", o["title"])
     assert all("uid" in e for e in member)
 
 

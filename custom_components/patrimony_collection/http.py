@@ -945,7 +945,7 @@ class PatrimonyMemberPairingView(HomeAssistantView):
 
 
 class PatrimonyMemberChatView(HomeAssistantView):
-    """Member scope: chat list read only. No post/delete/read-cursor/image."""
+    """Member scope: chat list + post (0.4.102); image fetch at /m/chat/{id}/image (0.4.103). No delete/read-cursor."""
 
     url = MEMBER_CHAT_PATH
     name = "api:patrimony_collection:member_chat"
@@ -969,6 +969,12 @@ class PatrimonyMemberChatView(HomeAssistantView):
         for msg in doc.get("messages") or []:
             msg["canDelete"] = False
         return await _member_pq_response(self.hass, _row, doc)
+
+    async def post(self, request):
+        """0.4.102: members post (sealed body), same limits/storage/push as the owner."""
+        from .member_api import member_chat_post
+
+        return await member_chat_post(self.hass, request)
 
 
 def _deny_unless_owner(hass, request):
@@ -1217,5 +1223,7 @@ async def async_setup_http(hass: HomeAssistant) -> None:
     register_pq_shield_views(hass)
     from .calendars import register_views as register_calendar_views
     register_calendar_views(hass)
+    from .member_api import register_views as register_member_api_views
+    register_member_api_views(hass)
     from .panel import async_setup_panel
     await async_setup_panel(hass)

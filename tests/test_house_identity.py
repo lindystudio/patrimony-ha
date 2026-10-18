@@ -55,7 +55,7 @@ class _Entry:
 
 
 class _Hass:
-    def __init__(self, root: Path, time_zone="Europe/Athens"):
+    def __init__(self, root: Path, time_zone="Europe/Lisbon"):
         self.root = root
         self.bus = _Bus()
         self.notifies = []
@@ -104,10 +104,10 @@ def _schema_default(schema, key: str):
 
 def test_first_setup_defaults_timezone_to_home_assistant_not_utc() -> None:
     flow = PatrimonyCollectionConfigFlow()
-    flow.hass = _Hass(Path("/tmp"), time_zone="Europe/Athens")
+    flow.hass = _Hass(Path("/tmp"), time_zone="Europe/Lisbon")
     result = _run(flow.async_step_user())
     default = _schema_default(result["data_schema"], CONF_TIMEZONE)
-    assert default == "Europe/Athens"
+    assert default == "Europe/Lisbon"
     assert default != "UTC"
 
 
@@ -121,9 +121,9 @@ def test_first_setup_timezone_falls_back_to_utc_only_when_missing() -> None:
 
 
 def test_existing_timezone_is_left_alone_until_save_or_button(tmp_path) -> None:
-    hass = _Hass(tmp_path, time_zone="Europe/Athens")
+    hass = _Hass(tmp_path, time_zone="Europe/Lisbon")
     entry = _entry()
-    assert ha_instance_timezone(hass) == "Europe/Athens"
+    assert ha_instance_timezone(hass) == "Europe/Lisbon"
     assert entry.data[CONF_TIMEZONE] == "UTC"
     document = build_presentation_document(hass, dict(entry.data), {})
     assert document["property"]["timezone"] == "UTC"
@@ -137,7 +137,7 @@ def test_existing_timezone_is_left_alone_until_save_or_button(tmp_path) -> None:
 
 
 def test_save_display_name_updates_entry_and_does_not_notify_or_read_ios(tmp_path) -> None:
-    hass = _Hass(tmp_path, time_zone="Europe/Athens")
+    hass = _Hass(tmp_path, time_zone="Europe/Lisbon")
     session = tmp_path / "patrimony_collection" / "ios_session.json"
     session.parent.mkdir(parents=True)
     session.write_text(json.dumps({"deviceName": "Phone Local Name"}), encoding="utf-8")
@@ -178,7 +178,7 @@ def test_phone_name_alone_does_not_change_display_name(tmp_path) -> None:
 
 
 def test_save_timezone_updates_presentation_document(tmp_path) -> None:
-    hass = _Hass(tmp_path, time_zone="Europe/Athens")
+    hass = _Hass(tmp_path, time_zone="Europe/Lisbon")
     entry = _entry()
     body, status = apply_house_identity(hass, entry, {"timezone": "Europe/Paris"})
     assert status == 200
@@ -192,7 +192,7 @@ def test_save_timezone_updates_presentation_document(tmp_path) -> None:
 
 
 def test_copy_from_home_assistant_button_updates_timezone_only(tmp_path) -> None:
-    hass = _Hass(tmp_path, time_zone="Europe/Athens")
+    hass = _Hass(tmp_path, time_zone="Europe/Lisbon")
     entry = _entry()
     body, status = apply_house_identity(
         hass,
@@ -200,12 +200,12 @@ def test_copy_from_home_assistant_button_updates_timezone_only(tmp_path) -> None
         {"copyTimezoneFromHomeAssistant": True, "deviceName": "Phone Local Name"},
     )
     assert status == 200
-    assert body["timezone"] == "Europe/Athens"
-    assert body["homeAssistantTimezone"] == "Europe/Athens"
-    assert entry.data[CONF_TIMEZONE] == "Europe/Athens"
+    assert body["timezone"] == "Europe/Lisbon"
+    assert body["homeAssistantTimezone"] == "Europe/Lisbon"
+    assert entry.data[CONF_TIMEZONE] == "Europe/Lisbon"
     assert entry.data[CONF_DISPLAY_NAME] == STORED_NAME
     document = build_presentation_document(hass, dict(entry.data), {})
-    assert document["property"]["timezone"] == "Europe/Athens"
+    assert document["property"]["timezone"] == "Europe/Lisbon"
     assert document["property"]["displayName"] == STORED_NAME
     assert hass.bus.fired == []
 
@@ -259,7 +259,7 @@ def test_timezone_list_includes_ha_zone_and_stored_value(tmp_path) -> None:
     from zoneinfo import ZoneInfo, available_timezones
 
     stored = "Custom/NotInZoneinfo"
-    ha = "Europe/Athens"
+    ha = "Europe/Lisbon"
     choices = timezone_choices(stored, ha)
     assert ha in choices
     assert stored in choices

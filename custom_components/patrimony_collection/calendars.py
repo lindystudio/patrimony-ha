@@ -9,6 +9,10 @@ HMAC-SHA256(house key, calendarId|recurrenceId|start|title)[:16] over the origin
 (before the member "Guests" rewrite), so owner and member see the same uid. Keyed with a
 house-local secret so a member cannot brute-force a guest name from the uid.
 
+0.4.102: everyone invited sees every EXPOSED calendar with the owner's view (real titles,
+location). sharedWithMembers is no longer a filter (kept in mapping.json for older panels and
+reported as true); the stays-role "Guests" rewrite and the member location strip are gone.
+
 Never log event titles, descriptions or locations.
 """
 
@@ -38,7 +42,7 @@ MEMBER_CALENDAR_EVENTS_PATH = "/api/patrimony_collection/m/calendars/events"
 EDITOR_CALENDARS_PATH = "/api/patrimony_collection/editor/calendars"
 
 ROLES = ("stays", "birthdays")
-MEMBER_STAYS_TITLE = "Guests"
+MEMBER_STAYS_TITLE = "Guests"  # unused since 0.4.102 (members see real titles)
 DEFAULT_DAYS = 14
 MAX_DAYS = 92
 MAX_EVENTS = 500
@@ -126,12 +130,10 @@ def visible_calendars(hass, *, member: bool) -> list[dict[str, Any]]:
         row = cfg.get(eid)
         if not row or not row["expose"]:
             continue
-        if member and not row["sharedWithMembers"]:
-            continue
         attrs = getattr(st, "attributes", None) or {}
         name = str(attrs.get("friendly_name") or "").strip() or eid.split(".", 1)[1].replace("_", " ").title()
         cal = {"id": calendar_id(pid, eid), "_entity": eid, "name": name,
-               "sharedWithMembers": row["sharedWithMembers"], "role": row["role"]}
+               "sharedWithMembers": True, "role": row["role"]}  # 0.4.102: Expose alone decides
         color = attrs.get("color")
         if isinstance(color, str) and color.strip():
             cal["color"] = color.strip()
@@ -359,10 +361,6 @@ async def collect_events(hass, cals, start, end, zone, *, member: bool) -> dict[
             row = normalize_event(cal["id"], ev, zone, uid_key)  # uid from the original title
             if row is None:
                 continue
-            if member:
-                row.pop("location", None)
-                if cal["role"] == "stays":
-                    row["title"] = MEMBER_STAYS_TITLE
             events.append(row)
     events.sort(key=lambda r: (r["_sort"], r["calendarId"], r["title"]))
     truncated = len(events) > MAX_EVENTS

@@ -169,8 +169,11 @@ def test_member_views_reject_missing_wrong_and_ha_tokens(tmp_path):
 
 
 def test_member_views_are_read_only():
-    for view in (hh.PatrimonyMemberStateView, hh.PatrimonyMemberPairingView, hh.PatrimonyMemberChatView):
+    for view in (hh.PatrimonyMemberStateView, hh.PatrimonyMemberPairingView):
         assert not any(hasattr(view, m) for m in ("post", "put", "delete", "patch"))
+    # 0.4.102: members may post chat (sealed); never delete or patch.
+    assert hasattr(hh.PatrimonyMemberChatView, "post")
+    assert not any(hasattr(hh.PatrimonyMemberChatView, m) for m in ("put", "delete", "patch"))
 
 
 def test_only_member_and_claim_views_skip_ha_auth():

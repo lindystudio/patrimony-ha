@@ -24,6 +24,7 @@ from .hybrid import (
     b64d,
     b64e,
     derive_aead_key,
+    open_document,
     seal_document,
 )
 
@@ -276,6 +277,18 @@ class PQShieldManager:
         if key is None or len(key) != 32:
             return None
         return seal_document(key, document).to_dict()
+
+    def open_from_member(self, member_id: str, envelope: dict[str, Any]) -> dict[str, Any] | None:
+        """0.4.102 sealed member request: open with THIS member's key. None = no session.
+        Raises ValueError on a bad / foreign envelope (never logs the body)."""
+        self.load()
+        key = self._member_keys.get(str(member_id))
+        if key is None or len(key) != 32:
+            return None
+        doc = open_document(key, envelope)
+        if not isinstance(doc, dict):
+            raise ValueError("sealed body must be a JSON object")
+        return doc
 
     def member_aead_key_for_tests(self, member_id: str) -> bytes | None:
         """Test-only accessor. Do not expose on HTTP."""

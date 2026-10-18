@@ -736,9 +736,8 @@ def _decode_image(payload: dict) -> tuple[bytes | None, str | None, tuple | None
     return blob, ctype, None
 
 
-def create_message(hass, request, payload: Any, now: datetime | None = None) -> tuple[dict[str, Any], int]:
-    if not caller_authorized(request):
-        return _error("unauthorized", "Unauthorized", 401)
+def _validate_post(payload: Any):
+    """Shared owner/member POST validation. Returns (text, image, image_type, retention, error)."""
     if not isinstance(payload, dict):
         return _error("empty", "Message is empty", 400)
     if "text" in payload:
@@ -760,6 +759,16 @@ def create_message(hass, request, payload: Any, now: datetime | None = None) -> 
     retention = _normalize_retention(payload.get("retention"))
     if retention is None:
         return _error("bad_retention", "retention must be keep, 1h, 1d, or 7d", 400)
+    return text, image, image_type, retention, None
+
+
+def create_message(hass, request, payload: Any, now: datetime | None = None) -> tuple[dict[str, Any], int]:
+    if not caller_authorized(request):
+        return _error("unauthorized", "Unauthorized", 401)
+    checked = _validate_post(payload)
+    if len(checked) == 2:
+        return checked
+    text, image, image_type, retention, _ = checked
     moment = _utc(now)
     seconds = RETENTIONS[retention]
     expires = None if seconds is None else _stamp(moment + timedelta(seconds=seconds))
@@ -815,6 +824,76 @@ def create_message(hass, request, payload: Any, now: datetime | None = None) -> 
         _LOGGER.error("patrimony_chat_store_failed")
         return _error("store_failed", "Could not store the message", 500)
     return _public_row(caller, row, text, rows, _active_clients(hass), _cursors(store)), 201
+
+
+MEMBER_SENDER_FALLBACK = "Member"
+
+
+def member_caller(member_row: dict[str, Any], client_id: str) -> dict[str, str]:
+    """0.4.102 member sender: the invite's member name (already shown in Members), never the token."""
+    label = _safe_name(member_row.get("memberName")) or MEMBER_SENDER_FALLBACK
+    return {"kind": "member", "label": label, "key": "member:" + str(member_row.get("memberId") or client_id)}
+
+
+def create_member_message(
+    hass, member_row: dict[str, Any], client_id: str, payload: Any, now: datetime | None = None
+) -> tuple[dict[str, Any], int]:
+    """Member POST /m/chat (body already opened from the PQ envelope). Same limits, storage,
+    encryption and expiry as the owner path. deviceName is ignored: the member name is the sender."""
+    checked = _validate_post(payload)
+    if len(checked) == 2:
+        return checked
+    text, image, image_type, retention, _ = checked
+    moment = _utc(now)
+    seconds = RETENTIONS[retention]
+    expires = None if seconds is None else _stamp(moment + timedelta(seconds=seconds))
+    caller = member_caller(member_row, client_id)
+    try:
+        key = load_chat_key(hass)
+        store = _read_store(hass)
+        _purge(store, moment)
+        message_id = str(uuid4())
+        nonce, ciphertext = _seal(key, message_id, text)
+        row = {
+            "id": message_id,
+            "senderKind": caller["kind"],
+            "senderKey": caller["key"],
+            "senderLabel": caller["label"],
+            "senderClientId": client_id,
+            "createdAt": _stamp(moment),
+            "retention": retention,
+            "expiresAt": expires,
+            "nonce": nonce,
+            "ciphertext": ciphertext,
+        }
+        if image is not None:
+            image_nonce, image_ct = _seal_image(key, message_id, image)
+            row["imageContentType"] = image_type
+            row["imageNonce"] = image_nonce
+            row["imageCiphertext"] = image_ct
+        rows = list(store.get("messages") or [])
+        rows.append(row)
+        if len(rows) > _MAX_STORED:
+            rows = rows[-_MAX_STORED:]
+        store["messages"] = rows
+        _write_store(hass, store)
+    except Exception:
+        _LOGGER.error("patrimony_chat_store_failed")
+        return _error("store_failed", "Could not store the message", 500)
+    return _public_row(caller, row, text, rows, _active_clients(hass), _cursors(store)), 201
+
+
+def handle_member_post(
+    hass, member_row: dict[str, Any], client_id: str, payload: Any, now: datetime | None = None
+) -> tuple[dict[str, Any], int]:
+    body, status = create_member_message(hass, member_row, client_id, payload, now=now)
+    if status == 201:
+        sender_device = payload.get("senderDevice") if isinstance(payload, dict) else None
+        try:
+            notify_house_chat(hass, exclude_device=sender_device, sender_client=client_id)
+        except Exception:
+            _LOGGER.error("patrimony_chat_notice_failed")
+    return body, status
 
 
 def notify_house_chat(
@@ -915,6 +994,12 @@ def read_chat_image(hass, request, message_id: str, now: datetime | None = None)
     if not caller_authorized(request):
         body, status = _error("unauthorized", "Unauthorized", 401)
         return body, status, None
+    return read_image_blob(hass, message_id, now=now)
+
+
+def read_image_blob(hass, message_id: str, now: datetime | None = None):
+    """Shared owner/member (0.4.103) image read, auth done by the caller.
+    Returns (bytes, 200, content_type) or (error_body, status, None). Expired rows are purged first."""
     wanted = str(message_id or "").strip()
     if not wanted:
         body, status = _error("not_found", "Message not found", 404)

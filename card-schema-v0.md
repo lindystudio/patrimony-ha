@@ -30,7 +30,7 @@ Root object. Unknown keys: ignore. Missing required keys: reject the document, k
     "id": "3f1c0a2e-7c4b-4d91-9a2e-0b7d1c8e4a10",
     "displayName": "Demo Home",
     "locationLabel": "Example",
-    "timezone": "Europe/Athens"
+    "timezone": "Europe/Lisbon"
   },
   "cards": [],
   "events": []
@@ -156,7 +156,7 @@ Until the HA integration exists:
     "id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
     "displayName": "Demo Home",
     "locationLabel": "Example",
-    "timezone": "Europe/Athens"
+    "timezone": "Europe/Lisbon"
   },
   "cards": [
     {
