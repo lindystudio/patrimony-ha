@@ -330,10 +330,13 @@ async def mint_pairing(hass, user) -> tuple[int, dict[str, Any]]:
         )
         token = await _maybe_await(create_access(refresh))
         try:
-            from .clients import upsert_client
+            from .clients import note_pair_issued, upsert_client
 
             rid = getattr(refresh, "id", None) or (refresh.get("id") if isinstance(refresh, dict) else None)
             if rid:
+                # 0.4.114: record the issued id first; the row may then be (re)created by
+                # the phone's first heartbeat if this write fails.
+                note_pair_issued(hass, str(rid))
                 ha_name = getattr(auth_user, "name", None)
                 upsert_client(
                     hass,

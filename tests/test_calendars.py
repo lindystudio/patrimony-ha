@@ -293,7 +293,9 @@ def mhouse(house, monkeypatch):
 
 
 def _plain_member(monkeypatch):
+    # 0.4.108: flag Off alone no longer drops member PQ; plain members = transition mode.
     monkeypatch.setattr(pqs.PQShieldManager, "feature_enabled", property(lambda self: False))
+    monkeypatch.setattr(hh, "member_pq_required", lambda _h: False)
 
 
 def test_member_list_every_exposed_plain_when_shield_off(mhouse, monkeypatch):

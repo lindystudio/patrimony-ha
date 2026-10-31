@@ -97,6 +97,10 @@ def _b64(obj) -> str:
 def _ios_request(hass, device_name=None, user_name="Ada Lovelace", client_id="rt-ios-1"):
     ident = client_id
     hass.auth.refresh_tokens[ident] = _Tok(ident, PAIR_CLIENT_NAME)
+    # A pair-flow token: pair.mint_pairing records its id (0.4.114).
+    from custom_components.patrimony_collection.clients import note_pair_issued
+
+    note_pair_issued(hass, ident)
     if device_name:
         persist_ios_session(
             hass,
@@ -346,6 +350,10 @@ def test_device_name_wins_when_bearer_is_not_paired_ios(tmp_path) -> None:
     assert store["messages"][0]["senderLabel"] == "Kitchen iPhone"
     assert store["messages"][0]["senderKey"] == "ios:rt-ha-user"
 
+    # 0.4.114: a hand-made LLAT is not pair-issued, so its first chat registers NO row.
+    from custom_components.patrimony_collection import clients as house_clients
+
+    assert house_clients.get_client(hass, ident) is None
     blank, status = create_message(
         hass,
         phone,
@@ -353,31 +361,18 @@ def test_device_name_wins_when_bearer_is_not_paired_ios(tmp_path) -> None:
         now=T0,
     )
     assert status == 201
-    # Credential is now a registered client; blank keeps the stored display name.
-    assert blank["sender"] == "Kitchen iPhone"
-    assert blank["senderKind"] == "ios"
-    assert blank["sender"] != "admin"
-
-    missing_user, status = create_message(
-        hass, phone, {"text": "phone-line-missing-user"}, now=T0
-    )
-    assert status == 201
-    assert missing_user["sender"] == "Kitchen iPhone"
-    assert missing_user["sender"] != "admin"
+    # No registered row: a blank name on that token is the HA user (docstring rule).
+    assert blank["sender"] == "HA (admin)"
+    assert house_clients.get_client(hass, ident) is None
 
     ios = _ios_request(hass, "Stored Session Phone", user_name="admin")
     assert chat_mod.is_ios_client(hass, ios) is True
-    # The session write must keep the other credential's row. This token has
-    # no row of its own, so the label is that saved phone, not the HA user.
     missing_ios, status = create_message(
         hass, ios, {"text": "phone-line-missing-ios"}, now=T0
     )
     assert status == 201
-    assert missing_ios["sender"] == "Kitchen iPhone"
     assert missing_ios["senderKind"] == "ios"
     assert missing_ios["sender"] != "admin"
-    assert missing_ios["sender"] != "Paired phone"
-
 
 
 def test_push_payload_is_the_fixed_sentence_not_the_message(tmp_path, monkeypatch, caplog) -> None:
@@ -415,7 +410,8 @@ def test_push_payload_is_the_fixed_sentence_not_the_message(tmp_path, monkeypatc
     payload = json.loads(raw)
     assert payload["title"] == "New chat message in North House"
     assert payload["severity"] == "attention"
-    assert set(payload) == {"cardId", "severity", "title"}
+    assert set(payload) == {"cardId", "severity", "title", "kind"}
+    assert payload["kind"] == "chat"
     assert SECRET not in raw
     assert "Ada Lovelace" not in raw
     joined = " ".join(captured["headers"].values())
@@ -460,8 +456,9 @@ def test_push_skips_the_sender_device_when_given(tmp_path, monkeypatch) -> None:
     body, status = handle_post(hass, _panel(), {"text": SECRET, "senderDevice": device}, now=T0)
     assert status == 201
     payload = json.loads(captured["data"].decode())
-    assert set(payload) == {"cardId", "severity", "title", "excludeDevice"}
-    assert payload["excludeDevice"] == device
+    # 0.4.111: the owner /chat path also says the sender's role (Backend 9197cfc).
+    assert set(payload) == {"cardId", "severity", "title", "excludeDevice", "excludeRole", "kind"}
+    assert payload["excludeDevice"] == device and payload["excludeRole"] == "owner"
     assert device not in _raw(hass)
     assert "senderDevice" not in body
 
@@ -469,7 +466,7 @@ def test_push_skips_the_sender_device_when_given(tmp_path, monkeypatch) -> None:
     for bad in ("AB" * 32, "ab" * 31, "not-a-hash", 42, None):
         captured.clear()
         handle_post(hass, _panel(), {"text": "Hi", "senderDevice": bad}, now=T0)
-        assert set(json.loads(captured["data"].decode())) == {"cardId", "severity", "title"}
+        assert set(json.loads(captured["data"].decode())) == {"cardId", "severity", "title", "kind"}
 
 
 def test_missing_key_still_stores_without_a_push(tmp_path, monkeypatch) -> None:
@@ -566,7 +563,7 @@ def test_second_chat_message_is_not_debounced(tmp_path, monkeypatch) -> None:
         payload = json.loads(raw)
         assert payload["title"] == "New chat message in North House"
         assert payload["severity"] == "attention"
-        assert set(payload) == {"cardId", "severity", "title"}
+        assert set(payload) == {"cardId", "severity", "title", "kind"}
         assert SECRET not in raw.decode()
         assert "image" not in payload
 
@@ -634,7 +631,7 @@ def test_image_round_trip_hides_bytes_and_push(tmp_path, monkeypatch) -> None:
     assert status == 404
     assert len(captured) == 1
     payload = json.loads(captured[0])
-    assert set(payload) == {"cardId", "severity", "title"}
+    assert set(payload) == {"cardId", "severity", "title", "kind"}
     assert PNG_B64 not in captured[0].decode()
     assert SECRET not in captured[0].decode()
     gone, status = delete_message(hass, _panel(), created["id"], now=T0)

@@ -211,12 +211,13 @@ async def _options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     if runtime is None:
         return
     runtime["entry"] = entry
-    # Feature Off → cleartext live path; wipe session/keypair (fail closed).
+    # Feature Off → cleartext owner live path; wipe the owner session (fail closed).
+    # 0.4.108: keypair + member sessions kept while member PQ is required (flag_off).
     if not bool((entry.options or {}).get(CONF_PQ_SHIELD, True)):
         try:
             from .pq_shield.session import get_manager, run_blocking
             _mgr = get_manager(hass)
-            await run_blocking(hass, lambda: _mgr.disable(wipe_keypair=True))
+            await run_blocking(hass, _mgr.flag_off)
         except Exception:
             _LOGGER.debug("pq_shield_disable_on_options_off_skipped")
     _bind_mapped_listener(hass, entry, runtime)

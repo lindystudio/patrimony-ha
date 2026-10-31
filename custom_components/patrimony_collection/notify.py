@@ -18,7 +18,12 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from uuid import uuid4
 
-from .attention import manual_notify_decision, plan_automatic_pushes, title_is_safe
+from .attention import (
+    commit_attention_success,
+    manual_notify_decision,
+    plan_automatic_pushes,
+    title_is_safe,
+)
 from .const import (
     BACKEND_BASE,
     CONF_HOUSE_EVENT_KEY,
@@ -201,32 +206,63 @@ def load_card_id_and_post(
     rule: str | None = None,
     reason: str | None = None,
     exclude_client: str | None = None,
+    attempt: int = 1,
+    max_attempts: int = 1,
+    card_id: str | None = None,
+    sender_role: str | None = None,
+    sender_principal: str | None = None,
 ) -> int:
     """Disk load/create cardId then POST events — safe to run in an executor.
 
     Manual Soon Notify always uses severity attention. Automatic FIRE may pass
     severity alert with manual=False. Any other severity is attention.
+    One attempt per call. 0.4.110: `attempt`/`max_attempts` only decide whether
+    this row says another try follows (`_event_tls.retry`); callers schedule it.
+    0.4.110: every POST carries `kind` (chat | manual | attention). `card_id` is
+    the presentation card id of an attention push (a UUID, as in the
+    PresentationDocument); anything else, and chat/manual, use the shared
+    notify cardId.
+    0.4.111: chat only. `sender_role` ("owner" | "member") and `sender_principal`
+    turn into Backend 9197cfc's excludeRole / excludeClient / excludePrincipal,
+    and only next to a valid excludeDevice (see sender_exclusion).
     """
     if manual or severity != "alert":
         severity = "attention"
-    card_id = load_card_id(hass)
+    log_kind = "manual" if manual else kind
+    wire_kind = log_kind if log_kind in EVENT_KINDS else None
+    if wire_kind == "attention" and is_card_uuid(card_id):
+        card_id = str(card_id).strip().lower()
+    else:
+        card_id = load_card_id(hass)
     _event_tls.devices = None
     _event_tls.http_status = None
     _event_tls.error = None
+    _event_tls.summary = None
+    _event_tls.retry = False
     # Only chat passes a sender to skip; alerts and manual sends post exactly as before.
     extra = {"exclude_device": exclude_device} if exclude_device else {}
+    if exclude_device and wire_kind == "chat" and not manual:
+        if sender_role in SENDER_ROLES:
+            extra["exclude_role"] = sender_role
+        if sender_role == "member" and exclude_client:
+            extra["exclude_client"] = exclude_client
+        if sender_principal:
+            extra["exclude_principal"] = sender_principal
+    if wire_kind:
+        extra["kind"] = wire_kind
     status = post_house_event(
         property_id, key, card_id, title, timeout=timeout, severity=severity, **extra
     )
     outcome = last_post_outcome(status)
     _event_tls.outcome = outcome
+    retry = (not manual) and int(attempt) < int(max_attempts) and is_retryable(outcome)
+    _event_tls.retry = retry
     # Phone-readable last auth rejection; every kind of attempt counts.
     try:
         note_event_key_attempt(hass, outcome)
     except Exception:
         _LOGGER.error("patrimony_event_key_status_write_failed")
     # Every attempt is logged, success or failure. Manual sends always; others when tagged.
-    log_kind = "manual" if manual else kind
     if log_kind:
         try:
             record_push(
@@ -238,6 +274,8 @@ def load_card_id_and_post(
                 severity=severity,
                 devices=getattr(_event_tls, "devices", None),
                 exclude_client=exclude_client if is_device_hash(exclude_device) else None,
+                attempt=attempt if max_attempts > 1 else None,
+                retry=retry if max_attempts > 1 else None,
             )
         except Exception:
             _LOGGER.error("patrimony_push_log_write_failed")
@@ -256,9 +294,63 @@ def manual_event(key: Any, title: Any) -> dict[str, str] | None:
     return manual_notify_decision(is_usable_house_event_key(key), title)
 
 
+EVENT_KINDS = ("chat", "manual", "attention")
+_UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def is_card_uuid(value: Any) -> bool:
+    """A presentation card id as the app sees it. Never an entity id or anything else."""
+    return isinstance(value, str) and _UUID_RE.fullmatch(value.strip().lower()) is not None
+
+
 def is_device_hash(value: Any) -> bool:
     """SHA-256 hex of an APNs token, as the phone sends it. Never the token itself."""
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+SENDER_ROLES = ("owner", "member")
+_MEMBER_CLIENT_RE = re.compile(r"m_[A-Za-z0-9_-]{1,64}")
+_PRINCIPAL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{7,63}")
+_SECRET_PREFIXES = ("hek_", "pmt_", "eyj")
+
+
+def is_member_client(value: Any) -> bool:
+    """HA's own member client id (`m_<memberId>`), as Backend's excludeClient expects."""
+    return isinstance(value, str) and _MEMBER_CLIENT_RE.fullmatch(value) is not None
+
+
+def is_sender_principal(value: Any) -> bool:
+    """Opaque backend principal id from the chat body: 8-64 chars of [A-Za-z0-9_-], never a secret."""
+    if not isinstance(value, str) or _PRINCIPAL_RE.fullmatch(value) is None:
+        return False
+    return not value.lower().startswith(_SECRET_PREFIXES)
+
+
+def sender_exclusion(
+    exclude_device: Any,
+    role: Any = None,
+    client: Any = None,
+    principal: Any = None,
+) -> dict[str, str]:
+    """0.4.111 wire fields that tell Backend whose message to skip (APNS.md, audit item 7).
+
+    Nothing at all without a valid excludeDevice. Owner chat: excludeRole "owner".
+    Member chat: excludeClient "m_<memberId>" (excludeRole "member" only if that id is
+    unusable). excludePrincipal only for a conservatively valid opaque id.
+    """
+    if not is_device_hash(exclude_device):
+        return {}
+    fields: dict[str, str] = {"excludeDevice": exclude_device}
+    if role == "owner":
+        fields["excludeRole"] = "owner"
+    elif role == "member":
+        if is_member_client(client):
+            fields["excludeClient"] = client
+        else:
+            fields["excludeRole"] = "member"
+    if is_sender_principal(principal):
+        fields["excludePrincipal"] = principal
+    return fields
 
 
 def post_house_event(
@@ -269,19 +361,27 @@ def post_house_event(
     timeout: int = 8,
     severity: str = "attention",
     exclude_device: str | None = None,
+    kind: str | None = None,
+    exclude_role: str | None = None,
+    exclude_client: str | None = None,
+    exclude_principal: str | None = None,
 ) -> int:
     if severity != "alert":
         severity = "attention"
     _event_tls.http_status = None
     _event_tls.error = None
     _event_tls.upstream_error = None
+    _event_tls.summary = None
     if not title_is_safe(title):
         _event_tls.error = "unsafe_title"
         return 400
     body: dict[str, str] = {"cardId": card_id, "severity": severity, "title": title}
     # The phone that wrote a chat message does not need a push about it.
-    if is_device_hash(exclude_device):
-        body["excludeDevice"] = exclude_device
+    # 0.4.111: plus whose message it was (role / member client / principal), only with a device.
+    body.update(sender_exclusion(exclude_device, exclude_role, exclude_client, exclude_principal))
+    # 0.4.110: Backend (57b58fd) collapses banners only for kind attention.
+    if kind in EVENT_KINDS:
+        body["kind"] = kind
     payload = json.dumps(body).encode()
     req = Request(
         events_url(property_id),
@@ -304,6 +404,7 @@ def post_house_event(
                 except Exception:
                     raw = b""
             _event_tls.devices = devices_from_event_body(raw)
+            _event_tls.summary = event_summary_from_body(raw)
             _event_tls.http_status = status
             return status
     except HTTPError as exc:
@@ -341,7 +442,99 @@ def last_post_outcome(status: int) -> dict[str, Any]:
     upstream = getattr(_event_tls, "upstream_error", None)
     if upstream:
         out["upstreamError"] = upstream
+    # 0.4.110 (S2): what Backend said about a 2xx (recipients, event id, pushError).
+    summary = getattr(_event_tls, "summary", None)
+    if out["ok"] and isinstance(summary, dict):
+        for name in ("recipients", "eventId", "pushError", "backendDevices"):
+            if summary.get(name) is not None:
+                out[name] = summary[name]
     return out
+
+
+# 0.4.110 (S3/S4): bounded retry for automatic sends (attention, chat). Manual Soon
+# Notify stays one attempt: its caller sees the 424 straight away.
+PUSH_RETRY_DELAYS = (5.0, 30.0, 120.0)
+PUSH_MAX_ATTEMPTS = 1 + len(PUSH_RETRY_DELAYS)
+RETRYABLE_ERRORS = ("timeout", "connection_error", "tls_error")
+
+
+def is_retryable(outcome: dict[str, Any] | None) -> bool:
+    """Timeout, connection error, 5xx or 429. Never another 4xx (auth, validation)."""
+    if not isinstance(outcome, dict) or outcome.get("ok"):
+        return False
+    if outcome.get("error") in RETRYABLE_ERRORS:
+        return True
+    if outcome.get("error"):
+        return False
+    status = outcome.get("status")
+    if not isinstance(status, int) or isinstance(status, bool):
+        return False
+    return status == 429 or 500 <= status < 600
+
+
+def retry_delay(attempt: int) -> float:
+    """Delay before attempt `attempt + 1`."""
+    index = max(0, min(int(attempt) - 1, len(PUSH_RETRY_DELAYS) - 1))
+    return float(PUSH_RETRY_DELAYS[index])
+
+
+# Tests replace this with a synchronous runner. Signature: (hass, delay, fn) -> bool.
+_RETRY_SCHEDULER = None
+
+
+def schedule_push_retry(hass, delay: float, fn) -> bool:
+    """Run `fn` (blocking) in the executor after `delay` seconds. Never in the event loop.
+
+    Safe to call from an executor thread. In HA the delay is a loop timer and the
+    send itself an executor job; without a loop a daemon timer thread is used.
+    """
+    override = _RETRY_SCHEDULER
+    if override is not None:
+        return bool(override(hass, delay, fn))
+
+    def _run() -> None:
+        try:
+            fn()
+        except Exception:
+            _LOGGER.error("patrimony_push_retry_failed")
+
+    loop = getattr(hass, "loop", None)
+    add_job = getattr(hass, "async_add_executor_job", None)
+    if loop is not None and callable(add_job) and hasattr(loop, "call_soon_threadsafe"):
+        try:
+            if loop.is_closed():
+                return False
+
+            def _kick() -> None:
+                add_job(_run)
+
+            loop.call_soon_threadsafe(loop.call_later, float(delay), _kick)
+            return True
+        except Exception:
+            _LOGGER.error("patrimony_push_retry_schedule_failed")
+            return False
+    try:
+        timer = threading.Timer(float(delay), _run)
+        timer.daemon = True
+        timer.start()
+        return True
+    except Exception:
+        _LOGGER.error("patrimony_push_retry_schedule_failed")
+        return False
+
+
+MISSING_KEY_OUTCOME = {"status": None, "error": "missing_key", "ok": False}
+
+
+def push_result(outcome: dict[str, Any] | None) -> dict[str, Any]:
+    """0.4.110 (S7): the additive `push` object on chat 201. {ok, status} only."""
+    if not isinstance(outcome, dict):
+        return {"ok": False, "status": None}
+    status = outcome.get("status")
+    return {
+        "ok": bool(outcome.get("ok")),
+        "status": int(status) if isinstance(status, int) and not isinstance(status, bool) else None,
+    }
 
 
 _SAFE_CODE = re.compile(r"[A-Za-z0-9_.\-]{1,64}")
@@ -396,13 +589,24 @@ def auth_rejection_from_outcome(outcome: dict[str, Any] | None, at: str) -> dict
 
 
 def note_event_key_attempt(hass, outcome: dict[str, Any] | None, at: str | None = None) -> None:
-    """Most recent events-API attempt decides eventKeyLastPushStatus. Persisted."""
-    stamp = at or datetime.now().astimezone().isoformat(timespec="seconds")
+    """eventKeyLastPushStatus. Persisted.
 
-    def mutate(data: dict[str, Any]) -> None:
+    0.4.110 (S8): a 401/403 sets it; only a 2xx (or a new key install) clears it.
+    Timeout, connection errors, 5xx and other 4xx leave it unchanged, so a revoked
+    key does not disappear from the phone after one network blip.
+    """
+    stamp = at or datetime.now().astimezone().isoformat(timespec="seconds")
+    rejection = auth_rejection_from_outcome(outcome, stamp)
+    accepted = isinstance(outcome, dict) and bool(outcome.get("ok"))
+    if rejection is None and not accepted:
+        return
+
+    def mutate(data: dict[str, Any]):
         block = data.get(EVENT_KEY_STATUS_STORE)
         block = dict(block) if isinstance(block, dict) else {}
-        block["lastPushStatus"] = auth_rejection_from_outcome(outcome, stamp)
+        if rejection is None and block.get("lastPushStatus") is None and EVENT_KEY_STATUS_STORE in data:
+            return False
+        block["lastPushStatus"] = rejection
         data[EVENT_KEY_STATUS_STORE] = block
 
     _update_notify_doc(hass, mutate)
@@ -615,6 +819,66 @@ def devices_from_event_body(raw: Any) -> list[str] | None:
     return None
 
 
+_COUNT_KEYS = ("deviceCount", "recipients", "recipientCount", "devicesCount")
+_EVENT_ID_KEYS = ("eventId", "event_id", "logId", "id")
+
+
+def _safe_code(value: Any) -> str | None:
+    """Short fixed-alphabet code or id. Never a key, token or free text."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not _SAFE_CODE.fullmatch(text):
+        return None
+    lowered = text.lower()
+    if lowered.startswith(("hek_", "pmt_", "eyj")) or "token" in lowered or "secret" in lowered:
+        return None
+    return text
+
+
+def event_summary_from_body(raw: Any) -> dict[str, Any] | None:
+    """0.4.110 (S2): sanitised facts from a 2xx events body.
+
+    recipients: Backend's device count after excludeDevice (int; a list counts its
+    length). eventId: Backend's event/log id if it sends one. pushError: Backend's
+    synchronous APNs error code (e.g. apns_unconfigured) on an otherwise 202.
+    Device lists keep only public labels. Never tokens or the body itself.
+    """
+    if raw is None or raw == b"" or raw == "":
+        return None
+    try:
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", "replace")
+        data = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    out: dict[str, Any] = {}
+    for key in _COUNT_KEYS:
+        value = data.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int) and 0 <= value < 100000:
+            out["recipients"] = value
+            break
+        if isinstance(value, list):
+            out["recipients"] = len(value)
+            break
+    for key in _EVENT_ID_KEYS:
+        code = _safe_code(data.get(key))
+        if code:
+            out["eventId"] = code
+            break
+    push_error = _safe_code(data.get("pushError"))
+    if push_error:
+        out["pushError"] = push_error
+    devices = devices_from_event_body(json.dumps(data))
+    if devices is not None:
+        out["backendDevices"] = devices
+    return out or None
+
+
 def _iter_refresh_tokens(hass):
     auth = getattr(hass, "auth", None)
     if auth is None:
@@ -801,6 +1065,7 @@ def record_attention_push(hass, fire_class: str, devices: Any = None, at: str | 
 
 
 PUSH_KINDS = ("attention", "manual", "chat", "pq")
+PUSH_LOG_ERRORS = ("timeout", "connection_error", "tls_error", "unsafe_title", "missing_key")
 
 
 def _client_names(hass, exclude_client: str | None = None) -> list[str]:
@@ -823,8 +1088,24 @@ def record_push(
     devices: Any = None,
     at: str | None = None,
     exclude_client: str | None = None,
+    attempt: int | None = None,
+    retry: bool | None = None,
 ) -> None:
-    """Append one push-log row, success or failure. No title text, keys or tokens."""
+    """Append one push-log row, success or failure. No title text, keys or tokens.
+
+    Columns (0.4.110):
+      devices       legacy column, unchanged meaning: HA's *local* active paired
+                    clients at send time (minus the chat sender), not Backend's
+                    recipients. Kept for panel readers.
+      localDevices  the same local list under an explicit name.
+      recipients    Backend's deviceCount from the 2xx body (null if not sent).
+      eventId       Backend's event id from the 2xx body (null if not sent).
+      pushError     Backend's synchronous APNs error code on a 2xx (null if none).
+      backendDevices public labels if Backend ever returns a device list.
+      upstreamError Backend's sanitised error code on a non-2xx.
+      error         timeout | connection_error | tls_error | unsafe_title | missing_key.
+      attempt/retry automatic sends: try number, and whether another try follows.
+    """
     fire = _public_text(rule) or _public_text(kind)
     if not fire:
         return
@@ -833,9 +1114,17 @@ def record_push(
         outcome = {"status": None, "error": None, "ok": True}
     status = outcome.get("status")
     ok = bool(outcome.get("ok"))
-    error = outcome.get("error") if outcome.get("error") in (
-        "timeout", "connection_error", "tls_error", "unsafe_title"
-    ) else None
+    error = outcome.get("error") if outcome.get("error") in PUSH_LOG_ERRORS else None
+    upstream_error = _safe_code(outcome.get("upstreamError"))
+    recipients = outcome.get("recipients")
+    if not isinstance(recipients, int) or isinstance(recipients, bool) or recipients < 0:
+        recipients = None
+    event_id = _safe_code(outcome.get("eventId"))
+    push_error = _safe_code(outcome.get("pushError"))
+    backend_devices = outcome.get("backendDevices")
+    backend_devices = backend_devices if isinstance(backend_devices, list) else None
+    if backend_devices is not None:
+        backend_devices = _labels_from_items(backend_devices)
     stamp = at or datetime.now().astimezone().isoformat(timespec="seconds")
     stamp = _public_text(stamp) or ""
 
@@ -862,23 +1151,56 @@ def record_push(
         if reason_text and len(reason_text) > 120:
             reason_text = reason_text[:120]
         sev = str(severity).strip().lower() if severity else None
-        rows.append(
-            {
-                "at": stamp,
-                "fire_class": fire,
-                "devices": devices_cell,
-                "kind": kind_text,
-                "rule": fire,
-                "status": int(status) if isinstance(status, int) else None,
-                "error": error,
-                "ok": ok,
-                "reason": reason_text,
-                "severity": sev if sev in ("attention", "alert", "info") else None,
-            }
-        )
+        row = {
+            "at": stamp,
+            "fire_class": fire,
+            "devices": devices_cell,
+            "kind": kind_text,
+            "rule": fire,
+            "status": int(status) if isinstance(status, int) else None,
+            "error": error,
+            "ok": ok,
+            "reason": reason_text,
+            "severity": sev if sev in ("attention", "alert", "info") else None,
+            "localDevices": devices_cell,
+            "recipients": recipients,
+            "eventId": event_id,
+            "pushError": push_error,
+            "upstreamError": upstream_error,
+        }
+        if backend_devices is not None:
+            row["backendDevices"] = backend_devices
+        if attempt is not None:
+            row["attempt"] = int(attempt)
+            row["retry"] = bool(retry)
+        rows.append(row)
         data["pushLog"] = rows[-PUSH_LOG_MAX:]
 
     _update_notify_doc(hass, mutate)
+
+
+def _public_extras(row: dict[str, Any], devices: Any) -> dict[str, Any]:
+    """0.4.110 columns. Old rows get localDevices = devices and nulls elsewhere."""
+    recipients = row.get("recipients")
+    if not isinstance(recipients, int) or isinstance(recipients, bool) or recipients < 0:
+        recipients = None
+    local = row.get("localDevices", devices)
+    local = _devices_field(local) if local is not None else devices
+    out: dict[str, Any] = {
+        "localDevices": local,
+        "recipients": recipients,
+        "eventId": _safe_code(row.get("eventId")),
+        "pushError": _safe_code(row.get("pushError")),
+        "upstreamError": _safe_code(row.get("upstreamError")),
+    }
+    backend = row.get("backendDevices")
+    if isinstance(backend, list):
+        out["backendDevices"] = _labels_from_items(backend)
+    attempt = row.get("attempt")
+    if isinstance(attempt, int) and not isinstance(attempt, bool):
+        out["attempt"] = attempt
+        out["retry"] = bool(row.get("retry"))
+    return out
 
 
 def push_log_document(hass) -> dict[str, Any]:
@@ -918,6 +1240,7 @@ def push_log_document(hass) -> dict[str, Any]:
                 "ok": bool(row.get("ok", True)),
                 "reason": _public_text(row.get("reason")),
                 "severity": sev if sev in ("attention", "alert", "info") else None,
+                **_public_extras(row, devices),
             }
         )
     if changed:
@@ -939,25 +1262,32 @@ def push_log_document(hass) -> dict[str, Any]:
     return {"rows": public}
 
 
-def dispatch_attention_pushes(hass, facts, property_id, key, now: float | None = None) -> int:
-    """Persist the FIRE baseline, then POST events only for new FIRE classes.
+# Stamp keys whose send (first try or a scheduled retry) is still running, per notify
+# file. In memory only: after a restart nothing is in flight and the uncommitted
+# baseline lets the next evaluation re-fire.
+_ATTENTION_INFLIGHT: set[tuple[str, str]] = set()
 
-    No usable hek_ → baseline updates, nothing is sent (fail closed).
-    """
-    moment = time.time() if now is None else float(now)
-    store = load_attention_store(hass)
-    usable = bool(property_id) and is_usable_house_event_key(key)
-    pushes = plan_automatic_pushes(
-        store, facts, moment, commit_debounce=usable
-    )
-    save_attention_store(hass, store)
-    if not pushes or not usable:
-        return 0
-    sent = 0
-    for push in pushes:
-        title = push.get("title") or ""
-        if not title_is_safe(title):
-            continue
+
+def _inflight_release(path_key: str, stamp_key: str) -> None:
+    with _NOTIFY_LOCK:
+        _ATTENTION_INFLIGHT.discard((path_key, stamp_key))
+
+
+def _commit_attention(hass, push: dict[str, Any], stamp: float) -> None:
+    """2xx: commit the debounce stamp and the item's FIRE baseline (locked RMW)."""
+    with _NOTIFY_LOCK:
+        store = load_attention_store(hass)
+        commit_attention_success(store, push, stamp)
+        save_attention_store(hass, store)
+
+
+def _attention_attempt(hass, property_id: str, key: str, push: dict[str, Any], base_now: float, attempt: int) -> bool:
+    """One try of one FIRE push. 2xx commits; retryable failure schedules the next try."""
+    path_key = str(notify_path(hass))
+    stamp_key = str(push.get("stamp_key") or "")
+    fire = push.get("fire_class")
+    title = push.get("title") or ""
+    try:
         status = load_card_id_and_post(
             hass,
             str(property_id),
@@ -966,17 +1296,102 @@ def dispatch_attention_pushes(hass, facts, property_id, key, now: float | None =
             severity=push.get("severity") or "alert",
             manual=False,
             kind="attention",
-            rule=str(push.get("fire_class") or ""),
+            rule=str(fire or ""),
             # The title is a fixed rule sentence plus the card label; never user text.
-            reason=f"{push.get('fire_class')}: {title}",
+            reason=f"{fire}: {title}",
+            attempt=attempt,
+            max_attempts=PUSH_MAX_ATTEMPTS,
+            # Per-card banner at Backend (smoke and leak on different cards don't replace each other).
+            card_id=push.get("presentation_card_id"),
         )
-        if 200 <= int(status) < 300:
+        outcome = dict(getattr(_event_tls, "outcome", None) or last_post_outcome(status))
+        retry = bool(getattr(_event_tls, "retry", False))
+    except Exception:
+        _LOGGER.error("patrimony_attention_push_failed class=%s attempt=%s", fire, attempt)
+        _inflight_release(path_key, stamp_key)
+        return False
+    if outcome.get("ok"):
+        elapsed = sum(PUSH_RETRY_DELAYS[: max(0, attempt - 1)])
+        try:
+            _commit_attention(hass, push, float(base_now) + float(elapsed))
+        except Exception:
+            _LOGGER.error("patrimony_attention_commit_failed class=%s", fire)
+        _inflight_release(path_key, stamp_key)
+        _LOGGER.info("patrimony_attention_push class=%s attempt=%s", fire, attempt)
+        return True
+    if retry:
+        delay = retry_delay(attempt)
+        _LOGGER.warning(
+            "patrimony_attention_push_retry class=%s status=%s attempt=%s next_in=%ss",
+            fire, status, attempt, int(delay),
+        )
+
+        def _again() -> None:
+            _attention_attempt(hass, property_id, key, push, base_now, attempt + 1)
+
+        if schedule_push_retry(hass, delay, _again):
+            return False
+    # Final failure: nothing committed, so the next evaluation can fire again.
+    _inflight_release(path_key, stamp_key)
+    _LOGGER.warning(
+        "patrimony_attention_push_failed class=%s status=%s attempts=%s",
+        fire, status, attempt,
+    )
+    return False
+
+
+def dispatch_attention_pushes(hass, facts, property_id, key, now: float | None = None) -> int:
+    """Persist the FIRE baseline, then POST events only for new FIRE classes.
+
+    0.4.110 (S3): with a usable key the debounce stamp and the pushed item's
+    baseline are committed only after a 2xx. Timeout, connection error, 5xx or
+    429 retry up to PUSH_MAX_ATTEMPTS (delays PUSH_RETRY_DELAYS) as scheduled
+    executor jobs; a final failure keeps no stamp. Returns first-try 2xx count.
+    (S6) No usable hek_/property_id: baseline updates (no replay later), nothing
+    is sent, and each transition logs a WARNING and an ok=false missing_key row.
+    """
+    moment = time.time() if now is None else float(now)
+    usable = bool(property_id) and is_usable_house_event_key(key)
+    path_key = str(notify_path(hass))
+    with _NOTIFY_LOCK:
+        store = load_attention_store(hass)
+        busy = {stamp for (owner, stamp) in _ATTENTION_INFLIGHT if owner == path_key}
+        pushes = plan_automatic_pushes(
+            store, facts, moment, commit_debounce=False if not usable else True,
+            defer_commit=usable, inflight=busy,
+        )
+        save_attention_store(hass, store)
+        if usable:
+            for push in pushes:
+                _ATTENTION_INFLIGHT.add((path_key, str(push.get("stamp_key") or "")))
+    if not pushes:
+        return 0
+    if not usable:
+        for push in pushes:
+            fire = push.get("fire_class")
+            _LOGGER.warning("patrimony_attention_push_skipped reason=missing_key class=%s", fire)
+            try:
+                record_push(
+                    hass,
+                    kind="attention",
+                    rule=str(fire or ""),
+                    outcome=dict(MISSING_KEY_OUTCOME),
+                    reason=f"{fire}: {push.get('title') or ''}",
+                    severity=push.get("severity") or "alert",
+                )
+            except Exception:
+                _LOGGER.error("patrimony_push_log_write_failed")
+        return 0
+    sent = 0
+    for push in pushes:
+        title = push.get("title") or ""
+        if not title_is_safe(title):
+            # Never sendable: commit the baseline without a stamp so it does not loop.
+            try:
+                _commit_attention(hass, {**push, "stamp_key": ""}, moment)
+            finally:
+                _inflight_release(path_key, str(push.get("stamp_key") or ""))
+            continue
+        if _attention_attempt(hass, str(property_id), str(key), push, moment, 1):
             sent += 1
-            _LOGGER.info("patrimony_attention_push class=%s", push.get("fire_class"))
-        else:
-            _LOGGER.warning(
-                "patrimony_attention_push_failed class=%s status=%s",
-                push.get("fire_class"),
-                status,
-            )
     return sent

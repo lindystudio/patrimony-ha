@@ -453,7 +453,7 @@ async def _member_response(hass, request, row, body):
     mid = str(row.get("memberId") or "")
     if _if_none_match(request, tag):
         # Still enforce the PQ session rule before revealing "unchanged".
-        if not (mgr.shield_on and hh.member_pq_required(hass) and not mgr.member_session_present(mid)):
+        if not (mgr.member_shield_on and hh.member_pq_required(hass) and not mgr.member_session_present(mid)):
             return web.Response(status=304, headers=headers)
     resp = await hh._member_pq_response(hass, row, body)
     if getattr(resp, "status", 200) == 200:
@@ -545,7 +545,11 @@ class PatrimonyMemberCalendarEventsView(HomeAssistantView):
 
 
 class PatrimonyEditorCalendarsView(HomeAssistantView):
-    """Panel (HA admin): every calendar.* entity with expose / sharedWithMembers / role."""
+    """Panel (HA admin): every calendar.* entity with expose / sharedWithMembers / role.
+
+    Panel labels (0.4.104): checkbox "Show in app", dropdown "Show in app as"
+    (No role / Guest stays / Birthdays). Field names and values unchanged.
+    """
 
     url = EDITOR_CALENDARS_PATH
     name = "api:patrimony_collection:editor_calendars"

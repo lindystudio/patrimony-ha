@@ -16,7 +16,13 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from ..const import CONF_PQ_SHIELD, DOMAIN, PQ_SHIELD_STORE_FILE
+from ..const import (
+    CONF_MEMBER_PQ_REQUIRED,
+    CONF_PQ_SHIELD,
+    DOMAIN,
+    MEMBER_PQ_REQUIRED,
+    PQ_SHIELD_STORE_FILE,
+)
 from .capability import capability_payload, probe_mlkem
 from .hybrid import (
     HYBRID_CT_LEN,
@@ -56,6 +62,20 @@ def _feature_enabled(hass) -> bool:
         return False
     opts = entry.options or {}
     return bool(opts.get(CONF_PQ_SHIELD, True))
+
+
+def _member_pq_required(hass) -> bool:
+    """0.4.108: single source of truth is http.member_pq_required (const, option override)."""
+    try:
+        from .. import http as _hh
+
+        return bool(_hh.member_pq_required(hass))
+    except Exception:
+        entry = _first_entry(hass)
+        opts = dict(getattr(entry, "options", None) or {}) if entry is not None else {}
+        if CONF_MEMBER_PQ_REQUIRED in opts:
+            return bool(opts.get(CONF_MEMBER_PQ_REQUIRED))
+        return bool(MEMBER_PQ_REQUIRED)
 
 
 def _first_entry(hass):
@@ -195,6 +215,25 @@ class PQShieldManager:
         self._persist()
         return self._recipient.public_material()
 
+    def flag_off(self) -> dict[str, Any]:
+        """0.4.108: the house pq_shield flag went Off (POST /pq_shield/feature or options step).
+
+        The flag governs the OWNER path only: the owner session is wiped as before. While
+        member PQ is required, the recipient keypair and member sessions are kept, so
+        members stay sealed. Transition (member_pq_required False): full wipe, as before.
+        """
+        return self.disable_owner()
+
+    def disable_owner(self) -> dict[str, Any]:
+        """0.4.109: owner Disable (POST /pq_shield/disable) and flag Off share one rule:
+        wipe the owner session; keep keypair + member sessions while member PQ is required."""
+        if not self.member_pq_required:
+            return self.disable(wipe_keypair=True)
+        self.load()
+        self._aead_key = None
+        self._persist()
+        return {"ok": True, "session": "absent"}
+
     def disable(self, *, wipe_keypair: bool = True) -> dict[str, Any]:
         self.load()
         self._aead_key = None
@@ -228,24 +267,47 @@ class PQShieldManager:
         """Owner PQ shield ON for this house (feature enabled and ML-KEM available)."""
         return bool(self.available and self.feature_enabled)
 
+    @property
+    def member_pq_required(self) -> bool:
+        return _member_pq_required(self.hass)
+
+    @property
+    def member_shield_on(self) -> bool:
+        """0.4.108: member PQ gate. Member PQ required -> on whenever ML-KEM is available,
+        independent of the house pq_shield flag (the flag governs the owner path only).
+        Transition (member_pq_required False) -> unchanged: follows shield_on."""
+        if not self.available:
+            return False
+        return bool(self.feature_enabled or self.member_pq_required)
+
     def member_session_present(self, member_id: str) -> bool:
         self.load()
         return len(self._member_keys.get(str(member_id), b"")) == 32
 
     def member_capability(self, member_id: str) -> dict[str, Any]:
-        """Owner capability shape, with session = THIS member's session state."""
-        return capability_payload(
-            feature_enabled=self.feature_enabled,
+        """Owner capability shape, with session = THIS member's session state.
+
+        0.4.107: ownerSession mirrors the owner's capability.session (same check, the
+        owner's own capability()), so a member's PQ chip shows exactly the owner's state.
+        Only "present"/"absent": no client ids, no timestamps.
+        """
+        out = capability_payload(
+            feature_enabled=bool(self.feature_enabled or self.member_pq_required),
             session_present=self.member_session_present(member_id),
             available=self.available,
             reason=None if self.available else self._probe_reason,
         )
+        out["ownerSession"] = self.owner_session()
+        return out
+
+    def owner_session(self) -> str:
+        return "present" if self.capability().get("session") == "present" else "absent"
 
     def accept_member_encap(self, member_id: str, encap: bytes) -> dict[str, Any]:
         """Blocking. Decapsulate a member's encap to the house recipient; store its own key."""
         if not self.available:
             raise RuntimeError("unavailable")
-        if not self.feature_enabled:
+        if not self.member_shield_on:
             raise RuntimeError("disabled")
         if len(encap) != HYBRID_CT_LEN:
             raise ValueError("bad_encap")
@@ -269,9 +331,10 @@ class PQShieldManager:
         return n
 
     def wrap_for_member(self, member_id: str, document: dict[str, Any]) -> dict[str, Any] | None:
-        """Envelope with THIS member's key; plain doc when shield Off; None = no session (caller decides 428/plain)."""
+        """Envelope with THIS member's key; plain doc when the MEMBER gate is off (0.4.108:
+        member_shield_on, not the house flag); None = no session (caller decides 428/plain)."""
         self.load()
-        if not self.shield_on:
+        if not self.member_shield_on:
             return document
         key = self._member_keys.get(str(member_id))
         if key is None or len(key) != 32:

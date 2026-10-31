@@ -200,7 +200,7 @@ class _Hass:
 def test_dispatch_posts_alert_only_after_transition(tmp_path, monkeypatch):
     calls = []
 
-    def fake_post(property_id, key, card_id, title, timeout=8, severity="attention"):
+    def fake_post(property_id, key, card_id, title, timeout=8, severity="attention", **_kw):
         calls.append({"severity": severity, "title": title, "card_id": card_id, "property_id": property_id})
         assert "hek_" not in title
         assert key.startswith("hek_")
@@ -358,7 +358,7 @@ def test_manual_send_writes_one_row_fire_unchanged_quiet_silent(tmp_path, monkey
     """Gold Send success is a manual row. FIRE keeps its class. QUIET writes nothing."""
     statuses = {"code": 200}
 
-    def fake_post(property_id, key, card_id, title, timeout=8, severity="attention"):
+    def fake_post(property_id, key, card_id, title, timeout=8, severity="attention", **_kw):
         assert key.startswith("hek_")
         assert "hek_" not in title
         return statuses["code"]

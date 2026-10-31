@@ -60,6 +60,8 @@ MEMBERS_FILE: Final = "patrimony_collection/members.json"
 MEMBERS_PATH: Final = "/api/patrimony_collection/members"
 MEMBERS_MINT_PATH: Final = "/api/patrimony_collection/members/mint"
 MEMBER_REVOKE_PATH: Final = "/api/patrimony_collection/members/{principal_id}/revoke"
+MEMBER_REMOVE_PATH: Final = "/api/patrimony_collection/members/{member_id}"
+MEMBERS_CLEAR_INACTIVE_PATH: Final = "/api/patrimony_collection/members/clear_inactive"
 MEMBER_STATE_PATH: Final = "/api/patrimony_collection/m/state"
 MEMBER_PAIRING_PATH: Final = "/api/patrimony_collection/m/pairing"
 MEMBER_CHAT_PATH: Final = "/api/patrimony_collection/m/chat"
@@ -76,6 +78,13 @@ MEMBER_TOKEN_PREFIX: Final = "pmt_"
 MEMBER_TOKEN_TTL_DAYS_DEFAULT: Final = 30
 MEMBER_TOKEN_TTL_DAYS_MAX: Final = 365
 MEMBER_NAME_MAX: Final = 80
+# 0.4.118: read-time guest fallback label. English only.
+GUEST_FALLBACK_LABEL: Final = "Guest"
+GUEST_DATED_LABEL: Final = "Guest \u00b7 {date}"
+GUEST_LABEL_MONTHS: Final = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                             "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+# Stock names a guest can carry without the owner having named them (besides device names).
+STOCK_MEMBER_NAMES: Final = frozenset({"member", "guest", "paired phone"})
 MEMBER_INACTIVE_KEEP_DAYS: Final = 30
 CLIENT_UNPAIR_PATH: Final = "/api/patrimony_collection/clients/{client_id}/unpair"
 IOS_DEVICE_NAME_MAX: Final = 80

@@ -14,6 +14,7 @@ import pytest
 
 from custom_components.patrimony_collection import clients as hc
 from custom_components.patrimony_collection import http as hh
+from custom_components.patrimony_collection.pq_shield import session as _pqs
 from custom_components.patrimony_collection import members as hm
 
 URL = "https://ha.example.com"
@@ -25,6 +26,14 @@ class _Resp:
 
     def json(self):
         return json.loads(self.text)
+
+
+@pytest.fixture(autouse=True)
+def _pq_unavailable_member_lifecycle(monkeypatch):
+    """0.4.108: member PQ is gated on ML-KEM availability alone (not the house flag). These
+    member-lifecycle tests are PQ-agnostic, so run them as CI does: ML-KEM unavailable.
+    Module-local: not applied where only _fake_web is imported."""
+    monkeypatch.setattr(_pqs.PQShieldManager, "available", property(lambda self: False))
 
 
 @pytest.fixture(autouse=True)
@@ -43,9 +52,29 @@ def _fake_web(monkeypatch):
     monkeypatch.setattr("custom_components.patrimony_collection.pair._cloud_url", lambda _h: None, raising=False)
 
 
+class _RT:
+    """Refresh-token METADATA as HA's auth manager returns it (0.4.113 gate reads token_type)."""
+    def __init__(self, token_id, token_type="normal"):
+        self.id, self.token_type = token_id, token_type
+
+
+class _Auth:
+    """hass.auth stand-in: register LLATs with add_llat(); any other id is a normal
+    (browser/Companion) session, like an admin panel login."""
+    def __init__(self):
+        self.tokens = {}
+
+    def add_llat(self, token_id):
+        self.tokens[token_id] = _RT(token_id, "long_lived_access_token")
+
+    def async_get_refresh_token(self, token_id):
+        return self.tokens.get(token_id) or _RT(token_id, "normal")
+
+
 class _Hass:
     def __init__(self, root, external_url=URL):
         self.data = {}
+        self.auth = _Auth()
         self.config = type("c", (), {"path": lambda _s, p, root=root: str(root / p),
                                      "external_url": external_url, "internal_url": None,
                                      "time_zone": "Europe/Lisbon"})()
@@ -55,11 +84,19 @@ class _Hass:
 
 
 class _Req(dict):
-    def __init__(self, token=None, user=None, body=None):
+    """Like HA's auth middleware: an authenticated request carries hass_user and the
+    validated refresh-token id (the bearer JWT iss). An admin request without a token
+    is a fresh panel session (0.4.113: mutations need a real, unexpired credential)."""
+    def __init__(self, token=None, user=None, body=None, rt_id=None):
         super().__init__()
+        if token is None and user is not None:
+            token = _owner_jwt("panelsession01")
         self.headers = {"Authorization": f"Bearer {token}"} if token else {}
         if user is not None:
             self["hass_user"] = user
+            iss = hc._jwt_iss(token) if token else None
+            if rt_id or iss:
+                self["hass_refresh_token_id"] = rt_id or iss
         self._body = body
 
     async def json(self):
@@ -82,8 +119,10 @@ def run(coro):
     return asyncio.run(coro)
 
 
-def _owner_jwt(iss):
-    body = base64.urlsafe_b64encode(json.dumps({"iss": iss}).encode()).decode().rstrip("=")
+def _owner_jwt(iss, exp=None):
+    import time as _t
+    exp = int(_t.time()) + 1800 if exp is None else exp
+    body = base64.urlsafe_b64encode(json.dumps({"iss": iss, "iat": exp - 1800, "exp": exp}).encode()).decode().rstrip("=")
     return "eyJhbGciOiJIUzI1NiJ9." + body + ".sig"
 
 
@@ -281,6 +320,10 @@ def test_member_flows_never_touch_ha_auth_or_owner(tmp_path):
     hass = _Hass(tmp_path)
 
     class _ExplodingAuth:
+        # 0.4.113: the mutation gate may READ refresh-token metadata; nothing else.
+        def async_get_refresh_token(self, token_id):
+            return _RT(token_id, "normal")
+
         def __getattr__(self, name):
             raise AssertionError(f"member flow touched hass.auth.{name}")
 
@@ -359,3 +402,76 @@ def test_panel_version_has_no_disk_read(monkeypatch):
 
     monkeypatch.setattr(Path, "read_text", boom)
     assert panel._component_version() == INTEGRATION_VERSION == manifest
+
+
+def test_remove_inactive_leaves_tombstone_still_revoked(tmp_path):
+    """Removing a past row hides it from the list but the token stays member_token_revoked."""
+    hass = _Hass(tmp_path)
+    doc = _mint(hass, memberName="Anna")[1]
+    token = doc["token"]
+    mid = doc["member"]["memberId"]
+    assert run(hh.PatrimonyMemberStateView(hass).get(_Req(token))).status == 200
+    assert _revoke(hass, "prn_anna")[0] == 200
+    listed = run(hh.PatrimonyMembersView(hass).get(_Req(user=_Admin()))).json()
+    assert [p["memberId"] for p in listed["inactive"]] == [mid]
+    assert listed["members"] == [] and listed["pending"] == []
+    r = run(hh.PatrimonyMemberRemoveView(hass).delete(_Req(user=_Admin()), mid))
+    assert r.status == 200 and r.json()["removed"] is True
+    listed2 = run(hh.PatrimonyMembersView(hass).get(_Req(user=_Admin()))).json()
+    assert listed2["inactive"] == [] and listed2["members"] == [] and listed2["pending"] == []
+    denied = run(hh.PatrimonyMemberStateView(hass).get(_Req(token)))
+    assert denied.status == 401 and denied.json()["error"]["code"] == "member_token_revoked"
+    # store still has the hash (tombstone), never the raw token
+    raw = hm.members_path(hass).read_text()
+    assert hm.token_hash(token) in raw and token not in raw
+    # idempotent remove
+    again = run(hh.PatrimonyMemberRemoveView(hass).delete(_Req(user=_Admin()), mid))
+    assert again.status == 200 and again.json().get("alreadyGone") is True
+
+
+def test_remove_active_or_pending_refused(tmp_path):
+    hass = _Hass(tmp_path)
+    pending = _mint(hass, memberName="Pending")[1]["member"]["memberId"]
+    active_doc = _mint(hass, memberName="Active", principalId="prn_act")[1]
+    run(hh.PatrimonyMemberStateView(hass).get(_Req(active_doc["token"])))
+    active = active_doc["member"]["memberId"]
+    for mid in (pending, active):
+        r = run(hh.PatrimonyMemberRemoveView(hass).delete(_Req(user=_Admin()), mid))
+        assert r.status == 400 and r.json()["error"]["code"] == "not_inactive"
+    assert run(hh.PatrimonyMemberStateView(hass).get(_Req(active_doc["token"]))).status == 200
+
+
+def test_clear_inactive_tombstones_all_past(tmp_path):
+    hass = _Hass(tmp_path)
+    a = _mint(hass, memberName="A", principalId="prn_a")[1]
+    b = _mint(hass, memberName="B", principalId="prn_b")[1]
+    live = _mint(hass, memberName="Live", principalId="prn_live")[1]
+    run(hh.PatrimonyMemberStateView(hass).get(_Req(a["token"])))
+    run(hh.PatrimonyMemberStateView(hass).get(_Req(b["token"])))
+    run(hh.PatrimonyMemberStateView(hass).get(_Req(live["token"])))
+    _revoke(hass, "prn_a")
+    _revoke(hass, "prn_b")
+    r = run(hh.PatrimonyMembersClearInactiveView(hass).post(_Req(user=_Admin())))
+    assert r.status == 200 and r.json()["cleared"] == 2
+    listed = run(hh.PatrimonyMembersView(hass).get(_Req(user=_Admin()))).json()
+    assert listed["inactive"] == []
+    assert [p["memberId"] for p in listed["members"]] == [live["member"]["memberId"]]
+    for doc in (a, b):
+        s = run(hh.PatrimonyMemberStateView(hass).get(_Req(doc["token"])))
+        assert s.status == 401 and s.json()["error"]["code"] == "member_token_revoked"
+    assert run(hh.PatrimonyMemberStateView(hass).get(_Req(live["token"]))).status == 200
+
+
+def test_remove_and_clear_owner_only(tmp_path):
+    hass = _Hass(tmp_path)
+    doc = _mint(hass)[1]
+    mid = doc["member"]["memberId"]
+    _revoke(hass, "prn_anna")
+    assert run(hh.PatrimonyMemberRemoveView(hass).delete(_Req(user=_NonAdmin()), mid)).status == 403
+    assert run(hh.PatrimonyMembersClearInactiveView(hass).post(_Req(user=_NonAdmin()))).status == 403
+    # member bearer also refused
+    token = _mint(hass, memberName="Other", principalId="prn_o")[1]["token"]
+    req = _Req(token)
+    req[hc.MEMBER_CLIENT_KEY] = "m_x"
+    assert run(hh.PatrimonyMemberRemoveView(hass).delete(req, mid)).status == 403
+    assert run(hh.PatrimonyMembersClearInactiveView(hass).post(req)).status == 403

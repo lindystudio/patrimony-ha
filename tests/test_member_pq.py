@@ -138,13 +138,31 @@ def test_member_rotate_drops_only_own_session(house):
     assert run(hh.PatrimonyMemberStateView(hass).get(_Req(tok))).status == 428
 
 
-def test_shield_off_members_plain(house, monkeypatch):
-    hass, _ = house
+def test_flag_off_transition_members_plain(house, monkeypatch):
+    """0.4.108: plain members only in transition (member_pq_required False) + flag Off, as before."""
+    hass, opts = house
+    opts[CONF_MEMBER_PQ_REQUIRED] = False
     monkeypatch.setattr(pqs.PQShieldManager, "feature_enabled", property(lambda self: False))
     tok = _mint(hass)[1]["token"]
     r = run(hh.PatrimonyMemberStateView(hass).get(_Req(tok)))
     assert r.status == 200 and r.json()["schemaVersion"] == 1
     assert run(mv.MemberPQPublicView(hass).get(_Req(tok))).status == 409
+
+
+def test_flag_off_member_pq_required_still_gated_and_sealed(house, monkeypatch):
+    """0.4.108: house flag Off governs the owner path only; members stay PQ-required."""
+    hass, _ = house
+    monkeypatch.setattr(pqs.PQShieldManager, "feature_enabled", property(lambda self: False))
+    tok = _mint(hass)[1]["token"]
+    r = run(hh.PatrimonyMemberStateView(hass).get(_Req(tok)))
+    assert r.status == 428 and r.json()["error"]["code"] == "pq_session_required"
+    assert r.json()["pqShield"]["reason"] is None and r.json()["pqShield"]["ownerSession"] == "absent"
+    key = _handshake(hass, tok)  # member handshake allowed with the flag Off
+    st = run(hh.PatrimonyMemberStateView(hass).get(_Req(tok)))
+    env = st.json()
+    assert st.status == 200 and {"pqShield", "kem", "aead", "nonce", "ct"} <= set(env)
+    assert hy.open_document(key, env)["schemaVersion"] == 1
+    assert pqs.get_manager(hass).capability()["session"] == "absent"  # owner path still Off
 
 
 def test_chat_key_cached_after_first_load(tmp_path, monkeypatch):

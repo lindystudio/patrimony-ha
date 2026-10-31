@@ -23,6 +23,7 @@ from __future__ import annotations
 from . import fileio
 
 import json
+import re
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -191,6 +192,170 @@ def owner_or_admin(hass, request) -> bool:
     return bool(row and row["status"] == STATUS_ACTIVE and row.get("role") == ROLE_OWNER)
 
 
+_HA_USER_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
+def revoke_actor(hass, request) -> dict[str, Any]:
+    """0.4.112: {revokedBy, revokeSource} for a revoke request. Ids only (no IP/UA/names).
+
+    owner_app: bearer JWT iss is an active role=owner paired client -> that clientId.
+    panel: an HA admin user that is not a paired owner client -> "admin:<user id>".
+    other: anything else -> null.
+    """
+    if _member_marker(request):
+        return {"revokedBy": None, "revokeSource": "other"}
+    client_id = _jwt_iss(_bearer(request))
+    row = get_client(hass, client_id) if client_id else None
+    if row and row["status"] == STATUS_ACTIVE and row.get("role") == ROLE_OWNER:
+        return {"revokedBy": client_id, "revokeSource": "owner_app"}
+    user = _request_user(request)
+    if user is not None and getattr(user, "is_admin", False):
+        uid = getattr(user, "id", None)
+        uid = str(uid).strip() if uid is not None else ""
+        by = "admin:" + uid if uid and _HA_USER_ID_RE.match(uid) else None
+        return {"revokedBy": by, "revokeSource": "panel"}
+    return {"revokedBy": None, "revokeSource": "other"}
+
+
+# ---------- 0.4.113 member-mutation credential gate (D1/D2/D4) ----------
+CRED_ADMIN_SESSION = "admin_session"
+CRED_OWNER_PAIR = "owner_pair"
+CRED_LLAT_DEV = "llat_dev"
+CRED_OTHER = "other"
+# Variant switch. True (shipped): the owner pair bearer may unpair member (m_) clients
+# only, even when its HA user is an admin. False: as 0.4.112, an admin-owned owner pair
+# bearer may also unpair owner (non-m_) clients.
+OWNER_PAIR_MEMBER_ONLY_UNPAIR = True
+# Opt-in, default False everywhere: re-allows admin-owned LLATs on member mutations (dev/testing).
+OPT_ALLOW_LLAT_MEMBER_MUTATIONS = "allow_llat_member_mutations"
+REFRESH_TOKEN_ID_KEY = "hass_refresh_token_id"
+_TOKEN_TYPE_NORMAL = "normal"
+_TOKEN_TYPE_LLAT = "long_lived_access_token"
+_RT_ID_RE = re.compile(r"^[A-Za-z0-9]{6,128}$")
+_PAIR_ID_RE = re.compile(r"^[A-Za-z0-9-]{6,128}$")  # HA ids are hex; never m_<memberId>
+
+
+def _jwt_payload(token: str) -> dict[str, Any]:
+    import base64
+
+    parts = token.split(".") if token else []
+    if len(parts) < 2 or not parts[1]:
+        return {}
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _request_refresh_token_id(request) -> str | None:
+    getter = getattr(request, "get", None) if request is not None else None
+    value = None
+    if callable(getter):
+        try:
+            value = getter(REFRESH_TOKEN_ID_KEY)
+        except Exception:
+            value = None
+    text = str(value).strip() if value else ""
+    return text or None
+
+
+def _refresh_token_type(hass, token_id: str | None) -> str | None:
+    """token_type of the validated refresh token (metadata only), or None when unknown."""
+    if not token_id:
+        return None
+    auth = getattr(hass, "auth", None)
+    getter = getattr(auth, "async_get_refresh_token", None) if auth is not None else None
+    if getter is None:
+        return None
+    try:
+        tok = getter(token_id)
+    except Exception:
+        return None
+    if tok is None or hasattr(tok, "__await__"):
+        if hasattr(tok, "close"):
+            tok.close()
+        return None
+    value = getattr(tok, "token_type", None)
+    return str(value) if value else None
+
+
+def _allow_llat_option(hass) -> bool:
+    entry = _first_entry(hass)
+    options = getattr(entry, "options", None) or {}
+    try:
+        return options.get(OPT_ALLOW_LLAT_MEMBER_MUTATIONS) is True
+    except Exception:
+        return False
+
+
+def mutation_actor(hass, request, *, now: float | None = None) -> dict[str, Any]:
+    """0.4.113: who may change members/clients (revoke, unpair, remove-inactive, clear-ended, mint).
+
+    The credential id is the HA refresh-token id HA validated for this request
+    (request["hass_refresh_token_id"]); without it (older callers/tests) the bearer
+    JWT iss, which HA has just validated. If both are present and differ: not bound.
+      member pmt_ request / no HA user           -> refused (fail closed)
+      id is an ACTIVE role=owner client row      -> owner_pair. Keys ONLY on that row,
+                                                    never on who created the token or how
+                                                    (pair flow or a hand-made LLAT).
+      normal (browser/Companion) token, admin    -> admin_session; refused with
+                                                    token_expired when the bearer JWT exp
+                                                    has passed (no leeway)
+      long-lived token, admin, option on         -> llat_dev
+      any other long-lived token                 -> 403 llat_not_allowed
+      anything else                              -> 403 forbidden
+    Returns {allowed, credentialType, credentialIdPrefix, status, code, ownerUserAdmin}.
+    Ids only: never token values, IPs or user agents.
+    """
+    import time as _time
+
+    def out(allowed, cred, status=200, code=None, prefix=None, owner_admin=False):
+        return {"allowed": allowed, "credentialType": cred, "credentialIdPrefix": prefix,
+                "status": status, "code": code, "ownerUserAdmin": owner_admin}
+
+    if _member_marker(request):
+        return out(False, CRED_OTHER, 403, "forbidden")
+    user = _request_user(request)
+    if user is None:
+        return out(False, CRED_OTHER, 403, "forbidden")
+    bearer = _bearer(request)
+    payload = _jwt_payload(bearer)
+    iss = payload.get("iss") if isinstance(payload.get("iss"), str) else None
+    rt_id = _request_refresh_token_id(request)
+    if rt_id and iss and rt_id != iss:
+        cred_id = None
+    else:
+        cred_id = rt_id or (iss.strip() if iss else None)
+    prefix = cred_id[:6] if cred_id and _RT_ID_RE.match(cred_id) else None
+    is_admin = bool(getattr(user, "is_admin", False))
+    if cred_id and not cred_id.startswith("m_"):
+        row = get_client(hass, cred_id)
+        if row and row["status"] == STATUS_ACTIVE and row.get("role") == ROLE_OWNER:
+            return out(True, CRED_OWNER_PAIR, prefix=prefix, owner_admin=is_admin)
+    token_type = _refresh_token_type(hass, rt_id) if cred_id else None
+    if token_type == _TOKEN_TYPE_NORMAL and is_admin:
+        exp = payload.get("exp")
+        now = _time.time() if now is None else now
+        if not isinstance(exp, (int, float)) or isinstance(exp, bool) or now >= float(exp):
+            return out(False, CRED_ADMIN_SESSION, 401, "token_expired", prefix)
+        return out(True, CRED_ADMIN_SESSION, prefix=prefix)
+    if token_type == _TOKEN_TYPE_LLAT:
+        if is_admin and _allow_llat_option(hass):
+            return out(True, CRED_LLAT_DEV, prefix=prefix)
+        return out(False, CRED_OTHER, 403, "llat_not_allowed", prefix)
+    return out(False, CRED_OTHER, 403, "forbidden", prefix)
+
+
+def may_unpair(actor: dict[str, Any], target_is_member: bool) -> bool:
+    """Unpair scope after mutation_actor allowed the caller."""
+    if not actor.get("allowed"):
+        return False
+    if actor.get("credentialType") != CRED_OWNER_PAIR or target_is_member:
+        return True
+    return (not OWNER_PAIR_MEMBER_ONLY_UNPAIR) and bool(actor.get("ownerUserAdmin"))
+
+
 def is_admin_request(request) -> bool:
     if _member_marker(request):
         return False
@@ -237,6 +402,63 @@ def _read_store(hass) -> dict[str, Any]:
 
 def _write_store(hass, data: dict[str, Any]) -> None:
     fileio.write_text(ios_session_path(hass), json.dumps(data, indent=2) + "\n")
+
+
+# 0.4.114: server-side record of refresh-token ids that pair.mint_pairing issued. Only these
+# (and pmt_ members) may get a client row created; a hand-made LLAT named "Patrimony iOS" is
+# NOT in it. Ids only (never token values), newest last, capped.
+PAIR_ISSUED_FILE = "patrimony_collection/pair_issued.json"
+PAIR_ISSUED_MAX = 50
+
+
+def _pair_issued_path(hass):
+    from pathlib import Path
+
+    try:
+        return Path(hass.config.path(PAIR_ISSUED_FILE))
+    except Exception:
+        return Path("/config") / PAIR_ISSUED_FILE
+
+
+def _read_pair_issued(hass) -> list[dict[str, Any]]:
+    try:
+        text = fileio.read_text(_pair_issued_path(hass))  # loop-safe cached read (0.4.115)
+        raw = json.loads(text) if text else {}
+    except Exception:
+        return []
+    rows = raw.get("issued") if isinstance(raw, dict) else None
+    if not isinstance(rows, list):
+        return []
+    return [r for r in rows if isinstance(r, dict) and _PAIR_ID_RE.match(str(r.get("id") or ""))]
+
+
+def _write_pair_issued(hass, rows: list[dict[str, Any]]) -> None:
+    path = _pair_issued_path(hass)
+    fileio.write_text(path, json.dumps({"issued": rows[-PAIR_ISSUED_MAX:]}, indent=2) + "\n")
+
+
+def note_pair_issued(hass, refresh_token_id: str, now: datetime | None = None) -> None:
+    rid = str(refresh_token_id or "").strip()
+    if not _PAIR_ID_RE.match(rid):
+        return
+    rows = [r for r in _read_pair_issued(hass) if r.get("id") != rid]
+    rows.append({"id": rid, "issuedAt": _utc_z(now)})
+    _write_pair_issued(hass, rows)
+
+
+def is_pair_issued(hass, refresh_token_id: str | None) -> bool:
+    rid = str(refresh_token_id or "").strip()
+    if not rid or rid.startswith("m_"):
+        return False
+    return any(r.get("id") == rid for r in _read_pair_issued(hass))
+
+
+def forget_pair_issued(hass, refresh_token_id: str) -> None:
+    rid = str(refresh_token_id or "").strip()
+    rows = _read_pair_issued(hass)
+    kept = [r for r in rows if r.get("id") != rid]
+    if len(kept) != len(rows):
+        _write_pair_issued(hass, kept)
 
 
 def _clients_list(store: dict[str, Any]) -> list[dict[str, Any]]:
@@ -324,8 +546,14 @@ def upsert_client(
     member_name: str | None = None,
     invite_id: str | None = None,
     principal_id: str | None = None,
-) -> dict[str, Any]:
-    """Create or update a paired credential row. Does not overwrite an edited name."""
+    create: bool = True,
+) -> dict[str, Any] | None:
+    """Create or update a paired credential row. Does not overwrite an edited name.
+
+    0.4.114: ``create=False`` only updates an existing row and returns None when there is
+    none. Owner rows are created only by the pair flow (pair.mint_pairing) and member
+    rows only by pmt_ authentication; the ios_session heartbeat and chat never create.
+    """
     ident = str(client_id or "").strip()
     if not ident:
         raise ValueError("clientId required")
@@ -342,6 +570,8 @@ def upsert_client(
         store.get("deviceName") if found is None else None,
         ha_username=ha_username,
     )
+    if found is None and not create:
+        return None
     if found is None:
         found = {
             "clientId": ident,
@@ -471,6 +701,10 @@ def _drop_client_row(hass, client_id: str) -> None:
     store = _read_store(hass)
     clients = [c for c in _clients_list(store) if str(c.get("clientId") or "").strip() != client_id]
     _save_clients(hass, clients, store)
+    try:
+        forget_pair_issued(hass, client_id)  # 0.4.114: an unpaired id never re-registers
+    except Exception:
+        _LOGGER.warning("patrimony_pair_issued_forget_failed")
 
 
 async def note_unpair_served(hass, client_id: str) -> None:
@@ -627,22 +861,25 @@ def client_sender_label(hass, request, posted_device_name: Any = None) -> dict[s
                         row = get_client(hass, client_id) or row
                 label = row["displayName"]
             return {"kind": "ios", "label": label, "key": "ios:" + client_id}
-        if posted and not is_reserved_display_name(posted):
-            # First chat contact with a real deviceName registers this credential.
-            upsert_client(
+        if posted and not is_reserved_display_name(posted) and is_pair_issued(hass, client_id):
+            # First chat contact registers ONLY a pair-issued credential (0.4.114).
+            row = upsert_client(
                 hass,
                 client_id,
                 device_name=posted,
                 ha_username=ha_name,
                 touch_access=True,
             )
-            row = get_client(hass, client_id)
             if row is not None:
                 return {
                     "kind": "ios",
                     "label": row["displayName"],
                     "key": "ios:" + client_id,
                 }
+        if posted and not is_reserved_display_name(posted):
+            # Not pair-issued (hand-made LLAT): same label/key as before, but NO row.
+            label = seed_display_name(posted, ha_username=ha_name)
+            return {"kind": "ios", "label": label, "key": "ios:" + client_id}
     return None
 
 
@@ -654,7 +891,29 @@ def active_display_names(hass, exclude_client_id: str | None = None) -> list[str
             continue
         if exclude_client_id and row.get("clientId") == exclude_client_id:
             continue
+        if _is_member_row(row):
+            continue  # 0.4.118: a guest's name never becomes an owner/push label
         name = _safe_display(row.get("displayName"))
         if name and name not in names:
             names.append(name)
     return names
+
+
+def _is_member_row(row: dict[str, Any]) -> bool:
+    """0.4.118: m_<memberId> client rows (and any row marked role=member) are guests."""
+    return str(row.get("clientId") or "").startswith("m_") or row.get("role") == "member"
+
+
+def owner_read_label(hass, client_id: str | None, clients: list[dict[str, Any]] | None = None) -> str | None:
+    """0.4.118 read-time owner label: an ios:<clientId> sender whose row is active and
+    nameEdited shows its CURRENT displayName (old history follows a rename). Else None."""
+    ident = str(client_id or "").strip()
+    if not ident or ident.startswith("m_"):
+        return None
+    for row in (clients if clients is not None else load_clients(hass)):
+        if row.get("clientId") != ident:
+            continue
+        if _is_member_row(row) or row.get("status") != STATUS_ACTIVE or not row.get("nameEdited"):
+            return None
+        return _safe_display(row.get("displayName"))
+    return None

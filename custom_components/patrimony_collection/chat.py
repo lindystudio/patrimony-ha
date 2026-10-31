@@ -37,7 +37,9 @@ stored display name is empty. The events body is {cardId, severity, title}.
 It is not given the message text, the sender, a preview, or image bytes.
 A POST may carry "senderDevice" (SHA-256 hex of that phone's APNs token);
 it is forwarded once as "excludeDevice" so the sender gets no push, and is
-never stored.
+never stored. 0.4.111: next to a valid excludeDevice only, owner chat adds
+excludeRole "owner" and /m/chat adds excludeClient "m_<memberId>"; a valid
+"senderPrincipal" in the body is forwarded as "excludePrincipal".
 This is not end-to-end: the house can read messages so the panel can
 show them. TLS covers the phone link.
 """
@@ -74,10 +76,12 @@ from .const import (
     CONF_PROPERTY_ID,
     DOMAIN,
     PAIR_CLIENT_NAME,
+    GUEST_FALLBACK_LABEL,
     SCHEMA_VERSION,
 )
 from .ios_session import load_ios_session
 from . import clients as house_clients
+from . import notify as house_notify
 from .notify import (
     _iter_refresh_tokens,
     _safe_name,
@@ -472,8 +476,9 @@ def _user_id(user) -> str:
 
 
 def ios_sender_label(hass) -> str:
-    """Stored paired-client display name, else ios_session / push-log label."""
-    names = house_clients.active_display_names(hass)
+    """Stored paired-client display name, else ios_session / push-log label.
+    0.4.118: m_ / member rows are never used (a guest's name is not the owner's label)."""
+    names = house_clients.active_display_names(hass)  # excludes m_ / member rows
     for name in names:
         safe = _safe_name(name)
         if safe:
@@ -494,6 +499,68 @@ def ios_sender_label(hass) -> str:
     return PAIR_CLIENT_NAME
 
 
+class _SenderLabels:
+    """0.4.118 read-time sender labels (storage is not rewritten).
+
+    guest rows (member:<memberId> / senderPrincipal): the principal's CURRENT memberName, or
+      'Guest · D Mon[ YYYY]' (first invite, house timezone) when unnamed or a stock/device name;
+      a guest with no live member row keeps its stored label unless that is a stock name ('Guest').
+    owner rows (ios:<clientId>): the client's current displayName when the row is active and
+      nameEdited; else the stored label.
+    """
+
+    def __init__(self, hass, pmap: dict[str, str] | None = None):
+        from . import members as house_members
+
+        self._hm = house_members
+        self.hass = hass
+        self.pmap = pmap or {}
+        try:
+            self.rows = house_members.load_rows(hass)
+        except Exception:
+            self.rows = {}
+        try:
+            self.clients = house_clients.load_clients(hass)
+        except Exception:
+            self.clients = []
+        self.zone = house_members._house_zone(hass)
+        self._cache: dict[str, str | None] = {}
+
+    def _principal(self, row: dict[str, Any]) -> str | None:
+        sp = row.get("senderPrincipal")
+        if isinstance(sp, str) and sp.strip():
+            return sp.strip()
+        sk = str(row.get("senderKey") or "").strip()
+        if sk.startswith("principal:"):
+            return sk[len("principal:"):] or None
+        if sk.startswith("member:"):
+            mid = sk[len("member:"):]
+            pid = self.pmap.get(mid)
+            if not pid:
+                rec = self.rows.get(mid) or {}
+                pid = rec.get("principalId")
+            return pid if isinstance(pid, str) and pid else None
+        return None
+
+    def __call__(self, row: dict[str, Any]) -> str:
+        stored = str(row.get("senderLabel") or "")
+        sk = str(row.get("senderKey") or "").strip()
+        if row.get("senderKind") == "member" or sk.startswith(("member:", "principal:")):
+            pid = self._principal(row)
+            if pid:
+                if pid not in self._cache:
+                    self._cache[pid] = self._hm.principal_label(self.hass, self.rows, pid, zone=self.zone)
+                if self._cache[pid]:
+                    return self._cache[pid]
+            return GUEST_FALLBACK_LABEL if self._hm.is_stock_member_name(stored) else stored
+        if sk.startswith("ios:"):
+            cid = row.get("senderClientId") or sk[len("ios:"):]
+            label = house_clients.owner_read_label(self.hass, cid, self.clients)
+            if label:
+                return label
+        return stored
+
+
 def panel_sender_label(user) -> str:
     """New panel posts only. Stored rows keep the label they were written with."""
     return "HA (" + _user_name(user) + ")"
@@ -506,14 +573,50 @@ def caller_identity(hass, request) -> dict[str, str]:
         row = house_clients.get_client(hass, client_id)
         if row is not None and row.get("status") == house_clients.STATUS_ACTIVE:
             label = row.get("displayName") or ios_sender_label(hass)
-            return {"kind": "ios", "label": label, "key": "ios:" + client_id}
+            key = "ios:" + client_id
+            return {"kind": "ios", "label": label, "key": key, "stableKey": key, "clientId": client_id}
     if is_ios_client(hass, request):
         label = ios_sender_label(hass)
-        return {"kind": "ios", "label": label, "key": "ios:" + (client_id or label)}
+        out = {"kind": "ios", "label": label, "key": "ios:" + (client_id or label)}
+        if client_id:  # 0.4.106: only a real credential id is a stable identity, never a label
+            out["stableKey"] = out["key"]
+            out["clientId"] = client_id
+        return out
     label = panel_sender_label(user)
     uid = _user_id(user)
     key = "panel:" + (uid or label)
-    return {"kind": "panel", "label": label, "key": key}
+    out = {"kind": "panel", "label": label, "key": key}
+    if uid:
+        out["stableKey"] = key
+    return out
+
+
+def is_mine(caller: dict[str, str] | None, row: dict[str, Any]) -> bool:
+    """0.4.106 frozen rule: own only when the sender's stable id equals the viewer's.
+
+    Compare row.senderKey to the viewer's stable key; rows without senderKey fall back
+    to senderClientId vs the viewer's credential id. Rows with neither, or a viewer
+    without a stable identity, are never mine. Never compared by name/label.
+    """
+    if not caller:
+        return False
+    stored = row.get("senderKey")
+    if isinstance(stored, str) and stored.strip():
+        mine_key = caller.get("stableKey")
+        return bool(mine_key) and stored.strip() == mine_key
+    stored_cid = row.get("senderClientId")
+    if isinstance(stored_cid, str) and stored_cid.strip():
+        cid = caller.get("clientId")
+        return bool(cid) and stored_cid.strip() == cid
+    return False
+
+
+def sender_id(hass_key: bytes | None, row: dict[str, Any]) -> str | None:
+    """Opaque per-sender tag: HMAC(chat key, senderKey)[:16]. Never a raw memberId/clientId."""
+    stored = row.get("senderKey")
+    if not hass_key or not isinstance(stored, str) or not stored.strip():
+        return None
+    return hmac.new(hass_key, b"patrimony-chat-sender:" + stored.strip().encode(), hashlib.sha256).hexdigest()[:16]
 
 
 def _can_delete(caller: dict[str, str], row: dict[str, Any]) -> bool:
@@ -549,67 +652,185 @@ def _index_by_id(rows: list[dict[str, Any]]) -> dict[str, int]:
     return found
 
 
-def _sender_client_ids(row: dict[str, Any], active: list[dict[str, Any]]) -> set[str]:
-    """Who must not count as other. New rows store senderClientId.
+def _norm_key(raw: Any) -> str | None:
+    """0.4.116: a cursor / delivery entry as a stable sender key. Legacy owner entries are a
+    raw paired clientId (-> ios:<clientId>); member entries are member:<memberId>."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    text = raw.strip()
+    if text.startswith(("ios:", "member:", "panel:", "principal:")):
+        return text
+    if text.startswith("m_"):
+        return "member:" + text[2:]
+    return "ios:" + text
 
-    Old rows are not rewritten. If the stored sender string equals a
-    client's current display name, that client is the sender. No match
-    means a panel-authored row: any paired client can count.
+
+def _sender_keys(row: dict[str, Any], active: list[dict[str, Any]] | None = None) -> set[str]:
+    """Who must not count as other: the row's stable sender key only (0.4.116).
+
+    Rows without senderKey use senderClientId. No label/display-name matching: legacy rows
+    with neither (ios:<deviceName> era) stay unattributed, so every active reader counts.
     """
-    stored = row.get("senderClientId")
-    if isinstance(stored, str) and stored.strip():
-        return {stored.strip()}
-    label = row.get("senderLabel")
-    if not isinstance(label, str) or not label:
-        return set()
-    return {
-        str(client.get("clientId") or "")
-        for client in active
-        if client.get("displayName") == label and client.get("clientId")
+    out: set[str] = set()
+    stored = row.get("senderKey")
+    if isinstance(stored, str) and stored.strip() and stored.strip().startswith(("member:", "panel:", "principal:")):
+        out.add(stored.strip())
+    elif isinstance(stored, str) and stored.strip().startswith("ios:"):
+        out.add(stored.strip())
+    cid = _norm_key(row.get("senderClientId"))
+    if cid:
+        out.add(cid)
+    return out
+
+
+def _sender_client_ids(row: dict[str, Any], active: list[dict[str, Any]]) -> set[str]:
+    """Kept for callers: same as _sender_keys (no label fallback since 0.4.116)."""
+    return _sender_keys(row, active)
+
+
+def _active_keys(hass, active: list[dict[str, Any]]) -> set[str]:
+    """Stable keys of everyone who may count as a reader: active paired owner phones
+    (ios:<clientId>) and unrevoked, unexpired members (member:<memberId>)."""
+    keys = {
+        "ios:" + str(c.get("clientId"))
+        for c in active
+        if c.get("clientId") and not str(c.get("clientId")).startswith("m_")
     }
+    try:
+        from . import members as house_members
+
+        for mid, rec in (house_members.load_rows(hass) or {}).items():
+            # 0.4.117: only guests who have used their invite (firstUsedAt set, not revoked,
+            # not expired) count as 'other'. Pending invites never count.
+            if house_members.row_status(rec) == house_members.STATUS_ACTIVE and rec.get("firstUsedAt"):
+                keys.add("member:" + str(mid))
+    except Exception:
+        pass
+    return keys
+
+
+def principal_map(hass, store: dict[str, Any] | None = None) -> dict[str, str]:
+    """0.4.117: memberId -> principalId for every member row (active, revoked, tombstoned) plus
+    the senderPrincipal persisted on chat rows, so matching survives the 30-day member prune.
+    principalId is set at mint by the owner/admin (credential-gated), never by the guest."""
+    out: dict[str, str] = {}
+    for row in (store or {}).get("messages") or []:
+        sk, sp = row.get("senderKey"), row.get("senderPrincipal")
+        if isinstance(sk, str) and sk.startswith("member:") and isinstance(sp, str) and sp:
+            out[sk[len("member:"):]] = sp
+    try:
+        from . import members as house_members
+
+        for mid, rec in (house_members.load_rows(hass) or {}).items():
+            pid = rec.get("principalId")
+            if isinstance(pid, str) and pid.strip():
+                out[str(mid)] = pid.strip()
+    except Exception:
+        pass
+    return out
+
+
+def canon_key(raw: Any, pmap: dict[str, str] | None) -> str | None:
+    """Stable per-person key: member:<memberId> -> principal:<principalId> when known."""
+    key = _norm_key(raw)
+    if key and pmap and key.startswith("member:"):
+        pid = pmap.get(key[len("member:"):])
+        if pid:
+            return "principal:" + pid
+    return key
+
+
+def _canon_view(store: dict[str, Any], rows: list[dict[str, Any]], akeys: set[str],
+                caller: dict[str, str] | None, pmap: dict[str, str]):
+    """Rows/cursors/active keys/caller seen through canon_key (storage is not rewritten)."""
+    vrows = []
+    for row in rows:
+        v = dict(row)
+        sk = row.get("senderKey")
+        if isinstance(sk, str) and sk.strip().startswith("member:"):
+            v["senderKey"] = canon_key(sk, pmap)
+            v.pop("senderClientId", None)
+        d = row.get("deliveredClientIds")
+        if isinstance(d, list):
+            v["deliveredClientIds"] = [k for k in (canon_key(x, pmap) for x in d) if k]
+        vrows.append(v)
+    index = _index_by_id(vrows)
+    vcur: dict[str, Any] = {}
+    for raw, seen in _cursors(store).items():
+        k = canon_key(raw, pmap)
+        if not k:
+            continue
+        if k not in vcur or index.get(str(seen), -1) > index.get(str(vcur[k]), -1):
+            vcur[k] = seen
+    vkeys = {canon_key(k, pmap) or k for k in akeys}
+    vcaller = caller
+    if caller and caller.get("kind") == "member" and caller.get("stableKey"):
+        vcaller = dict(caller)
+        pid = caller.get("principal")
+        vcaller["stableKey"] = ("principal:" + pid) if pid else canon_key(caller["stableKey"], pmap)
+    return vrows, vcur, vkeys, vcaller
+
+
+def receipt_readers(row: dict[str, Any], rows: list[dict[str, Any]], active_keys: set[str],
+                    cursors: dict[str, Any], index: dict[str, int] | None = None) -> list[str]:
+    """Stable keys whose read cursor is at or past this row (sender and inactive excluded)."""
+    if index is None:
+        index = _index_by_id(rows)
+    senders = _sender_keys(row)
+    my_index = index.get(str(row.get("id") or ""))
+    found: set[str] = set()
+    if my_index is None or not isinstance(cursors, dict):
+        return []
+    for raw, seen in cursors.items():
+        key = _norm_key(raw)
+        if not key or key not in active_keys or key in senders:
+            continue
+        seen_index = index.get(str(seen))
+        if seen_index is not None and seen_index >= my_index:
+            found.add(key)
+    return sorted(found)
 
 
 def receipt_flags(
     row: dict[str, Any],
     rows: list[dict[str, Any]],
-    active: list[dict[str, Any]],
+    active_keys: set[str],
     cursors: dict[str, Any],
+    index: dict[str, int] | None = None,
 ) -> tuple[bool, bool]:
-    """Booleans only. Sender never counts. Inactive clients never count."""
-    index = _index_by_id(rows)
-    senders = _sender_client_ids(row, active)
-    active_ids = {str(client.get("clientId") or "") for client in active if client.get("clientId")}
+    """Booleans only. Sender never counts. Inactive / revoked readers never count.
+    0.4.116: keyed by stable sender key; owner phones and members both count."""
+    senders = _sender_keys(row)
     delivered = row.get("deliveredClientIds")
     if not isinstance(delivered, list):
         delivered = []
-    delivered_to_other = any(
-        isinstance(cid, str) and cid in active_ids and cid not in senders for cid in delivered
-    )
-    my_index = index.get(str(row.get("id") or ""))
-    read_by_other = False
-    if my_index is not None and isinstance(cursors, dict):
-        for cid, seen in cursors.items():
-            if not isinstance(cid, str) or cid not in active_ids or cid in senders:
-                continue
-            seen_index = index.get(str(seen))
-            if seen_index is not None and seen_index >= my_index:
-                read_by_other = True
-                break
-    return delivered_to_other, read_by_other
+    delivered_to_other = False
+    for raw in delivered:
+        key = _norm_key(raw)
+        if key and key in active_keys and key not in senders:
+            delivered_to_other = True
+            break
+    return delivered_to_other, bool(receipt_readers(row, rows, active_keys, cursors, index))
 
 
-def _mark_delivered(store: dict[str, Any], client_id: str, active: list[dict[str, Any]]) -> bool:
-    """This paired client received every message they did not send."""
+def _mark_delivered(store: dict[str, Any], reader: str, active: Any = None,
+                    pmap: dict[str, str] | None = None) -> bool:
+    """This reader (owner clientId or member:<memberId>) received every message it did not send."""
+    key = _norm_key(reader)
+    ckey = canon_key(reader, pmap)
+    if not key:
+        return False
+    entry = reader if not key.startswith("member:") else key
     changed = False
     for row in store.get("messages") or []:
-        if client_id in _sender_client_ids(row, active):
+        if key in _sender_keys(row) or ckey in {canon_key(k, pmap) for k in _sender_keys(row)}:
             continue
         delivered = row.get("deliveredClientIds")
         if not isinstance(delivered, list):
             delivered = []
-        if client_id in delivered:
+        if any(_norm_key(x) == key for x in delivered):
             continue
-        delivered.append(client_id)
+        delivered.append(entry)
         row["deliveredClientIds"] = delivered
         changed = True
     return changed
@@ -620,6 +841,11 @@ def _cursors(store: dict[str, Any]) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
+def _keys_from_clients(active: list[dict[str, Any]]) -> set[str]:
+    return {"ios:" + str(c.get("clientId")) for c in active
+            if c.get("clientId") and not str(c.get("clientId")).startswith("m_")}
+
+
 def _public_row(
     caller: dict[str, str],
     row: dict[str, Any],
@@ -627,6 +853,7 @@ def _public_row(
     rows: list[dict[str, Any]] | None = None,
     active: list[dict[str, Any]] | None = None,
     cursors: dict[str, Any] | None = None,
+    chat_key: bytes | None = None,
 ) -> dict[str, Any]:
     """List shape. hasImage is a flag. Image bytes stay off this document.
 
@@ -634,10 +861,13 @@ def _public_row(
     """
     ctype = row.get("imageContentType")
     has_image = isinstance(ctype, str) and ctype in IMAGE_TYPES and bool(row.get("imageCiphertext"))
+    readers: list[str] = []
     if rows is None:
         delivered, read = False, False
     else:
-        delivered, read = receipt_flags(row, rows, active or [], cursors or {})
+        akeys = active if isinstance(active, set) else _keys_from_clients(active or [])
+        delivered, read = receipt_flags(row, rows, akeys, cursors or {})
+        readers = receipt_readers(row, rows, akeys, cursors or {})
     out = {
         "id": row.get("id"),
         "sender": row.get("senderLabel") or "",
@@ -650,6 +880,9 @@ def _public_row(
         "hasImage": has_image,
         "deliveredToOther": bool(delivered),
         "readByOther": bool(read),
+        "mine": is_mine(caller, row),
+        "senderId": sender_id(chat_key, row),
+        "readBy": [rid for rid in (sender_id(chat_key, {"senderKey": k}) for k in readers) if rid],
     }
     if has_image:
         out["imageContentType"] = ctype
@@ -660,7 +893,7 @@ def _error(code: str, message: str, status: int) -> tuple[dict[str, Any], int]:
     return {"error": {"code": code, "message": message}}, status
 
 
-def list_document(hass, request, now: datetime | None = None) -> dict[str, Any]:
+def list_document(hass, request, now: datetime | None = None, caller: dict[str, str] | None = None) -> dict[str, Any]:
     moment = _utc(now)
     store = _read_store(hass)
     changed = _purge(store, moment)
@@ -668,18 +901,36 @@ def list_document(hass, request, now: datetime | None = None) -> dict[str, Any]:
     # Panel GETs must not mark delivery. Only a paired client's GET does,
     # and only for messages that client did not send.
     caller_id = _active_paired_client_id(hass, request)
+    pmap = principal_map(hass, store)
+    # 0.4.117: persist the sender's principal on guest rows so 'mine' survives the member prune.
+    for row in store.get("messages") or []:
+        sk = row.get("senderKey")
+        if isinstance(sk, str) and sk.startswith("member:") and not row.get("senderPrincipal"):
+            pid = pmap.get(sk[len("member:"):])
+            if pid:
+                row["senderPrincipal"] = pid
+                changed = True
     if caller_id and _mark_delivered(store, caller_id, active):
         changed = True
     key = load_chat_key(hass)
-    caller = caller_identity(hass, request)
-    rows = list(store.get("messages") or [])
-    cursors = _cursors(store)
+    if caller is None:
+        caller = caller_identity(hass, request)
+    elif caller.get("kind") == "member" and caller.get("key") and not caller_id:
+        # 0.4.116: a guest's GET marks delivery for that guest.
+        if _mark_delivered(store, caller["key"], None, pmap):
+            changed = True
+    akeys = _active_keys(hass, active)
+    rows, cursors, akeys, vcaller = _canon_view(store, list(store.get("messages") or []), akeys, caller, pmap)
     public: list[dict[str, Any]] = []
+    labels = _SenderLabels(hass, pmap)
     for row in rows:
         opened = _open(key, str(row.get("id") or ""), row.get("nonce"), row.get("ciphertext"))
         if opened is None:
             continue
-        public.append(_public_row(caller, row, opened, rows, active, cursors))
+        pub = _public_row(vcaller, row, opened, rows, akeys, cursors, key)
+        pub["canDelete"] = _can_delete(caller, row)
+        pub["sender"] = labels(row)
+        public.append(pub)
     if changed:
         _write_store(hass, store)
     return {"schemaVersion": SCHEMA_VERSION, "messages": public}
@@ -782,7 +1033,11 @@ def create_message(hass, request, payload: Any, now: datetime | None = None) -> 
         # a later POST deviceName. Panel posts without deviceName use HA (username).
         registered = house_clients.client_sender_label(hass, request, posted)
         if registered is not None:
-            caller = registered
+            caller = dict(registered)
+            cid = house_clients.request_client_id(request)
+            if cid and registered.get("key") == "ios:" + cid:
+                caller["stableKey"] = registered["key"]
+                caller["clientId"] = cid
         elif posted:
             # 0.4.79: honor deviceName on a misclassified phone bearer.
             caller = {
@@ -823,7 +1078,12 @@ def create_message(hass, request, payload: Any, now: datetime | None = None) -> 
     except Exception:
         _LOGGER.error("patrimony_chat_store_failed")
         return _error("store_failed", "Could not store the message", 500)
-    return _public_row(caller, row, text, rows, _active_clients(hass), _cursors(store)), 201
+    pmap = principal_map(hass, store)
+    vrows, vcur, vkeys, vcaller = _canon_view(store, rows, _active_keys(hass, _active_clients(hass)), caller, pmap)
+    vlast = vrows[-1] if vrows and vrows[-1].get("id") == row.get("id") else row
+    out = _public_row(vcaller, vlast, text, vrows, vkeys, vcur, key)
+    out["sender"] = _SenderLabels(hass, pmap)(vlast)
+    return out, 201
 
 
 MEMBER_SENDER_FALLBACK = "Member"
@@ -832,7 +1092,12 @@ MEMBER_SENDER_FALLBACK = "Member"
 def member_caller(member_row: dict[str, Any], client_id: str) -> dict[str, str]:
     """0.4.102 member sender: the invite's member name (already shown in Members), never the token."""
     label = _safe_name(member_row.get("memberName")) or MEMBER_SENDER_FALLBACK
-    return {"kind": "member", "label": label, "key": "member:" + str(member_row.get("memberId") or client_id)}
+    key = "member:" + str(member_row.get("memberId") or client_id)
+    out = {"kind": "member", "label": label, "key": key, "stableKey": key, "clientId": client_id}
+    pid = member_row.get("principalId")
+    if isinstance(pid, str) and pid.strip():
+        out["principal"] = pid.strip()  # 0.4.117: stable per-person identity across re-invites
+    return out
 
 
 def create_member_message(
@@ -860,6 +1125,7 @@ def create_member_message(
             "senderKey": caller["key"],
             "senderLabel": caller["label"],
             "senderClientId": client_id,
+            **({"senderPrincipal": caller["principal"]} if caller.get("principal") else {}),
             "createdAt": _stamp(moment),
             "retention": retention,
             "expiresAt": expires,
@@ -880,7 +1146,12 @@ def create_member_message(
     except Exception:
         _LOGGER.error("patrimony_chat_store_failed")
         return _error("store_failed", "Could not store the message", 500)
-    return _public_row(caller, row, text, rows, _active_clients(hass), _cursors(store)), 201
+    pmap = principal_map(hass, store)
+    vrows, vcur, vkeys, vcaller = _canon_view(store, rows, _active_keys(hass, _active_clients(hass)), caller, pmap)
+    vlast = vrows[-1] if vrows and vrows[-1].get("id") == row.get("id") else row
+    out = _public_row(vcaller, vlast, text, vrows, vkeys, vcur, key)
+    out["sender"] = _SenderLabels(hass, pmap)(vlast)
+    return out, 201
 
 
 def handle_member_post(
@@ -889,10 +1160,19 @@ def handle_member_post(
     body, status = create_member_message(hass, member_row, client_id, payload, now=now)
     if status == 201:
         sender_device = payload.get("senderDevice") if isinstance(payload, dict) else None
+        push = {"ok": False, "status": None}
         try:
-            notify_house_chat(hass, exclude_device=sender_device, sender_client=client_id)
+            push = send_house_chat_push(
+                hass,
+                exclude_device=sender_device,
+                sender_client=client_id,
+                sender_role="member",
+                sender_principal=_sender_principal(payload),
+            )
         except Exception:
             _LOGGER.error("patrimony_chat_notice_failed")
+        # 0.4.110 (S7): additive; sealed with the rest of the body for members.
+        body = {**body, "push": house_notify.push_result(push)}
     return body, status
 
 
@@ -901,41 +1181,111 @@ def notify_house_chat(
 ) -> int | None:
     """Existing events POST. Fixed sentence only. Not the attention debounce.
 
-    Does not take message text or image bytes. One POST per call.
+    Does not take message text or image bytes. First POST is synchronous;
+    0.4.110 (S4) retryable failures continue in the background.
     `exclude_device` is the sender's hashed push token, so the sender is not notified.
+    Returns the first try's status, or None when nothing was sent.
+    """
+    result = send_house_chat_push(hass, exclude_device=exclude_device, sender_client=sender_client)
+    return result.get("_sent_status")
+
+
+def _chat_attempt(hass, args: dict[str, Any], attempt: int) -> dict[str, Any]:
+    """One chat events POST. Retryable failure schedules the next try off-request."""
+    status = load_card_id_and_post(
+        hass,
+        args["property_id"],
+        args["key"],
+        args["title"],
+        severity="attention",
+        manual=False,
+        exclude_device=args["exclude_device"],
+        kind="chat",
+        rule="chat.message",
+        reason="New chat message",
+        exclude_client=args["sender_client"],
+        sender_role=args.get("sender_role"),
+        sender_principal=args.get("sender_principal"),
+        attempt=attempt,
+        max_attempts=house_notify.PUSH_MAX_ATTEMPTS,
+    )
+    outcome = dict(getattr(house_notify._event_tls, "outcome", None) or house_notify.last_post_outcome(status))
+    retry = bool(getattr(house_notify._event_tls, "retry", False))
+    if outcome.get("ok"):
+        _LOGGER.info("patrimony_chat_notified attempt=%s", attempt)
+    elif retry:
+        delay = house_notify.retry_delay(attempt)
+        _LOGGER.warning(
+            "patrimony_chat_notice_retry status=%s attempt=%s next_in=%ss", int(status), attempt, int(delay)
+        )
+
+        def _again() -> None:
+            try:
+                _chat_attempt(hass, args, attempt + 1)
+            except Exception:
+                _LOGGER.error("patrimony_chat_notice_failed attempt=%s", attempt + 1)
+
+        if not house_notify.schedule_push_retry(hass, delay, _again):
+            _LOGGER.warning("patrimony_chat_notice_failed status=%s attempts=%s", int(status), attempt)
+    else:
+        _LOGGER.warning("patrimony_chat_notice_failed status=%s attempts=%s", int(status), attempt)
+    return {**house_notify.push_result(outcome), "_sent_status": int(status)}
+
+
+def _sender_principal(payload: Any) -> str | None:
+    """Optional chat-body senderPrincipal (iOS, later). Forwarded only when conservatively valid."""
+    value = payload.get("senderPrincipal") if isinstance(payload, dict) else None
+    return value if house_notify.is_sender_principal(value) else None
+
+
+def send_house_chat_push(
+    hass,
+    exclude_device: str | None = None,
+    sender_client: str | None = None,
+    sender_role: str | None = None,
+    sender_principal: str | None = None,
+) -> dict[str, Any]:
+    """Chat push for one stored message. Returns {ok, status} of the first try (S7).
+
+    0.4.110 (S5): no config entry, property_id or usable hek_ → WARNING
+    `patrimony_chat_notice_skipped reason=missing_key` plus an ok=false
+    missing_key push-log row; nothing is sent.
     """
     entry = _first_entry(hass)
-    if entry is None:
-        return None
-    data = getattr(entry, "data", None) or {}
-    options = getattr(entry, "options", None) or {}
+    data = (getattr(entry, "data", None) or {}) if entry is not None else {}
+    options = (getattr(entry, "options", None) or {}) if entry is not None else {}
     key = str(options.get(CONF_HOUSE_EVENT_KEY) or "").strip()
     property_id = data.get(CONF_PROPERTY_ID)
-    if not property_id or not is_usable_house_event_key(key):
-        return None
-    title = chat_push_title(data.get(CONF_DISPLAY_NAME))
+    if entry is None or not property_id or not is_usable_house_event_key(key):
+        _LOGGER.warning("patrimony_chat_notice_skipped reason=missing_key")
+        try:
+            house_notify.record_push(
+                hass,
+                kind="chat",
+                rule="chat.message",
+                outcome=dict(house_notify.MISSING_KEY_OUTCOME),
+                reason="New chat message",
+                severity="attention",
+            )
+        except Exception:
+            _LOGGER.error("patrimony_push_log_write_failed")
+        return {"ok": False, "status": None, "_sent_status": None}
+    args = {
+        "property_id": str(property_id),
+        "key": key,
+        "title": chat_push_title(data.get(CONF_DISPLAY_NAME)),
+        "exclude_device": exclude_device,
+        "sender_client": sender_client,
+        # 0.4.111: kept in args so background retries (S4) send the same exclude fields.
+        "sender_role": sender_role if sender_role in house_notify.SENDER_ROLES else None,
+        "sender_principal": sender_principal if house_notify.is_sender_principal(sender_principal) else None,
+    }
     try:
-        status = load_card_id_and_post(
-            hass,
-            str(property_id),
-            key,
-            title,
-            severity="attention",
-            manual=False,
-            exclude_device=exclude_device,
-            kind="chat",
-            rule="chat.message",
-            reason="New chat message",
-            exclude_client=sender_client,
-        )
+        result = _chat_attempt(hass, args, 1)
     except Exception:
         _LOGGER.error("patrimony_chat_notice_failed")
-        return None
-    if 200 <= int(status) < 300:
-        _LOGGER.info("patrimony_chat_notified")
-    else:
-        _LOGGER.warning("patrimony_chat_notice_failed status=%s", int(status))
-    return int(status)
+        return {"ok": False, "status": None, "_sent_status": None}
+    return result
 
 
 def handle_post(hass, request, payload: Any, now: datetime | None = None) -> tuple[dict[str, Any], int]:
@@ -948,9 +1298,19 @@ def handle_post(hass, request, payload: Any, now: datetime | None = None) -> tup
                 sender_client = house_clients.request_client_id(request)
             except Exception:
                 sender_client = None
-            notify_house_chat(hass, exclude_device=sender_device, sender_client=sender_client)
+            # 0.4.111: the owner path (iOS owner app; the panel sends no senderDevice).
+            push = send_house_chat_push(
+                hass,
+                exclude_device=sender_device,
+                sender_client=sender_client,
+                sender_role="owner",
+                sender_principal=_sender_principal(payload),
+            )
         except Exception:
             _LOGGER.error("patrimony_chat_notice_failed")
+            push = {"ok": False, "status": None}
+        # 0.4.110 (S7): additive; existing fields unchanged.
+        body = {**body, "push": house_notify.push_result(push)}
     return body, status
 
 
@@ -1149,13 +1509,9 @@ class PatrimonyChatImageView(HomeAssistantView):
         return web.json_response(body, status=status)
 
 
-def handle_read(hass, request, payload: Any, now: datetime | None = None) -> tuple[dict[str, Any], int]:
-    """Paired-client read cursor. Monotonic. Unknown id does not move it."""
-    if not caller_authorized(request):
-        return _error("unauthorized", "Unauthorized", 401)
-    client_id = _active_paired_client_id(hass, request)
-    if not client_id:
-        return _error("forbidden", "Only a paired phone can mark chat read", 403)
+def move_read_cursor(hass, reader: str, payload: Any, now: datetime | None = None) -> tuple[dict[str, Any], int]:
+    """Monotonic read cursor for one reader (owner clientId or member:<memberId>).
+    Bad or unknown id -> 400 and nothing changes."""
     if not isinstance(payload, dict):
         return _error("unknown_message", "Unknown message", 400)
     raw_id = payload.get("lastSeenMessageId")
@@ -1165,20 +1521,25 @@ def handle_read(hass, request, payload: Any, now: datetime | None = None) -> tup
     moment = _utc(now)
     try:
         store = _read_store(hass)
+        rows_before = list(store.get("messages") or [])
+        if wanted not in _index_by_id(rows_before):
+            return _error("unknown_message", "Unknown message", 400)
         changed = _purge(store, moment)
         rows = list(store.get("messages") or [])
         index = _index_by_id(rows)
         if wanted not in index:
+            if changed:
+                _write_store(hass, store)
             return _error("unknown_message", "Unknown message", 400)
         cursors = dict(_cursors(store))
-        prev = cursors.get(client_id)
+        prev = cursors.get(reader)
         prev_index = index.get(str(prev)) if isinstance(prev, str) else None
         new_index = index[wanted]
         # Missing previous target is not a position, so a known id may land.
         # An older known id must not move the cursor backward.
         if prev_index is None or new_index >= prev_index:
-            if cursors.get(client_id) != wanted:
-                cursors[client_id] = wanted
+            if cursors.get(reader) != wanted:
+                cursors[reader] = wanted
                 changed = True
         if changed:
             store["messages"] = rows
@@ -1189,6 +1550,25 @@ def handle_read(hass, request, payload: Any, now: datetime | None = None) -> tup
         _LOGGER.error("patrimony_chat_read_failed")
         return _error("store_failed", "Could not store the read cursor", 500)
     return {"ok": True}, 200
+
+
+def handle_read(hass, request, payload: Any, now: datetime | None = None) -> tuple[dict[str, Any], int]:
+    """Paired-client read cursor. Monotonic. Unknown id does not move it."""
+    if not caller_authorized(request):
+        return _error("unauthorized", "Unauthorized", 401)
+    client_id = _active_paired_client_id(hass, request)
+    if not client_id:
+        return _error("forbidden", "Only a paired phone can mark chat read", 403)
+    return move_read_cursor(hass, client_id, payload, now)
+
+
+def handle_member_read(hass, member_row: dict[str, Any], payload: Any,
+                       now: datetime | None = None) -> tuple[dict[str, Any], int]:
+    """0.4.116 guest read cursor (POST /m/chat/read), stored under member:<memberId>."""
+    mid = str(member_row.get("memberId") or "")
+    if not mid:
+        return _error("forbidden", "Unknown member", 403)
+    return move_read_cursor(hass, "member:" + mid, payload, now)
 
 
 class PatrimonyChatReadView(HomeAssistantView):

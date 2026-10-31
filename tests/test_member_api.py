@@ -55,6 +55,10 @@ def house(tmp_path, monkeypatch):
     pushes = []
     monkeypatch.setattr(hchat, "notify_house_chat",
                         lambda h, exclude_device=None, sender_client=None: pushes.append((exclude_device, sender_client)))
+    # 0.4.110: both chat handlers send through send_house_chat_push (returns {ok, status}).
+    monkeypatch.setattr(hchat, "send_house_chat_push",
+                        lambda h, exclude_device=None, sender_client=None, **_kw:
+                        pushes.append((exclude_device, sender_client)) or {"ok": True, "status": 202})
     run(pqs.async_setup_pq_shield(hass))
     hass.pushes = pushes
     return hass, opts
@@ -148,9 +152,25 @@ def test_oversized_body_413(house):
     assert r.status == 413 and r.json()["error"]["code"] == "too_large"
 
 
-def test_shield_off_plain_both_ways_and_envelope_refused(house, monkeypatch):
+def test_flag_off_member_pq_required_sealed_both_ways(house, monkeypatch):
+    """0.4.108: flag Off + member PQ required: writes still sealed, sessionless member 428."""
     hass, _ = house
     tok, key, _ = _member(hass)
+    bare = _mint(hass)[1]["token"]
+    monkeypatch.setattr(pqs.PQShieldManager, "feature_enabled", property(lambda self: False))
+    r = run(ma.PatrimonyMemberNotesView(hass).put(_MReq(tok, body={"text": "hi"})))
+    assert r.status == 400 and r.json()["error"]["code"] == "pq_envelope_required"
+    r = run(ma.PatrimonyMemberNotesView(hass).put(_MReq(tok, body=_seal(key, {"text": "x"}))))
+    assert r.status == 200 and _open(key, r)["text"] == "x"
+    r = run(ma.PatrimonyMemberNotesView(hass).put(_MReq(bare, body={"text": "hi"})))
+    assert r.status == 428 and r.json()["error"]["code"] == "pq_session_required"
+
+
+def test_shield_off_plain_both_ways_and_envelope_refused(house, monkeypatch):
+    """Transition (member_pq_required False) + flag Off: plain both ways, as before 0.4.108."""
+    hass, opts = house
+    tok, key, _ = _member(hass)
+    opts[CONF_MEMBER_PQ_REQUIRED] = False
     monkeypatch.setattr(pqs.PQShieldManager, "feature_enabled", property(lambda self: False))
     r = run(ma.PatrimonyMemberNotesView(hass).put(_MReq(tok, body={"text": "hi"})))
     assert r.status == 200 and r.json()["text"] == "hi"
@@ -330,6 +350,8 @@ def test_member_chat_post_sealed_owner_sees_it_push_and_limits(house):
                                                 "deviceName": "Spoofed", "senderDevice": "devhash"}))))
     msg = _open(key, r)
     assert r.status == 201 and msg["text"] == "Arriving at 5" and msg["sender"] == "Anna"
+    assert msg["push"] == {"ok": True, "status": 202}  # 0.4.110 S7, inside the PQ seal
+    assert "push" not in r.json()  # nothing outside the sealed envelope
     assert msg["senderKind"] == "member" and msg["canDelete"] is False and msg["expiresAt"]
     cid = hh.house_members.client_id_for(mem["memberId"])
     assert hass.pushes == [("devhash", cid)]
@@ -349,6 +371,47 @@ def test_member_chat_post_sealed_owner_sees_it_push_and_limits(house):
         assert r.status == 400 and r.json()["error"]["code"] == code
     assert len(hass.pushes) == 2
     assert [(e["scope"], e["action"]) for e in ma.write_log(hass)] == [("chat", "post"), ("chat", "post_image")]
+
+
+def test_member_chat_mine_sealed_per_member_and_owner(house):
+    """0.4.106: sealed /m/chat GET carries mine on the member's own rows only; owner list on its own."""
+    hass, _ = house
+    tok_a, key_a, mem_a = _member(hass, memberName="A", principalId="prn_a")
+    tok_b, key_b, mem_b = _member(hass, memberName="B", principalId="prn_b")
+    v = hh.PatrimonyMemberChatView(hass)
+    assert run(v.post(_MReq(tok_a, body=_seal(key_a, {"text": "from-a"})))).status == 201
+    assert run(v.post(_MReq(tok_b, body=_seal(key_b, {"text": "from-b"})))).status == 201
+    hc = hh.house_clients
+    hc.upsert_client(hass, "owner-rt-1", device_name="Owner Phone", touch_access=True)
+    from tests.test_members import _owner_jwt
+
+    owner_req = _MReq(_owner_jwt("owner-rt-1"), user=_Admin(), body={"text": "from-owner"})
+    assert run(hchat.PatrimonyChatView(hass).post(owner_req)).status == 201
+    list_a = _open(key_a, run(v.get(_MReq(tok_a))))["messages"]
+    list_b = _open(key_b, run(v.get(_MReq(tok_b))))["messages"]
+    owner = run(hchat.PatrimonyChatView(hass).get(_MReq(_owner_jwt("owner-rt-1"), user=_Admin()))).json()["messages"]
+    assert [(m["text"], m["mine"]) for m in list_a] == [("from-a", True), ("from-b", False), ("from-owner", False)]
+    assert [(m["text"], m["mine"]) for m in list_b] == [("from-a", False), ("from-b", True), ("from-owner", False)]
+    assert [(m["text"], m["mine"]) for m in owner] == [("from-a", False), ("from-b", False), ("from-owner", True)]
+    assert [m["senderKind"] for m in list_a] == ["member", "member", "ios"]
+    blob = repr(list_a) + repr(owner)
+    assert mem_a["memberId"] not in blob and mem_b["memberId"] not in blob and "owner-rt-1" not in blob
+
+
+def test_member_owner_session_on_pairing_and_state(house):
+    """0.4.107: ownerSession on /m/pairing and the /m/state pairing mirrors the owner's capability.session."""
+    hass, _ = house
+    tok, key, _m = _member(hass)
+    mgr = pqs.get_manager(hass)
+    for owner_key, want in ((None, "absent"), (b"k" * 32, "present")):
+        mgr._aead_key = owner_key
+        assert mgr.capability()["session"] == want
+        pairing = run(hh.PatrimonyMemberPairingView(hass).get(_MReq(tok))).json()
+        assert pairing["ownerSession"] == want and pairing["pqShield"]["ownerSession"] == want
+        assert pairing["pqShield"]["session"] == "present"  # the member's own session is separate
+        state = run(hh.PatrimonyMemberStateView(hass).get(_MReq(tok))).json()
+        assert {"pqShield", "ct"} <= set(state)  # still sealed
+        assert state["pairing"]["ownerSession"] == want
 
 
 def test_member_chat_post_428_and_plain_rejected(house):

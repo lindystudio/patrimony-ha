@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 from typing import Any
 
 from .const import (
+    MEMBER_NAME_MAX,
     CONF_MEMBER_PQ_REQUIRED,
     MEMBER_PQ_REQUIRED,
     CLIENT_PATH,
@@ -14,7 +16,9 @@ from .const import (
     MEMBER_CHAT_PATH,
     MEMBER_PAIRING_PATH,
     MEMBER_REVOKE_PATH,
+    MEMBER_REMOVE_PATH,
     MEMBER_STATE_PATH,
+    MEMBERS_CLEAR_INACTIVE_PATH,
     MEMBERS_MINT_PATH,
     MEMBERS_PATH,
     CONF_HOUSE_EVENT_KEY,
@@ -569,6 +573,7 @@ class PatrimonyIosSessionView(HomeAssistantView):
                     app_version=version if isinstance(version, str) else None,
                     ha_username=str(ha_name) if ha_name else None,
                     touch_access=True,
+                    create=house_clients.is_pair_issued(self.hass, client_id),  # 0.4.114: only pair-issued ids get a new row
                 )
         return web.json_response(body, status=status)
 
@@ -653,9 +658,20 @@ class PatrimonyClientView(HomeAssistantView):
     async def post(self, request, client_id):
         from aiohttp import web
 
-        deny = _deny_if_not_admin(request)
-        if deny:
-            return deny
+        # 0.4.118: the owner pair credential (via the mutation gate) may rename its OWN row
+        # only; any other row 403. Admin path unchanged. Guest (member) credential 403;
+        # a non-admin long-lived token gets the gate's llat_not_allowed.
+        if house_clients._member_marker(request):
+            return _json_error("forbidden", "Owner or admin only", 403)
+        actor, gate_deny = _mutation_gate(self.hass, request)
+        if actor.get("allowed") and actor.get("credentialType") == house_clients.CRED_OWNER_PAIR:
+            own = house_clients.request_client_id(request)
+            if not own or str(client_id or "").strip() != own:
+                return _json_error("forbidden", "Owner pair credential may rename its own row only", 403)
+        else:
+            deny = _deny_if_not_admin(request)
+            if deny:
+                return gate_deny or deny
         if _first_entry(self.hass) is None:
             return _not_configured()
         try:
@@ -723,13 +739,21 @@ class PatrimonyClientUnpairView(HomeAssistantView):
         is_member = house_members.is_member_client_id(client_id) or (
             target is not None and target.get("role") == house_clients.ROLE_MEMBER
         )
-        if not house_clients.is_admin_request(request):
-            if not (is_member and house_clients.owner_or_admin(self.hass, request)):
-                return web.json_response({"error": {"code": "forbidden"}}, status=403)
+        # 0.4.113: admin session (or dev LLAT): any client. Owner pair bearer: member
+        # (m_/role=member) clients only (OWNER_PAIR_MEMBER_ONLY_UNPAIR). Other LLATs: 403.
+        actor, deny = _mutation_gate(self.hass, request)
+        if deny:
+            return deny
+        if not house_clients.may_unpair(actor, is_member):
+            return web.json_response({"error": {"code": "forbidden"}}, status=403)
         if _first_entry(self.hass) is None:
             return _not_configured()
         if is_member:
-            revoked = await _run(self.hass, house_members.revoke_member, self.hass, client_id)
+            audit = _revoke_audit(self.hass, request, "client_unpair", actor)
+            revoked = await _run(
+                self.hass,
+                functools.partial(house_members.revoke_member, self.hass, client_id, audit=audit),
+            )
             if revoked is None and target is None:
                 return web.json_response(
                     {"error": {"code": "not_found", "message": "Client not found"}},
@@ -753,6 +777,21 @@ class PatrimonyClientUnpairView(HomeAssistantView):
             }
         )
 
+
+
+def _revoke_audit(hass, request, route: str, actor: dict[str, Any] | None = None) -> dict[str, Any]:
+    """0.4.112: actor + source from the caller; revokedVia = valid reason header or the route name.
+    0.4.113: + credentialType / credentialIdPrefix from the mutation gate."""
+    headers = getattr(request, "headers", None) or {}
+    try:
+        raw = headers.get(house_members.REVOKE_REASON_HEADER)
+    except Exception:
+        raw = None
+    reason = house_members.clean_revoke_reason(raw)
+    actor = actor or {}
+    return {**house_clients.revoke_actor(hass, request), "revokedVia": reason or route,
+            "credentialType": actor.get("credentialType") or "other",
+            "credentialIdPrefix": actor.get("credentialIdPrefix")}
 
 
 async def _run(hass, fn, *args):
@@ -827,7 +866,8 @@ def _member_pairing_body(hass, request, row) -> dict[str, Any]:
 
         mgr = _pq_get_manager(hass)
         body["pqShield"] = mgr.member_capability(row.get("memberId"))
-        body["pqSessionRequired"] = bool(mgr.shield_on and member_pq_required(hass))
+        body["pqSessionRequired"] = bool(mgr.member_shield_on and member_pq_required(hass))
+        body["ownerSession"] = body["pqShield"]["ownerSession"]
     except Exception:
         body["pqShield"] = None
         body["pqSessionRequired"] = False
@@ -846,6 +886,8 @@ def member_pq_required(hass) -> bool:
 async def _member_pq_response(hass, row, document):
     """Member /m/state and /m/chat: wrap with THIS member's PQ session (owner envelope shape).
 
+    0.4.108: "Shield" here is the MEMBER gate (mgr.member_shield_on), independent of the
+    house pq_shield flag while member PQ is required.
     Shield Off -> plain. Shield On + session -> envelope (+ plaintext pairing beside it on
     /m/state, like the owner). Shield On, no session -> 428 pq_session_required, or plain
     when member_pq_required is False (transition).
@@ -945,7 +987,7 @@ class PatrimonyMemberPairingView(HomeAssistantView):
 
 
 class PatrimonyMemberChatView(HomeAssistantView):
-    """Member scope: chat list + post (0.4.102); image fetch at /m/chat/{id}/image (0.4.103). No delete/read-cursor."""
+    """Member scope: chat list + post (0.4.102); image fetch at /m/chat/{id}/image (0.4.103). No delete. Read cursor: POST /m/chat/read (0.4.116, member_api)."""
 
     url = MEMBER_CHAT_PATH
     name = "api:patrimony_collection:member_chat"
@@ -963,7 +1005,9 @@ class PatrimonyMemberChatView(HomeAssistantView):
         if deny:
             return deny
         try:
-            doc = await _run(self.hass, house_chat.list_document, self.hass, request)
+            # 0.4.106: the member is the viewer (member:<memberId>), not a paired phone or panel user.
+            viewer = house_chat.member_caller(_row, house_members.client_id_for(_row["memberId"]))
+            doc = await _run(self.hass, house_chat.list_document, self.hass, request, None, viewer)
         except Exception:
             return _json_error("store_failed", "Could not read chat", 500)
         for msg in doc.get("messages") or []:
@@ -981,6 +1025,22 @@ def _deny_unless_owner(hass, request):
     if not house_clients.owner_or_admin(hass, request):
         return _json_error("forbidden", "Owner or admin only", 403)
     return None
+
+
+_MUTATION_DENY_MESSAGES = {
+    "forbidden": "Owner or admin only",
+    "llat_not_allowed": "This credential cannot change members. Re-pair this phone with a pair link from the house panel",
+    "token_expired": "Session token expired; refresh and retry",
+}
+
+
+def _mutation_gate(hass, request):
+    """0.4.113 D1/D2: (actor, deny_response). Only member/client mutations use this."""
+    actor = house_clients.mutation_actor(hass, request)
+    if actor["allowed"]:
+        return actor, None
+    code = actor["code"] or "forbidden"
+    return actor, _json_error(code, _MUTATION_DENY_MESSAGES.get(code, "Forbidden"), actor["status"])
 
 
 class PatrimonyMembersView(HomeAssistantView):
@@ -1021,7 +1081,7 @@ class PatrimonyMembersMintView(HomeAssistantView):
     async def post(self, request):
         from aiohttp import web
 
-        deny = _deny_unless_owner(self.hass, request)
+        actor, deny = _mutation_gate(self.hass, request)
         if deny:
             return deny
         try:
@@ -1049,7 +1109,9 @@ class PatrimonyMembersMintView(HomeAssistantView):
             _LOGGER.error("patrimony_members_unreadable_not_overwritten")
             return _json_error("store_unavailable", "Member store is unreadable", 503)
         return web.json_response(
-            {"ok": True, "member": row, "token": token, "url": house, "public_url": house},
+            # 0.4.112: additive top-level clientId (m_<memberId>), same as member.clientId.
+            {"ok": True, "member": row, "clientId": row["clientId"], "token": token,
+             "url": house, "public_url": house},
             status=201,
             headers={"Cache-Control": "no-store"},
         )
@@ -1071,11 +1133,15 @@ class PatrimonyMemberRevokeView(HomeAssistantView):
     async def post(self, request, principal_id=""):
         from aiohttp import web
 
-        deny = _deny_unless_owner(self.hass, request)
+        actor, deny = _mutation_gate(self.hass, request)
         if deny:
             return deny
         try:
-            out = await _run(self.hass, house_members.revoke_principal, self.hass, principal_id)
+            audit = _revoke_audit(self.hass, request, "member_revoke", actor)
+            out = await _run(
+                self.hass,
+                functools.partial(house_members.revoke_principal, self.hass, principal_id, audit=audit),
+            )
         except house_members.MembersStoreUnreadable:
             return _json_error("store_unavailable", "Member store is unreadable", 503)
         return web.json_response(
@@ -1085,6 +1151,101 @@ class PatrimonyMemberRevokeView(HomeAssistantView):
                 "revoked": out["revoked"],
                 "cancelledPending": out["cancelledPending"],
             }
+        )
+
+
+class PatrimonyMemberRemoveView(HomeAssistantView):
+    """Owner/admin: remove one ended (revoked/expired) row from the Members list.
+
+    Leaves a tombstone so the token stays denied (member_token_revoked). Does not
+    un-revoke. Active/pending return 400.
+    """
+
+    url = MEMBER_REMOVE_PATH
+    name = "api:patrimony_collection:member_remove"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def delete(self, request, member_id=""):
+        from aiohttp import web
+
+        actor, deny = _mutation_gate(self.hass, request)
+        if deny:
+            return deny
+        try:
+            out = await _run(self.hass, house_members.remove_inactive, self.hass, member_id)
+        except house_members.MemberInputError as err:
+            return _json_error(err.code, err.message, 400)
+        except house_members.MembersStoreUnreadable:
+            return _json_error("store_unavailable", "Member store is unreadable", 503)
+        if out is None:
+            return _json_error("not_found", "Member not found", 404)
+        return web.json_response({"ok": True, **out}, headers={"Cache-Control": "no-store"})
+
+
+    async def patch(self, request, member_id=""):
+        """0.4.118: owner rename for a principal. {memberName}; null/empty reverts."""
+        from aiohttp import web
+
+        actor, deny = _mutation_gate(self.hass, request)
+        if deny:
+            return deny
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = None
+        if not isinstance(payload, dict):
+            return _json_error("invalid_json", "Body must be a JSON object", 400)
+        try:
+            out = await _run(self.hass, house_members.rename_principal, self.hass,
+                             member_id, payload.get("memberName"))
+        except house_members.MemberNameError as err:
+            body = {"error": {"code": err.code, "message": _MEMBER_NAME_MESSAGES[err.reason],
+                              "field": "memberName", "reason": err.reason}}
+            if err.reason == "too_long":
+                body["error"]["maxLength"] = MEMBER_NAME_MAX
+            return web.json_response(body, status=400, headers={"Cache-Control": "no-store"})
+        except house_members.MembersStoreUnreadable:
+            return _json_error("store_unavailable", "Member store is unreadable", 503)
+        if out is None:
+            return _json_error("member_not_found", "Member not found", 404)
+        return web.json_response({"ok": True, **out}, headers={"Cache-Control": "no-store"})
+
+
+_MEMBER_NAME_MESSAGES = {
+    "too_long": "memberName max 80 characters",
+    "control_characters": "memberName contains control characters",
+    "not_allowed": "memberName rejected",
+    "not_a_string": "memberName must be a string or null",
+    "reserved": "memberName is a reserved name",
+}
+
+
+class PatrimonyMembersClearInactiveView(HomeAssistantView):
+    """Owner/admin: clear every ended row from the Members list (tombstones kept)."""
+
+    url = MEMBERS_CLEAR_INACTIVE_PATH
+    name = "api:patrimony_collection:members_clear_inactive"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    async def post(self, request):
+        from aiohttp import web
+
+        actor, deny = _mutation_gate(self.hass, request)
+        if deny:
+            return deny
+        try:
+            out = await _run(self.hass, house_members.clear_inactive, self.hass)
+        except house_members.MembersStoreUnreadable:
+            return _json_error("store_unavailable", "Member store is unreadable", 503)
+        return web.json_response(
+            {"ok": True, "cleared": out["cleared"]},
+            headers={"Cache-Control": "no-store"},
         )
 
 
@@ -1207,7 +1368,9 @@ async def async_setup_http(hass: HomeAssistant) -> None:
     hass.http.register_view(PatrimonyPushLogView(hass))
     hass.http.register_view(PatrimonyMembersView(hass))
     hass.http.register_view(PatrimonyMembersMintView(hass))
+    hass.http.register_view(PatrimonyMembersClearInactiveView(hass))
     hass.http.register_view(PatrimonyMemberRevokeView(hass))
+    hass.http.register_view(PatrimonyMemberRemoveView(hass))
     hass.http.register_view(PatrimonyMemberStateView(hass))
     hass.http.register_view(PatrimonyMemberPairingView(hass))
     hass.http.register_view(PatrimonyMemberChatView(hass))

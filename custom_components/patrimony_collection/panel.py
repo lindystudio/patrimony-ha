@@ -21,7 +21,7 @@ from .const import (
     SEVERITY_MODES,
     VALUE_TYPES,
 )
-from .house_identity import apply_house_identity, house_identity_payload
+from .house_identity import apply_house_identity, async_iana_timezone_names, house_identity_payload
 from .mapping import build_presentation_document, live_entity_fields, load_shared_mapping, merge_options, normalize_editor_payload, seed_shared_mapping
 
 try:
@@ -267,6 +267,7 @@ class PatrimonyHouseView(HomeAssistantView):
         entry = _first_entry(self.hass)
         if entry is None:
             return web.json_response({"error": {"code": "not_configured"}}, status=404)
+        await async_iana_timezone_names(self.hass)  # 0.4.109: zoneinfo list off the event loop
         body = house_identity_payload(self.hass, entry)
         return web.json_response(body)
 
@@ -285,6 +286,7 @@ class PatrimonyHouseView(HomeAssistantView):
             return web.json_response({"error": {"code": "invalid_json"}}, status=400)
         if not isinstance(payload, dict):
             return web.json_response({"error": {"code": "invalid_json"}}, status=400)
+        await async_iana_timezone_names(self.hass)  # 0.4.109: zoneinfo list off the event loop
         body, status = apply_house_identity(self.hass, entry, payload)
         return web.json_response(body, status=status)
 

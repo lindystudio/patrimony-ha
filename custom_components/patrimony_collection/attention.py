@@ -152,6 +152,8 @@ def plan_automatic_pushes(
     *,
     window: float = DEBOUNCE_SECONDS,
     commit_debounce: bool = True,
+    defer_commit: bool = False,
+    inflight: Any = None,
 ) -> list[dict[str, str]]:
     """Transitions into a new FIRE class. First sight seeds and does not push.
 
@@ -159,6 +161,14 @@ def plan_automatic_pushes(
     same card still fires (escalation). Repeats inside `window` do not.
     `commit_debounce` is false when the house cannot send (no hek_): the baseline
     still updates so a later key does not replay the current state.
+
+    0.4.110 `defer_commit` (the house can send): neither the debounce stamp nor
+    the FIRE baseline of a pushed item is committed here. The item keeps its
+    previous baseline and the caller commits both only after Backend answers
+    2xx (`commit_attention_success`). A final failure leaves no stamp, so the
+    next evaluation re-fires. Transitions whose stamp key is in `inflight`
+    (a send or retry already running) are skipped and also keep the old
+    baseline. Returned rows then carry item_id, stamp_key and prev.
     """
     prev = dict(store.get("classes") or {})
     seeded = bool(store.get("seeded"))
@@ -182,23 +192,40 @@ def plan_automatic_pushes(
         return []
 
     allowed: list[dict[str, str]] = []
+    busy = set(inflight or ())
     for fact, fire in transitions:
         card = str(fact.get("card_id") or "").strip() or str(fact.get("item_id"))
         stamp_key = f"{card}|{fire}"
         last = pushed.get(stamp_key)
         if isinstance(last, (int, float)) and (float(now) - float(last)) < window:
             continue
-        if commit_debounce:
+        item_id = str(fact.get("item_id") or "").strip()
+        if defer_commit:
+            # Baseline for this item stays where it was until a 2xx commits it.
+            before = prev.get(item_id, "")
+            if before:
+                store["classes"][item_id] = before
+            else:
+                store["classes"].pop(item_id, None)
+            if stamp_key in busy:
+                continue
+            busy.add(stamp_key)
+        elif commit_debounce:
             pushed[stamp_key] = float(now)
-        allowed.append(
-            {
-                "fire_class": fire,
-                "severity": wire_severity(fire),
-                "title": title_for(fire, fact.get("label"), test=fact.get("test") is True),
-                "card_id": card,
-            }
-        )
-    if commit_debounce:
+        row = {
+            "fire_class": fire,
+            "severity": wire_severity(fire),
+            "title": title_for(fire, fact.get("label"), test=fact.get("test") is True),
+            "card_id": card,
+        }
+        if defer_commit:
+            row["item_id"] = item_id
+            row["stamp_key"] = stamp_key
+            row["prev"] = prev.get(item_id, "")
+            # The card's own id (never the item_id fallback); notify checks it is a UUID.
+            row["presentation_card_id"] = str(fact.get("card_id") or "").strip()
+        allowed.append(row)
+    if commit_debounce or defer_commit:
         horizon = max(window * 4, 6 * 3600)
         pushed = {
             key: value
@@ -207,3 +234,21 @@ def plan_automatic_pushes(
         }
     store["pushed"] = pushed
     return allowed
+
+
+def commit_attention_success(store: dict[str, Any], push: dict[str, Any], stamp: float) -> None:
+    """0.4.110: Backend answered 2xx for a deferred push. Stamp the debounce key and
+    move the item's baseline to the pushed class, unless a later evaluation already
+    moved that item somewhere else (then the newer baseline wins)."""
+    stamp_key = str(push.get("stamp_key") or "")
+    if stamp_key:
+        pushed = dict(store.get("pushed") or {})
+        pushed[stamp_key] = float(stamp)
+        store["pushed"] = pushed
+    item_id = str(push.get("item_id") or "")
+    fire = str(push.get("fire_class") or "")
+    if item_id and fire:
+        classes = dict(store.get("classes") or {})
+        if classes.get(item_id, "") == str(push.get("prev") or ""):
+            classes[item_id] = fire
+        store["classes"] = classes

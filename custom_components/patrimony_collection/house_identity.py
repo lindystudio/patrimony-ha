@@ -19,8 +19,11 @@ from .const import CONF_DISPLAY_NAME, CONF_TIMEZONE, MAPPING_FILE
 DISPLAY_NAME_MAX = 120
 
 
-def iana_timezone_names() -> list[str]:
-    """The standard zoneinfo set already on this machine. Not a made-up list."""
+_TZ_NAMES: list[str] | None = None
+
+
+def _load_iana_timezone_names() -> list[str]:
+    """Blocking: available_timezones() walks tzdata / /usr/share/zoneinfo. Executor only."""
     names: set[str] = set()
     try:
         from zoneinfo import available_timezones
@@ -30,6 +33,28 @@ def iana_timezone_names() -> list[str]:
         names = set()
     names.add("UTC")
     return sorted(names)
+
+
+def iana_timezone_names() -> list[str]:
+    """The standard zoneinfo set already on this machine. Not a made-up list.
+
+    0.4.109: cached. The async panel views warm it off the event loop first
+    (async_iana_timezone_names); a cold sync call (tests, config flow) loads inline.
+    """
+    global _TZ_NAMES
+    if _TZ_NAMES is None:
+        _TZ_NAMES = _load_iana_timezone_names()
+    return list(_TZ_NAMES)
+
+
+async def async_iana_timezone_names(hass) -> list[str]:
+    """0.4.109: load the zoneinfo list in the executor (no blocking call in the event loop)."""
+    global _TZ_NAMES
+    if _TZ_NAMES is None:
+        runner = getattr(hass, "async_add_executor_job", None) if hass is not None else None
+        names = await runner(_load_iana_timezone_names) if runner is not None else _load_iana_timezone_names()
+        _TZ_NAMES = names
+    return list(_TZ_NAMES)
 
 
 def timezone_choices(stored: str | None, ha_zone: str | None) -> list[str]:

@@ -11,7 +11,9 @@ from . import fileio
 
 import asyncio
 import json
+import logging
 import socket
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -122,6 +124,51 @@ def validate_ios_session_payload(payload: Any) -> dict[str, str] | None:
     return out
 
 
+_LOGGER = logging.getLogger(__name__)
+
+# 0.4.112: ios_session.json also holds `clients` and member_api's
+# `memberWriteLog` (and possibly other keys). Session writes are a locked
+# read-modify-write like notify.json (0.4.94): atomic write (tmp + fsync +
+# os.replace via fileio), and a file that exists but cannot be parsed is never
+# replaced by a fresh document.
+STORE_LOCK = threading.RLock()
+SESSION_FIELDS = ("deviceName", "appVersion", "ip", "lastInteractionAt", "iosVersion", "model", "hostname")
+
+
+class IosSessionUnreadable(Exception):
+    """ios_session.json exists but is not a JSON object. Do not overwrite it."""
+
+
+def _read_store_strict(path: Path) -> dict[str, Any]:
+    for attempt in range(3):
+        try:
+            raw = fileio.read_text(path)
+            if raw is None:
+                return {}
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+        fileio.maybe_sleep(0.05 * (attempt + 1))
+    raise IosSessionUnreadable(str(path))
+
+
+def update_store(hass, mutate) -> dict[str, Any] | None:
+    """Locked read-modify-write of ios_session.json. Unreadable -> untouched, None."""
+    path = ios_session_path(hass)
+    with STORE_LOCK:
+        try:
+            data = _read_store_strict(path)
+        except IosSessionUnreadable:
+            _LOGGER.error("patrimony_ios_session_unreadable_not_overwritten")
+            return None
+        if mutate(data) is False:
+            return data
+        fileio.write_text(path, json.dumps(data, indent=2) + "\n")
+        return data
+
+
 def load_ios_session(hass) -> dict[str, Any] | None:
     path = ios_session_path(hass)
     try:
@@ -177,11 +224,12 @@ def persist_ios_session(
     model: str | None = None,
     hostname: str | None = None,
 ) -> dict[str, Any]:
-    """Update last-session fields. Keep the paired-client registry.
+    """Update last-session fields. Keep the paired-client registry and every other key.
 
-    Callers must already have validated fields. ``clients`` (displayName,
-    nameEdited, and the rest of each row) is copied from the file that is
-    already on disk. This write must not recreate a phone as "Paired phone".
+    Callers must already have validated fields. 0.4.112: a locked merge into the
+    document on disk; only the session fields are replaced. ``clients`` (displayName,
+    nameEdited, ...), ``memberWriteLog`` and unknown keys survive. An unreadable file
+    is left untouched. This write must not recreate a phone as "Paired phone".
     """
     payload: dict[str, Any] = {
         "deviceName": device_name,
@@ -195,10 +243,14 @@ def persist_ios_session(
         payload["model"] = model
     if hostname:
         payload["hostname"] = hostname
-    previous = load_ios_session(hass)
-    if isinstance(previous, dict) and "clients" in previous:
-        payload["clients"] = previous["clients"]
-    fileio.write_text(ios_session_path(hass), json.dumps(payload, indent=2) + "\n")
+
+    def mutate(doc):
+        # Replace only the last-session fields; keep clients, memberWriteLog and every other key.
+        for k in SESSION_FIELDS:
+            doc.pop(k, None)
+        doc.update(payload)
+
+    update_store(hass, mutate)
     return payload
 
 
@@ -246,19 +298,17 @@ def lookup_hostname(ip: str, timeout: float = IOS_DNS_TIMEOUT_SECONDS) -> str | 
 
 
 def store_resolved_hostname(hass, ip: str, hostname: str) -> None:
-    """Attach PTR only if the last session still has this peer IP."""
-    raw = load_ios_session(hass)
-    if not isinstance(raw, dict):
-        return
-    if str(raw.get("ip") or "").strip() != str(ip or "").strip():
-        return
+    """Attach PTR only if the last session still has this peer IP (locked merge)."""
     host = (hostname or "").strip().rstrip(".")
     if not host or host == str(ip or "").strip() or len(host) > IOS_HOSTNAME_MAX:
         return
-    raw["hostname"] = host
-    # raw is the full document, including clients when present. Do not
-    # rebuild it: displayName and nameEdited must survive PTR.
-    fileio.write_text(ios_session_path(hass), json.dumps(raw, indent=2) + "\n")
+
+    def mutate(doc):
+        if not doc or str(doc.get("ip") or "").strip() != str(ip or "").strip():
+            return False
+        doc["hostname"] = host
+
+    update_store(hass, mutate)
 
 
 async def async_resolve_and_store_hostname(hass, ip: str) -> None:

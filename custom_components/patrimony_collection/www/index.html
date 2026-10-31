@@ -466,6 +466,7 @@
       <nav class="house-subnav" id="house_subnav" role="tablist" aria-label="House">
         <button type="button" class="house-sub is-active" id="sub_home" data-house-sub="home" role="tab" aria-selected="true">Home settings</button>
         <button type="button" class="house-sub" id="sub_conn" data-house-sub="conn" role="tab" aria-selected="false">Connections</button>
+        <button type="button" class="house-sub" id="sub_calendars" data-house-sub="calendars" role="tab" aria-selected="false">Calendars</button>
         <button type="button" class="house-sub" id="sub_pushlog" data-house-sub="pushlog" role="tab" aria-selected="false">Push log</button>
         <button type="button" class="house-sub" id="sub_chat" data-house-sub="chat" role="tab" aria-selected="false">Chat</button>
         <button type="button" class="house-sub" id="sub_phones" data-house-sub="phones" role="tab" aria-selected="false">Phones</button>
@@ -568,6 +569,13 @@
           <span class="status" id="notify_status" role="status" aria-live="polite"></span>
         </div>
       </section>
+      <section class="soon-card" id="soon_calendars" hidden>
+        <h2>Calendars</h2>
+        <p class="quiet">Read-only in the app, live from Home Assistant. Show in app is what the phone lists. Guest stays get priority rows in Week and Month; Birthdays start hidden on the phone.</p>
+        <p class="quiet" id="calendars_empty">No calendar entities found.</p>
+        <div id="calendars_list"></div>
+        <p class="status" id="calendars_status" role="status" aria-live="polite"></p>
+      </section>
       <section class="soon-card" id="soon_pushlog" hidden>
         <h2>Push log</h2>
         <p class="quiet" id="pushlog_empty">No pushes yet. Alerts and manual sends appear here.</p>
@@ -599,17 +607,18 @@
         <div id="phones_list"></div>
         <p class="status" id="phones_status" role="status" aria-live="polite"></p>
         <h3 id="members_heading">Members and pending invites</h3>
-        <p class="quiet">Read-only access for invited people. Revoking ends all of that person's access at once.</p>
+        <p class="quiet">Invited people can use this house in the app. Revoking ends all of that person's access at once.</p>
         <p class="quiet" id="members_empty">No members or pending invites.</p>
         <div id="members_list" aria-labelledby="members_heading"></div>
+        <div id="members_past" hidden>
+          <button type="button" class="ghost" id="members_past_toggle" aria-expanded="false">Past access (0)</button>
+          <p class="quiet" id="members_past_hint">Ended access clears after 30 days, or remove it now.</p>
+          <div id="members_past_list"></div>
+          <div class="phone-actions" id="members_past_actions" hidden>
+            <button type="button" class="danger" id="members_clear_past">Clear past access</button>
+          </div>
+        </div>
         <p class="status" id="members_status" role="status" aria-live="polite"></p>
-      </section>
-      <section class="soon-card" id="soon_calendars">
-        <h2>Calendars</h2>
-        <p class="quiet">Read-only in the app, live from Home Assistant. Expose shows a calendar to the owner and to everyone invited (titles and locations included).</p>
-        <p class="quiet" id="calendars_empty">No calendar entities found.</p>
-        <div id="calendars_list"></div>
-        <p class="status" id="calendars_status" role="status" aria-live="polite"></p>
       </section>
     </div>
   </div>
@@ -739,6 +748,131 @@
       if (isAuthStatus(r.status)) r = await once();
       if (isAuthStatus(r.status)) markSessionExpired();
       return r;
+    }
+    // 0.4.113 D2: member/client mutations never go out on a token with < 60 s left.
+    const MUTATION_MIN_TOKEN_MS = 60000;
+    function haAuthObject() {
+      const docs = [];
+      try { docs.push(parent.document); } catch (e) {}
+      try { if (typeof top !== "undefined") docs.push(top.document); } catch (e) {}
+      docs.push(document);
+      for (const doc of docs) {
+        if (!doc || !doc.querySelector) continue;
+        try {
+          const el = doc.querySelector("home-assistant") || doc.querySelector("hc-main");
+          const hass = el && el.hass;
+          const auth = hass && (hass.auth || (hass.connection && hass.connection.options && hass.connection.options.auth));
+          if (auth) return auth;
+        } catch (e) {}
+      }
+      return null;
+    }
+    function tokenExpMs(token) {
+      try {
+        const part = String(token || "").split(".")[1];
+        if (!part) return 0;
+        const json = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/")));
+        return typeof json.exp === "number" ? json.exp * 1000 : 0;
+      } catch (e) {
+        return 0;
+      }
+    }
+    function tokenMsLeft() {
+      const exp = tokenExpMs(haAccessToken());
+      return exp ? exp - Date.now() : 0;
+    }
+    async function ensureFreshToken() {
+      if (tokenMsLeft() > MUTATION_MIN_TOKEN_MS) return true;
+      const auth = haAuthObject();
+      if (auth && typeof auth.refreshAccessToken === "function") {
+        try { await auth.refreshAccessToken(); } catch (e) { return false; }
+      }
+      return tokenMsLeft() > MUTATION_MIN_TOKEN_MS;
+    }
+    async function mutate(path, opts) {
+      if (sessionExpired) return new Response("", { status: 401 });
+      if (!(await ensureFreshToken())) {
+        return new Response(JSON.stringify({ error: { code: "token_expired" } }), { status: 401 });
+      }
+      return bin(path, opts);
+    }
+    // 0.4.113 D3: a real confirm. Confirm arms after 600 ms; it takes one click only.
+    const CONFIRM_ARM_MS = 600;
+    const DOUBLE_CLICK_MS = 400;
+    const lastTriggerAt = {};
+    function ignoreQuickRepeat(key) {
+      const now = Date.now();
+      const prev = lastTriggerAt[key] || 0;
+      lastTriggerAt[key] = now;
+      return now - prev < DOUBLE_CLICK_MS;
+    }
+    function confirmDialog(opts) {
+      return new Promise(function (resolve) {
+        const dlg = document.createElement("dialog");
+        dlg.className = "patrimony-confirm";
+        dlg.setAttribute("aria-modal", "true");
+        dlg.style.cssText = "max-width:420px;border-radius:12px;padding:20px;border:1px solid var(--line,#ccc)";
+        const h = document.createElement("h3");
+        h.textContent = String(opts.title || "Confirm");
+        const p = document.createElement("p");
+        p.textContent = String(opts.body || "");
+        dlg.appendChild(h);
+        dlg.appendChild(p);
+        let input = null;
+        const need = opts.typeToConfirm ? String(opts.typeToConfirm) : "";
+        if (need) {
+          const lab = document.createElement("label");
+          lab.textContent = "Type the device name to confirm: ";
+          const b = document.createElement("strong");
+          b.textContent = need;
+          lab.appendChild(b);
+          input = document.createElement("input");
+          input.type = "text";
+          input.autocomplete = "off";
+          input.setAttribute("aria-label", "Device name");
+          input.style.cssText = "display:block;width:100%;margin:8px 0";
+          dlg.appendChild(lab);
+          dlg.appendChild(input);
+        }
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;gap:8px;justify-content:flex-end;margin-top:12px";
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "ghost";
+        cancel.textContent = "Cancel";
+        const ok = document.createElement("button");
+        ok.type = "button";
+        ok.className = "danger";
+        ok.textContent = String(opts.confirmLabel || "Confirm");
+        ok.disabled = true;
+        row.appendChild(cancel);
+        row.appendChild(ok);
+        dlg.appendChild(row);
+        let armed = false;
+        let done = false;
+        const openedAt = Date.now();
+        function matches() { return !need || (input && input.value.trim() === need.trim()); }
+        function refresh() { ok.disabled = !(armed && matches()); }
+        function finish(v) {
+          if (done) return;
+          done = true;
+          ok.disabled = true;
+          try { dlg.close(); } catch (e) {}
+          dlg.remove();
+          resolve(v);
+        }
+        setTimeout(function () { armed = true; refresh(); }, CONFIRM_ARM_MS);
+        if (input) input.addEventListener("input", refresh);
+        cancel.onclick = function () { finish(false); };
+        dlg.addEventListener("cancel", function (ev) { ev.preventDefault(); finish(false); });
+        ok.onclick = function () {
+          if (!armed || Date.now() - openedAt < CONFIRM_ARM_MS || !matches()) return;
+          finish(true);
+        };
+        document.body.appendChild(dlg);
+        try { dlg.showModal(); } catch (e) { dlg.setAttribute("open", ""); }
+        (input || cancel).focus();
+      });
     }
     async function MODE_LOAD() {
       const [p, m, e] = await Promise.all([
@@ -1800,14 +1934,18 @@
           l.appendChild(document.createTextNode(" " + label));
           return l;
         };
-        line.appendChild(box("Expose", "expose"));
+        line.appendChild(box("Show in app", "expose"));
+        const roleLab = document.createElement("label");
+        roleLab.appendChild(document.createTextNode("Show in app as "));
         const sel = document.createElement("select");
+        sel.setAttribute("aria-label", "Show in app as");
         [["", "No role"], ["stays", "Guest stays"], ["birthdays", "Birthdays"]].forEach(([v, t]) => {
           const o = document.createElement("option"); o.value = v; o.textContent = t; sel.appendChild(o);
         });
         sel.value = row.role || "";
         sel.addEventListener("change", () => { calendarRows[i].role = sel.value || null; saveCalendars(); });
-        line.appendChild(sel);
+        roleLab.appendChild(sel);
+        line.appendChild(roleLab);
         list.appendChild(line);
       });
     }
@@ -2723,12 +2861,12 @@
     function readHouseSub() {
       try {
         const v = sessionStorage.getItem(houseSubKey());
-        if (v === "conn" || v === "pushlog" || v === "chat" || v === "phones") return v;
+        if (v === "conn" || v === "calendars" || v === "pushlog" || v === "chat" || v === "phones") return v;
       } catch (e) {}
       return "home";
     }
     function writeHouseSub(name) {
-      const v = (name === "conn" || name === "pushlog" || name === "chat" || name === "phones") ? name : "home";
+      const v = (name === "conn" || name === "calendars" || name === "pushlog" || name === "chat" || name === "phones") ? name : "home";
       try { sessionStorage.setItem(houseSubKey(), v); } catch (e) {}
     }
     function checkedAtLabel() {
@@ -3158,7 +3296,7 @@
           const unpairBtn = card.querySelector('[data-act="unpair"]');
           const confirm = card.querySelector('[data-k="confirm"]');
           if (saveBtn) saveBtn.onclick = function () { savePhoneName(id, input, status); };
-          if (unpairBtn) unpairBtn.onclick = function () { unpairPhone(id, unpairBtn, confirm, status); };
+          if (unpairBtn) unpairBtn.onclick = function () { unpairPhone(id, unpairBtn, confirm, status, row); };
           list.appendChild(card);
         });
         if (status) status.textContent = rows.length ? "" : status.textContent;
@@ -3168,11 +3306,55 @@
       }
     }
     let membersRevokeStep = {};
+    let membersPastOpen = false;
     const MEMBER_STATUS_LABEL = { active: "Active", pending: "Pending", expired: "Expired", revoked: "Revoked" };
+    function memberCard(row, opts) {
+      const pid = String(row.principalId || "");
+      const st = String(row.status || "");
+      const mid = String(row.memberId || "");
+      const card = document.createElement("div");
+      card.className = "phone-card";
+      card.dataset.memberId = mid;
+      card.innerHTML =
+        '<div class="phone-meta"><strong data-k="name"></strong> · <span data-k="status"></span></div>' +
+        '<div class="phone-meta">Expires <span data-k="exp"></span></div>' +
+        '<div class="phone-meta">Last used <span data-k="used"></span></div>' +
+        '<div class="phone-actions">' +
+        '<button type="button" class="danger" data-act="revoke">Revoke</button>' +
+        '<button type="button" class="danger" data-act="remove" hidden>Remove</button>' +
+        '<span class="phone-confirm" data-k="confirm" hidden></span>' +
+        '</div>';
+      card.querySelector('[data-k="name"]').textContent = String(row.memberName || "Member");
+      card.querySelector('[data-k="status"]').textContent = MEMBER_STATUS_LABEL[st] || st;
+      card.querySelector('[data-k="exp"]').textContent = String(row.expiresAtDisplay || row.expiresAt || "—");
+      card.querySelector('[data-k="used"]').textContent = String(row.lastUsedAtDisplay || row.lastUsedAt || "Never");
+      const status = opts && opts.status;
+      const btn = card.querySelector('[data-act="revoke"]');
+      const rem = card.querySelector('[data-act="remove"]');
+      const confirm = card.querySelector('[data-k="confirm"]');
+      if (opts && opts.past) {
+        btn.hidden = true;
+        rem.hidden = false;
+        rem.setAttribute("aria-label", "Remove " + String(row.memberName || "member") + " from past access");
+        rem.onclick = function () { removePastMember(mid, rem, status); };
+      } else if ((st === "active" || st === "pending") && pid) {
+        rem.hidden = true;
+        btn.setAttribute("aria-label", "Revoke " + String(row.memberName || "member"));
+        btn.onclick = function () { revokeMember(pid, btn, confirm, status, String(row.memberName || "Member")); };
+      } else {
+        btn.hidden = true;
+        rem.hidden = true;
+      }
+      return card;
+    }
     async function loadMembers() {
       const list = $("members_list");
       const empty = $("members_empty");
       const status = $("members_status");
+      const pastWrap = $("members_past");
+      const pastList = $("members_past_list");
+      const pastToggle = $("members_past_toggle");
+      const pastActions = $("members_past_actions");
       if (!list || sessionExpired) return;
       try {
         const r = await bin(MEMBERS_PATH);
@@ -3181,62 +3363,85 @@
           return;
         }
         const doc = await r.json();
-        const rows = [].concat(doc.members || [], doc.pending || [], doc.inactive || []);
+        const live = [].concat(doc.members || [], doc.pending || []);
+        const past = [].concat(doc.inactive || []);
         membersRevokeStep = {};
         list.innerHTML = "";
-        if (empty) empty.hidden = rows.length > 0;
-        rows.forEach(function (row) {
-          const pid = String(row.principalId || "");
-          const st = String(row.status || "");
-          const card = document.createElement("div");
-          card.className = "phone-card";
-          card.dataset.memberId = String(row.memberId || "");
-          card.innerHTML =
-            '<div class="phone-meta"><strong data-k="name"></strong> · <span data-k="status"></span></div>' +
-            '<div class="phone-meta">Expires <span data-k="exp"></span></div>' +
-            '<div class="phone-meta">Last used <span data-k="used"></span></div>' +
-            '<div class="phone-actions">' +
-            '<button type="button" class="danger" data-act="revoke">Revoke</button>' +
-            '<span class="phone-confirm" data-k="confirm" hidden></span>' +
-            '</div>';
-          card.querySelector('[data-k="name"]').textContent = String(row.memberName || "Member");
-          card.querySelector('[data-k="status"]').textContent = MEMBER_STATUS_LABEL[st] || st;
-          card.querySelector('[data-k="exp"]').textContent = String(row.expiresAtDisplay || row.expiresAt || "—");
-          card.querySelector('[data-k="used"]').textContent = String(row.lastUsedAtDisplay || row.lastUsedAt || "Never");
-          const btn = card.querySelector('[data-act="revoke"]');
-          const confirm = card.querySelector('[data-k="confirm"]');
-          if ((st === "active" || st === "pending") && pid) {
-            btn.setAttribute("aria-label", "Revoke " + String(row.memberName || "member"));
-            btn.onclick = function () { revokeMember(pid, btn, confirm, status); };
-          } else {
-            btn.hidden = true;
-          }
-          list.appendChild(card);
-        });
+        if (empty) empty.hidden = live.length > 0 || past.length > 0;
+        live.forEach(function (row) { list.appendChild(memberCard(row, { status: status })); });
+        if (pastWrap && pastList && pastToggle) {
+          pastList.innerHTML = "";
+          past.forEach(function (row) { pastList.appendChild(memberCard(row, { past: true, status: status })); });
+          pastWrap.hidden = past.length === 0;
+          pastToggle.textContent = "Past access (" + past.length + ")";
+          pastToggle.setAttribute("aria-expanded", membersPastOpen ? "true" : "false");
+          pastList.hidden = !membersPastOpen;
+          if ($("members_past_hint")) $("members_past_hint").hidden = !membersPastOpen;
+          if (pastActions) pastActions.hidden = !membersPastOpen || past.length === 0;
+          pastToggle.onclick = function () {
+            membersPastOpen = !membersPastOpen;
+            pastToggle.setAttribute("aria-expanded", membersPastOpen ? "true" : "false");
+            pastList.hidden = !membersPastOpen;
+            if ($("members_past_hint")) $("members_past_hint").hidden = !membersPastOpen;
+            if (pastActions) pastActions.hidden = !membersPastOpen || past.length === 0;
+          };
+        }
+        const clearBtn = $("members_clear_past");
+        if (clearBtn) {
+          clearBtn.onclick = function () { clearPastMembers(status); };
+        }
       } catch (e) {
         if (status) status.textContent = "Could not load members";
       }
     }
-    async function revokeMember(principalId, btn, confirm, status) {
-      if (!membersRevokeStep[principalId]) {
-        membersRevokeStep[principalId] = 1;
-        if (confirm) { confirm.hidden = false; confirm.textContent = "Tap Revoke again to confirm. All of this person's member access ends now."; }
-        if (btn) btn.textContent = "Confirm revoke";
-        return;
-      }
+    async function revokeMember(principalId, btn, confirm, status, memberName) {
+      if (ignoreQuickRepeat("revoke:" + principalId) || membersRevokeStep[principalId]) return;
+      membersRevokeStep[principalId] = 1;
       try {
-        const r = await bin(MEMBERS_PATH + "/" + encodeURIComponent(principalId) + "/revoke", {
+        const name = String(memberName || "this member");
+        const ok = await confirmDialog({
+          title: "Revoke " + name + "?",
+          body: "All of " + name + "'s member access ends now. This cannot be undone.",
+          confirmLabel: "Revoke " + name
+        });
+        if (!ok) return;
+        const r = await mutate(MEMBERS_PATH + "/" + encodeURIComponent(principalId) + "/revoke", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: "{}"
         });
         if (status) status.textContent = r.ok ? "Revoked" : "Could not revoke";
-        delete membersRevokeStep[principalId];
         await loadMembers();
         await loadPhones();
       } catch (e) {
         if (status) status.textContent = "Could not revoke";
-        membersRevokeStep[principalId] = 0;
+      } finally {
+        delete membersRevokeStep[principalId];
+      }
+    }
+    async function removePastMember(memberId, btn, status) {
+      try {
+        if (btn) btn.disabled = true;
+        const r = await mutate(MEMBERS_PATH + "/" + encodeURIComponent(memberId), { method: "DELETE" });
+        if (status) status.textContent = r.ok ? "Removed from list" : "Could not remove";
+        await loadMembers();
+      } catch (e) {
+        if (status) status.textContent = "Could not remove";
+        if (btn) btn.disabled = false;
+      }
+    }
+    async function clearPastMembers(status) {
+      try {
+        const r = await mutate(MEMBERS_PATH + "/clear_inactive", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}"
+        });
+        if (status) status.textContent = r.ok ? "Past access cleared" : "Could not clear";
+        membersPastOpen = false;
+        await loadMembers();
+      } catch (e) {
+        if (status) status.textContent = "Could not clear";
       }
     }
     async function savePhoneName(clientId, input, status) {
@@ -3263,46 +3468,50 @@
         if (status) status.textContent = "Could not save name";
       }
     }
-    async function unpairPhone(clientId, btn, confirm, status) {
-      const step = phonesUnpairStep[clientId] || 0;
-      if (step < 1) {
-        phonesUnpairStep[clientId] = 1;
-        if (confirm) {
-          confirm.hidden = false;
-          confirm.textContent = "Tap Unpair again to confirm. This phone will drop this home locally.";
-        }
-        if (btn) btn.textContent = "Confirm unpair";
-        return;
-      }
+    async function unpairPhone(clientId, btn, confirm, status, row) {
+      if (ignoreQuickRepeat("unpair:" + clientId) || phonesUnpairStep[clientId]) return;
+      phonesUnpairStep[clientId] = 1;
       try {
-        const r = await bin(CLIENTS_PATH + "/" + encodeURIComponent(clientId) + "/unpair", {
+        const isMember = !!(row && row.role === "member") || String(clientId).indexOf("m_") === 0;
+        const label = String((row && (isMember ? (row.memberName || row.displayName) : row.displayName)) || "this phone");
+        const ok = await confirmDialog({
+          title: "Unpair " + label + "?",
+          body: isMember
+            ? label + "'s member access on this phone ends now."
+            : "This owner phone will drop this home locally and must be paired again.",
+          confirmLabel: "Unpair",
+          typeToConfirm: isMember ? "" : label
+        });
+        if (!ok) return;
+        const r = await mutate(CLIENTS_PATH + "/" + encodeURIComponent(clientId) + "/unpair", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: "{}"
         });
         if (!r.ok) {
           if (status) status.textContent = "Could not unpair";
-          phonesUnpairStep[clientId] = 0;
           return;
         }
         if (status) status.textContent = "Unpaired";
-        delete phonesUnpairStep[clientId];
         await loadPhones();
       } catch (e) {
         if (status) status.textContent = "Could not unpair";
-        phonesUnpairStep[clientId] = 0;
+      } finally {
+        delete phonesUnpairStep[clientId];
       }
     }
 
     function showHouseSub(name) {
-      const which = (name === "conn" || name === "pushlog" || name === "chat" || name === "phones") ? name : "home";
+      const which = (name === "conn" || name === "calendars" || name === "pushlog" || name === "chat" || name === "phones") ? name : "home";
       const subHome = $("sub_home");
       const subConn = $("sub_conn");
+      const subCal = $("sub_calendars");
       const subLog = $("sub_pushlog");
       const subChat = $("sub_chat");
       const subPhones = $("sub_phones");
       const soonHome = $("soon_home");
       const soonConn = $("soon_conn");
+      const soonCal = $("soon_calendars");
       const soonLog = $("soon_pushlog");
       const soonChat = $("soon_chat");
       const soonPhones = $("soon_phones");
@@ -3314,6 +3523,10 @@
       if (subConn) {
         subConn.classList.toggle("is-active", which === "conn");
         subConn.setAttribute("aria-selected", which === "conn" ? "true" : "false");
+      }
+      if (subCal) {
+        subCal.classList.toggle("is-active", which === "calendars");
+        subCal.setAttribute("aria-selected", which === "calendars" ? "true" : "false");
       }
       if (subLog) {
         subLog.classList.toggle("is-active", which === "pushlog");
@@ -3329,11 +3542,13 @@
       }
       if (soonHome) soonHome.hidden = which !== "home";
       if (soonConn) soonConn.hidden = which !== "conn";
+      if (soonCal) soonCal.hidden = which !== "calendars";
       if (soonLog) soonLog.hidden = which !== "pushlog";
       if (soonChat) soonChat.hidden = which !== "chat";
       if (soonPhones) soonPhones.hidden = which !== "phones";
       // Integrator: opening Connections runs Check links once so status is live without an extra tap.
       if (which === "conn" && !sessionExpired && typeof checkConnections === "function") checkConnections();
+      if (which === "calendars" && !sessionExpired && typeof loadCalendars === "function") loadCalendars();
       if (which === "pushlog" && !sessionExpired && typeof loadPushLog === "function") loadPushLog();
       if (which === "chat" && !sessionExpired && typeof loadChat === "function") loadChat();
       if (which === "phones" && !sessionExpired && typeof loadPhones === "function") loadPhones();

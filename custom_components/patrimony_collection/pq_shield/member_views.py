@@ -30,7 +30,8 @@ async def _auth(hass, request):
 def _gate(mgr):
     if not mgr.available:
         return _json_error("unavailable", "PQ shield unavailable on this Home Assistant", 404)
-    if not mgr.feature_enabled:
+    # 0.4.108: member gate, independent of the house flag while member PQ is required.
+    if not mgr.member_shield_on:
         return _json_error("disabled", "PQ shield feature is Off", 409)
     return None
 

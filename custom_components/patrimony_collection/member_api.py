@@ -42,6 +42,7 @@ MEMBER_CONTACTS_PATH = "/api/patrimony_collection/m/contacts"
 MEMBER_CONTACT_PATH = "/api/patrimony_collection/m/contacts/{contact_id}"
 MEMBER_NOTES_PATH = "/api/patrimony_collection/m/notes"
 MEMBER_WRITE_LOG_PATH = "/api/patrimony_collection/members/write_log"
+MEMBER_CHAT_READ_PATH = "/api/patrimony_collection/m/chat/read"  # 0.4.116
 MEMBER_CHAT_IMAGE_PATH = "/api/patrimony_collection/m/chat/{message_id}/image"  # 0.4.103, mirrors /chat/{id}/image
 
 WRITE_LOG_STORE = "memberWriteLog"
@@ -85,12 +86,17 @@ def record_member_write(hass, row: dict[str, Any], scope: str, action: str) -> d
     }
     with _LOG_LOCK:
         try:
-            data = house_clients._read_store(hass)
-            rows = data.get(WRITE_LOG_STORE)
-            rows = [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
-            rows.append(entry)
-            data[WRITE_LOG_STORE] = rows[-WRITE_LOG_MAX:]
-            house_clients._write_store(hass, data)
+            from .ios_session import update_store
+
+            def mutate(data):
+                rows = data.get(WRITE_LOG_STORE)
+                rows = [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+                rows.append(entry)
+                data[WRITE_LOG_STORE] = rows[-WRITE_LOG_MAX:]
+
+            # 0.4.112: same lock as owner session posts; unreadable file left alone.
+            if update_store(hass, mutate) is None:
+                raise RuntimeError("unreadable")
         except Exception:
             _LOGGER.warning("patrimony_member_write_log_failed")
     _LOGGER.info("patrimony_member_write scope=%s action=%s member=%s", entry["scope"], entry["action"], mid[:8])
@@ -125,7 +131,7 @@ def _pq_gate(hass, row):
     hh = _hh()
     mgr = _mgr(hass)
     mid = str(row.get("memberId") or "")
-    if mgr.shield_on and hh.member_pq_required(hass) and not mgr.member_session_present(mid):
+    if mgr.member_shield_on and hh.member_pq_required(hass) and not mgr.member_session_present(mid):
         return web.json_response(
             {
                 "error": {"code": "pq_session_required", "message": "PQ Shield session required"},
@@ -157,9 +163,9 @@ async def open_body(hass, request, row, *, max_bytes: int = BODY_MAX_DEFAULT):
         return None, hh._json_error("bad_json", "body must be JSON", 400, headers={"Cache-Control": "no-store"})
     mgr = _mgr(hass)
     mid = str(row.get("memberId") or "")
-    sealed_mode = mgr.shield_on and mgr.member_session_present(mid)
+    sealed_mode = mgr.member_shield_on and mgr.member_session_present(mid)
     if _is_envelope(body):
-        if not mgr.shield_on:
+        if not mgr.member_shield_on:
             return None, hh._json_error("pq_shield_off", "PQ Shield is off; send plain JSON", 400,
                                         headers={"Cache-Control": "no-store"})
         try:
@@ -572,6 +578,41 @@ async def member_chat_post(hass, request):
     return await sealed(hass, row, body, status=201)
 
 
+async def member_chat_read(hass, request):
+    """0.4.116: member read cursor. Sealed body {lastSeenMessageId}; sealed {ok:true}."""
+    from . import chat as house_chat
+
+    hh = _hh()
+    row, deny = await _auth(hass, request, configured=False)
+    if deny:
+        return deny
+    payload, err = await open_body(hass, request, row, max_bytes=4096)
+    if err:
+        return err
+    try:
+        body, status = await hh._run(hass, house_chat.handle_member_read, hass, row, payload)
+    except Exception:
+        _LOGGER.error("patrimony_chat_read_failed")
+        return hh._json_error("store_failed", "Could not store the read cursor", 500, headers={"Cache-Control": "no-store"})
+    if status != 200:
+        return hh._json_error(body["error"]["code"], body["error"]["message"], status, headers={"Cache-Control": "no-store"})
+    return await sealed(hass, row, body)
+
+
+class PatrimonyMemberChatReadView(HomeAssistantView):
+    """0.4.116 POST /m/chat/read (member token, PQ-sealed like POST /m/chat)."""
+
+    url = MEMBER_CHAT_READ_PATH
+    name = "api:patrimony_collection:member_chat_read"
+    requires_auth = False
+
+    def __init__(self, hass) -> None:
+        self.hass = hass
+
+    async def post(self, request):
+        return await member_chat_read(self.hass, request)
+
+
 # ---------------------------------------------------------------- chat image read (0.4.103)
 
 def chat_image_document(hass, message_id: str):
@@ -633,5 +674,6 @@ class PatrimonyMemberWriteLogView(HomeAssistantView):
 
 def register_views(hass) -> None:
     for view in (PatrimonyMemberPhotoView, PatrimonyMemberContactsView, PatrimonyMemberContactView,
-                 PatrimonyMemberNotesView, PatrimonyMemberWriteLogView, PatrimonyMemberChatImageView):
+                 PatrimonyMemberNotesView, PatrimonyMemberWriteLogView, PatrimonyMemberChatImageView,
+                 PatrimonyMemberChatReadView):
         hass.http.register_view(view(hass))

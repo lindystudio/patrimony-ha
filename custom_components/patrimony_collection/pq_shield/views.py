@@ -170,9 +170,8 @@ class PQShieldDisableView(HomeAssistantView):
         mgr = get_manager(self.hass)
         from aiohttp import web
 
-        return web.json_response(
-            await run_blocking(self.hass, lambda: mgr.disable(wipe_keypair=True))
-        )
+        # 0.4.109: owner session only; keypair + member sessions kept while member PQ is required.
+        return web.json_response(await run_blocking(self.hass, mgr.disable_owner))
 
 
 
@@ -223,11 +222,12 @@ class PQShieldFeatureView(HomeAssistantView):
             updater(entry, options=options)
         else:
             entry.options = options
-        # Options Off also wipes via _options_updated; when On, session stays until iOS Enable.
+        # Options Off also runs via _options_updated; when On, session stays until iOS Enable.
+        # 0.4.108: Off wipes the owner session; keypair + member sessions kept while member PQ is required.
         if not enabled:
             try:
                 _m = get_manager(self.hass)
-                await run_blocking(self.hass, lambda: _m.disable(wipe_keypair=True))
+                await run_blocking(self.hass, _m.flag_off)
             except Exception:
                 pass
         mgr = get_manager(self.hass)
