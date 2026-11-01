@@ -642,7 +642,8 @@ class PatrimonyClientsView(HomeAssistantView):
             return web.json_response({"error": {"code": "forbidden"}}, status=403)
         if _first_entry(self.hass) is None:
             return _not_configured()
-        return web.json_response(house_clients.panel_clients_document(self.hass))
+        return web.json_response(house_clients.panel_clients_document(self.hass),
+                                 headers={"Cache-Control": "no-store"})
 
 
 class PatrimonyClientView(HomeAssistantView):

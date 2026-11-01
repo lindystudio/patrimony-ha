@@ -783,10 +783,25 @@ def clients_list_allowed(hass, request) -> bool:
     return row is not None and row.get("status") == STATUS_ACTIVE
 
 
+def _member_names_by_principal(hass) -> dict[str, str]:
+    """0.4.119: current memberName per principal from its active member row (GET /members rule)."""
+    from . import members as hm
+
+    out: dict[str, str] = {}
+    mrows = hm.load_rows(hass)
+    for pid in {r.get("principalId") for r in mrows.values() if r.get("principalId")}:
+        live = [r for r in hm.principal_rows(mrows, pid) if hm.row_status(r) == hm.STATUS_ACTIVE]
+        rep = hm.representative_row(live)
+        if rep is not None:
+            out[pid] = hm.public_row(rep)["memberName"]
+    return out
+
+
 def panel_clients_document(hass) -> dict[str, Any]:
     """Active paired phones for the panel Phones sub-tab."""
     zone = house_timezone_name(hass)
     rows = []
+    names = _member_names_by_principal(hass)
     for row in load_clients(hass):
         if row["status"] != STATUS_ACTIVE:
             continue
@@ -795,7 +810,7 @@ def panel_clients_document(hass) -> dict[str, Any]:
                 "clientId": row["clientId"],
                 "displayName": row["displayName"],
                 "role": row.get("role") or ROLE_OWNER,
-                "memberName": row.get("memberName"),
+                "memberName": names.get(row.get("principalId"), row.get("memberName")),
                 "inviteId": row.get("inviteId"),
                 "principalId": row.get("principalId"),
                 "pairedAt": row["pairedAt"],
