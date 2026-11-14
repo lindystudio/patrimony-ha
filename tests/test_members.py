@@ -248,8 +248,13 @@ def test_member_bearer_gets_403_on_owner_apis(tmp_path):
 
 def test_ttl_expiry_and_default(tmp_path, monkeypatch):
     hass = _Hass(tmp_path)
-    row, _tok = hm.mint(hass, "Bo", principal_id="prn_bo", now=1_000_000.0)
-    assert row["expiresAt"] == hm._iso(1_000_000.0 + 30 * 86400)
+    row, tok = hm.mint(hass, "Bo", principal_id="prn_bo", now=1_000_000.0)
+    assert row["expiresAt"] is None
+    listed = run(hh.PatrimonyMembersView(hass).get(_Req(user=_Admin()))).json()
+    assert listed["pending"][0]["expiresAt"] is None
+    # A default mint never expires, even well past the old 30-day window.
+    monkeypatch.setattr(hm.time, "time", lambda: 1_000_000.0 + 40 * 86400)
+    assert hm.authenticate(hass, tok, now=1_000_000.0 + 40 * 86400, touch=False)[1] is None
     token = _mint(hass, ttlDays=1)[1]["token"]
     real = hm.time.time
     monkeypatch.setattr(hm.time, "time", lambda: real() + 86400 + 5)

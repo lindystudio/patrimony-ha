@@ -42,6 +42,17 @@ user agents, names or tokens. Rows without these fields load as null.
   credentialIdPrefix  first 6 chars of the HA refresh-token id that made the call
                       (an id, never a token value); null when unknown.
 Both are on the row, the tombstone, public_row and the INFO line. Old rows load as null.
+
+0.4.120: a mint without ttlDays stores exp=None (never expires). An explicit ttlDays
+(>0, <=365) is still honoured and can still expire (member_token_expired).
+On load, an idempotent store migration nulls exp on every row that is not revoked,
+cancelled, or tombstoned and that has a numeric exp — the store has no ttl flag, so
+it cannot tell default from explicit and every such row is treated as default.
+That includes already-expired and non-30-day-shaped rows; they revive with the same
+token hash and no re-pair. Revoked, cancelled, and tombstoned rows are left alone.
+A store-level migrations marker makes a second run a no-op, so explicit-ttl mints
+made after the migration keep their exp. Logs counts only. A row with cancelledAt
+set (even without revokedAt) is not renewable and fails auth as revoked.
 """
 
 from __future__ import annotations
@@ -69,7 +80,6 @@ from .const import (
     MEMBER_INACTIVE_KEEP_DAYS,
     MEMBER_NAME_MAX,
     MEMBER_TOKEN_PREFIX,
-    MEMBER_TOKEN_TTL_DAYS_DEFAULT,
     MEMBER_TOKEN_TTL_DAYS_MAX,
     MEMBERS_FILE,
 )
@@ -77,6 +87,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 _LOCK = threading.RLock()
 _DAY = 86400.0
+MIGRATION_NO_DEFAULT_EXPIRY = "no_default_expiry_04120"
 _ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 STATUS_PENDING = "pending"
@@ -214,9 +225,10 @@ def _rows(doc: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 def row_status(row: dict[str, Any], now: float | None = None) -> str:
     now = time.time() if now is None else now
-    if row.get("revokedAt"):
+    if row.get("revokedAt") or row.get("cancelledAt"):
         return STATUS_REVOKED
-    if float(row.get("exp") or 0) <= now:
+    exp = row.get("exp")
+    if exp is not None and float(exp) <= now:
         return STATUS_EXPIRED
     if row.get("firstUsedAt"):
         return STATUS_ACTIVE
@@ -257,18 +269,69 @@ def _prune(rows: dict[str, dict[str, Any]], now: float) -> None:
                 rows.pop(k, None)
             continue
         st = row_status(r, now)
-        ended = float(r.get("revokedAt") or 0) if st == STATUS_REVOKED else float(r.get("exp") or 0)
+        ended = float(r.get("revokedAt") or r.get("cancelledAt") or 0) if st == STATUS_REVOKED else float(r.get("exp") or 0)
         if st in (STATUS_REVOKED, STATUS_EXPIRED) and ended + keep < now:
             rows.pop(k, None)
+
+
+def _migration_ids(doc: dict[str, Any]) -> list[str]:
+    raw = doc.get("migrations")
+    return [m for m in raw if isinstance(m, str)] if isinstance(raw, list) else []
+
+
+def _numeric_exp(row: dict[str, Any]) -> bool:
+    """True when the row has a numeric exp (the store has no ttl flag)."""
+    exp = row.get("exp")
+    if exp is None or exp == "":
+        return False
+    try:
+        float(exp)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _ensure_migrated(path: Path, doc: dict[str, Any]) -> dict[str, Any]:
+    """Idempotent 0.4.120 no-default-expiry migration. Lock must be held. Counts only in logs."""
+    if MIGRATION_NO_DEFAULT_EXPIRY in _migration_ids(doc):
+        return doc
+    # Missing file: do not create members.json just to record the marker.
+    if not doc and not fileio.exists(path):
+        return doc
+    rows = _rows(doc)
+    cleared = 0
+    skipped = 0
+    for r in rows.values():
+        if r.get("revokedAt") or r.get("cancelledAt") or _is_tombstone(r):
+            skipped += 1
+            continue
+        # No ttl flag: every live numeric exp is treated as the old default.
+        if _numeric_exp(r):
+            r["exp"] = None
+            cleared += 1
+    doc["migrations"] = _migration_ids(doc) + [MIGRATION_NO_DEFAULT_EXPIRY]
+    if "version" not in doc:
+        doc["version"] = 1
+    doc["members"] = rows
+    _write(path, doc)
+    _LOGGER.info(
+        "patrimony_members_no_default_expiry_migrated cleared=%d skipped=%d",
+        cleared, skipped,
+    )
+    return doc
 
 
 def _update(hass, mutate):
     path = members_path(hass)
     with _LOCK:
-        doc = _read(path)  # raises on unreadable: never overwrite
+        doc = _ensure_migrated(path, _read(path))  # raises on unreadable: never overwrite
         rows = _rows(doc)
         result = mutate(rows)
         doc["version"] = 1
+        ids = _migration_ids(doc)
+        if MIGRATION_NO_DEFAULT_EXPIRY not in ids:
+            ids = ids + [MIGRATION_NO_DEFAULT_EXPIRY]
+        doc["migrations"] = ids
         doc["members"] = rows
         _write(path, doc)
         return result
@@ -276,7 +339,8 @@ def _update(hass, mutate):
 
 def load_rows(hass) -> dict[str, dict[str, Any]]:
     with _LOCK:
-        return _rows(_read(members_path(hass)))
+        path = members_path(hass)
+        return _rows(_ensure_migrated(path, _read(path)))
 
 
 def _clean_name(raw: Any) -> str:
@@ -307,9 +371,10 @@ def _clean_invite(raw: Any) -> str | None:
     return text
 
 
-def _clean_ttl(raw: Any) -> float:
+def _clean_ttl(raw: Any) -> float | None:
+    """None (no expiry) when ttlDays is omitted; otherwise a validated day count."""
     if raw is None or raw == "":
-        return float(MEMBER_TOKEN_TTL_DAYS_DEFAULT)
+        return None
     if isinstance(raw, bool):
         raise MemberInputError("invalid_ttl", "ttlDays must be a number")
     try:
@@ -342,7 +407,7 @@ def mint(hass, member_name: Any, invite_id: Any = None, ttl_days: Any = None,
             "inviteId": invite,
             "role": ROLE_MEMBER,
             "createdAt": now,
-            "exp": now + days * _DAY,
+            "exp": None if days is None else now + days * _DAY,
             "firstUsedAt": None,
             "lastUsedAt": None,
             "revokedAt": None,

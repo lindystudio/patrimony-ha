@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.120
+- Members: member access no longer expires by default. A mint without ttlDays stores no expiry (GET /members shows expiresAt null). An explicit ttlDays (greater than 0, at most 365) is still honoured. On load, every live member row with a stored expiry is migrated to no expiry (the store cannot tell the old 30-day default from an explicit ttl), including recently lapsed and hand-backdated rows that were not revoked, cancelled, or removed; the same token keeps working, with no re-invite. Rows already marked cancelled (cancelledAt), even without revokedAt, fail authentication. Revoke remains how access ends.
+
+
 ## 0.4.119
 - Paired phones: a guest renamed by the owner (or reset to no name) now shows the current name in the paired phones list (GET /api/patrimony_collection/clients), so owner Chat > Members follows renames. The list is no longer cached (Cache-Control: no-store).
 

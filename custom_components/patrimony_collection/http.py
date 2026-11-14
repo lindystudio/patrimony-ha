@@ -967,7 +967,7 @@ class PatrimonyMemberPairingView(HomeAssistantView):
         row, deny = await _member_auth(self.hass, request)
         if deny:
             if row is not None:
-                reason = "revoked" if row.get("revokedAt") else "expired"
+                reason = "revoked" if (row.get("revokedAt") or row.get("cancelledAt")) else "expired"
                 return web.json_response(
                     {
                         "status": house_clients.STATUS_UNPAIRED,
@@ -1070,7 +1070,11 @@ class PatrimonyMembersView(HomeAssistantView):
 
 
 class PatrimonyMembersMintView(HomeAssistantView):
-    """Owner/admin: mint a member token. Token is returned once, never stored."""
+    """Owner/admin: mint a member token. Token is returned once, never stored.
+
+    0.4.120: omitted ttlDays means no expiry. The panel and the owner app do not
+    send ttlDays; an explicit value in the body is still honoured (max 365).
+    """
 
     url = MEMBERS_MINT_PATH
     name = "api:patrimony_collection:members_mint"

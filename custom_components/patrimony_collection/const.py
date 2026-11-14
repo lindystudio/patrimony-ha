@@ -75,7 +75,7 @@ MEMBER_PQ_ROTATE_PATH: Final = "/api/patrimony_collection/m/pq/rotate"
 MEMBER_PQ_REQUIRED: Final = True
 CONF_MEMBER_PQ_REQUIRED: Final = "member_pq_required"
 MEMBER_TOKEN_PREFIX: Final = "pmt_"
-MEMBER_TOKEN_TTL_DAYS_DEFAULT: Final = 30
+# 0.4.120: omitted ttlDays means no expiry (was a 30-day default). Explicit ttlDays still honoured, capped here.
 MEMBER_TOKEN_TTL_DAYS_MAX: Final = 365
 MEMBER_NAME_MAX: Final = 80
 # 0.4.118: read-time guest fallback label. English only.
