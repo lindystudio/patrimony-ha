@@ -132,7 +132,9 @@ def test_notes_roundtrip_empty_and_cap(tmp_path):
     hass = _Hass(tmp_path)
     pid = DEMO_ENTRY_DATA["property_id"]
     missing = notes_document(hass, pid)
-    assert missing == {"schemaVersion": 1, "propertyId": pid, "text": "", "updatedAt": None}
+    assert {k: missing[k] for k in ("schemaVersion", "propertyId", "text", "updatedAt")} == {
+        "schemaVersion": 1, "propertyId": pid, "text": "", "updatedAt": None}
+    assert missing["items"] == [] and missing["textWritable"] is True  # 0.4.122 additive
     saved = save_notes(hass, "", pid)
     assert saved["text"] == ""
     assert saved["schemaVersion"] == 1

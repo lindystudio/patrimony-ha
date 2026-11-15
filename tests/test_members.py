@@ -248,6 +248,7 @@ def test_member_bearer_gets_403_on_owner_apis(tmp_path):
 
 def test_ttl_expiry_and_default(tmp_path, monkeypatch):
     hass = _Hass(tmp_path)
+    monkeypatch.setattr(hm.time, "time", lambda: 1_000_000.0)
     row, tok = hm.mint(hass, "Bo", principal_id="prn_bo", now=1_000_000.0)
     assert row["expiresAt"] is None
     listed = run(hh.PatrimonyMembersView(hass).get(_Req(user=_Admin()))).json()

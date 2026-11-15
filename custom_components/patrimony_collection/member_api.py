@@ -11,7 +11,7 @@ same cases in which responses go out plain.
 
 GETs carry an ETag computed on the plaintext (calendars rule) and answer 304 only after the PQ
 rule passed. Error bodies are plain {"error": {code, message}} like every other member error,
-except 409 notes_conflict, which carries the current note and is therefore sealed.
+except 409 notes_conflict / notes_items_exist, which carry the current notes and are therefore sealed.
 
 Member writes are logged (who and when, never content) in ios_session.json "memberWriteLog",
 readable by the owner at GET /api/patrimony_collection/members/write_log.
@@ -53,9 +53,10 @@ WRITE_LOG_MAX = 100
 BODY_MAX_DEFAULT = 512 * 1024
 BODY_MAX_PHOTO = 2 * PHOTO_MAX_BYTES + 256 * 1024  # 2 MB image -> ~3.6 MB sealed
 BODY_MAX_CHAT = 8 * 1024 * 1024 + 512 * 1024  # 4 MB chat image -> ~7.2 MB sealed
+# 0.4.122: 50 notes x (80 + 8000) characters, up to 4 UTF-8 bytes each, sealed (base64).
+BODY_MAX_NOTES = 4 * 1024 * 1024
 
 _CONTACTS_LOCK = threading.Lock()
-_NOTES_LOCK = threading.Lock()
 _LOG_LOCK = threading.Lock()
 
 try:
@@ -500,21 +501,24 @@ def notes_document(hass) -> dict[str, Any]:
     return house_notes.document(hass, _hh()._property_id(hass))
 
 
-def save_notes_checked(hass, text: Any, if_match: Any) -> tuple[dict[str, Any], bool]:
-    """(document, conflict). ifMatch (optional) must equal the stored updatedAt; null/"" means
-    'no note yet'. The owner path stays last-write-wins."""
-    with _NOTES_LOCK:
-        current = notes_document(hass)
-        if if_match is not None:
-            raw = str(if_match).strip()
-            want = raw[2:] if raw.startswith("W/") else raw
-            have = str(current.get("updatedAt") or "")
-            from .calendars import etag_for
+def save_notes_checked(hass, text: Any, if_match: Any, row: dict[str, Any] | None = None
+                       ) -> tuple[dict[str, Any], bool]:
+    """Legacy {text} write: (document, conflict). ifMatch (optional) must equal the stored
+    updatedAt, the document etag or the GET ETag; null/"" means 'no note yet'.
+    0.4.122: once the list has been written via items, a text write is a 409
+    notes_items_exist (the returned document carries the error code)."""
+    try:
+        doc = house_notes.save_notes(hass, text, _hh()._property_id(hass), if_match=if_match,
+                                     check=True, actor=_notes_actor(row))
+        return doc, False
+    except house_notes.NotesConflict as err:
+        return house_notes.conflict_body(err), True
 
-            # The stored updatedAt (null/"" = no note yet), or the GET ETag, both accepted.
-            if want.strip('"') != have and want != etag_for(current):
-                return current, True
-        return house_notes.save_notes(hass, text, _hh()._property_id(hass)), False
+
+def _notes_actor(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not row:
+        return None
+    return {"memberId": str(row.get("memberId") or "")[:64] or None, "kind": "member"}
 
 
 class PatrimonyMemberNotesView(HomeAssistantView):
@@ -537,18 +541,34 @@ class PatrimonyMemberNotesView(HomeAssistantView):
         row, deny = await _auth(self.hass, request)
         if deny:
             return deny
-        payload, err = await open_body(self.hass, request, row)
+        payload, err = await open_body(self.hass, request, row, max_bytes=BODY_MAX_NOTES)
         if err:
             return err
-        text = payload.get("text")
-        if text is not None and not isinstance(text, str):
-            return hh._json_error("bad_text", "text must be a string", 400, headers={"Cache-Control": "no-store"})
         headers = getattr(request, "headers", None) or {}
         if_match = payload["ifMatch"] if "ifMatch" in payload else headers.get("If-Match")
-        doc, conflict = await hh._run(self.hass, save_notes_checked, self.hass, text or "", if_match)
+        nostore = {"Cache-Control": "no-store"}
+        if "items" in payload:
+            if "text" in payload:
+                return hh._json_error("notes_bad_items", "send items or text, not both", 400, headers=nostore)
+            try:
+                doc, changed = await hh._run(self.hass, house_notes.save_items, self.hass,
+                                             payload.get("items"), if_match, hh._property_id(self.hass),
+                                             _notes_actor(row))
+            except house_notes.NotesInputError as e:
+                from aiohttp import web
+
+                return web.json_response(house_notes.input_error_body(e), status=400, headers=nostore)
+            except house_notes.NotesConflict as e:
+                return await sealed(self.hass, row, house_notes.conflict_body(e), status=409)
+            if changed:
+                await hh._run(self.hass, record_member_write, self.hass, row, "notes", "items")
+            return await sealed(self.hass, row, doc)
+        text = payload.get("text")
+        if text is not None and not isinstance(text, str):
+            return hh._json_error("bad_text", "text must be a string", 400, headers=nostore)
+        doc, conflict = await hh._run(self.hass, save_notes_checked, self.hass, text or "", if_match, row)
         if conflict:
-            body = {"error": {"code": "notes_conflict", "message": "Notes changed since ifMatch"}, **doc}
-            return await sealed(self.hass, row, body, status=409)
+            return await sealed(self.hass, row, doc, status=409)
         await hh._run(self.hass, record_member_write, self.hass, row, "notes", "set")
         return await sealed(self.hass, row, doc)
 

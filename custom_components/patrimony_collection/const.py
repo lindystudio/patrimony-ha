@@ -30,6 +30,9 @@ VERSION_PATH: Final = "/api/patrimony_collection/version"
 HOUSE_PATH: Final = "/api/patrimony_collection/house"
 NOTES_FILE: Final = "patrimony_collection/notes.json"
 NOTES_MAX_CHARS: Final = 8000
+# 0.4.122 notes list: per-item title cap and item count (body cap is NOTES_MAX_CHARS).
+NOTES_TITLE_MAX: Final = 80
+NOTES_MAX_ITEMS: Final = 50
 CHAT_PATH: Final = "/api/patrimony_collection/chat"
 CHAT_READ_PATH: Final = "/api/patrimony_collection/chat/read"
 CHAT_MESSAGE_PATH: Final = "/api/patrimony_collection/chat/{message_id}"
@@ -86,6 +89,8 @@ GUEST_LABEL_MONTHS: Final = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
 # Stock names a guest can carry without the owner having named them (besides device names).
 STOCK_MEMBER_NAMES: Final = frozenset({"member", "guest", "paired phone"})
 MEMBER_INACTIVE_KEEP_DAYS: Final = 30
+# 0.4.121: a member row lapses (member_token_expired) when (today - lastUsedDay).days > this (UTC days).
+MEMBER_INACTIVITY_EXPIRY_DAYS: Final = 365
 CLIENT_UNPAIR_PATH: Final = "/api/patrimony_collection/clients/{client_id}/unpair"
 IOS_DEVICE_NAME_MAX: Final = 80
 IOS_APP_VERSION_MAX: Final = 40

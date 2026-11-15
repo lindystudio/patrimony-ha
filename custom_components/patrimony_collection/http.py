@@ -277,7 +277,11 @@ class PatrimonyVersionView(HomeAssistantView):
 
 
 class PatrimonyNotesView(HomeAssistantView):
-    """House notepad. Off PresentationDocument. Same Bearer as state."""
+    """House notepad. Off PresentationDocument. Same Bearer as state.
+
+    0.4.122: list items + document etag; ifMatch honoured on the owner path too
+    (required for an items write, optional for a legacy text write).
+    """
 
     url = NOTES_PATH
     name = "api:patrimony_collection:notes"
@@ -291,7 +295,8 @@ class PatrimonyNotesView(HomeAssistantView):
 
         if _first_entry(self.hass) is None:
             return _not_configured()
-        return web.json_response(house_notes.document(self.hass, _property_id(self.hass)))
+        doc = await _run(self.hass, house_notes.document, self.hass, _property_id(self.hass))
+        return web.json_response(doc, headers={"ETag": doc["etag"], "Cache-Control": "no-store"})
 
     async def put(self, request):
         from aiohttp import web
@@ -305,9 +310,32 @@ class PatrimonyNotesView(HomeAssistantView):
                 {"error": {"code": "bad_json", "message": "notes body must be JSON"}},
                 status=400,
             )
-        text = payload.get("text") if isinstance(payload, dict) else ""
-        saved = house_notes.save_notes(self.hass, text, _property_id(self.hass))
-        return web.json_response(saved)
+        if not isinstance(payload, dict):
+            payload = {}
+        headers = getattr(request, "headers", None) or {}
+        if_match = payload["ifMatch"] if "ifMatch" in payload else headers.get("If-Match")
+        pid = _property_id(self.hass)
+        owner = {"memberId": None, "kind": "owner"}
+        try:
+            if "items" in payload:
+                if "text" in payload:
+                    raise house_notes.NotesInputError("notes_bad_items", "send items or text, not both")
+                saved, _changed = await _run(self.hass, house_notes.save_items, self.hass,
+                                             payload.get("items"), if_match, pid, owner)
+            else:
+                text = payload.get("text")
+                if text is not None and not isinstance(text, str):
+                    return _json_error("bad_text", "text must be a string", 400)
+                saved = await _run(self.hass, functools.partial(
+                    house_notes.save_notes, self.hass, text or "", pid,
+                    if_match=if_match, check=True, actor=owner))
+        except house_notes.NotesInputError as err:
+            return web.json_response(house_notes.input_error_body(err), status=400,
+                                     headers={"Cache-Control": "no-store"})
+        except house_notes.NotesConflict as err:
+            return web.json_response(house_notes.conflict_body(err), status=409,
+                                     headers={"Cache-Control": "no-store"})
+        return web.json_response(saved, headers={"ETag": saved["etag"], "Cache-Control": "no-store"})
 
 
 class PatrimonyPairView(HomeAssistantView):

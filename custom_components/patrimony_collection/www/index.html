@@ -2681,7 +2681,12 @@
       notesReady = false;
       try {
         const doc = await api(NOTES_PATH);
-        if ($("notes_text")) $("notes_text").value = (doc && doc.text) || "";
+        if ($("notes_text")) {
+          $("notes_text").value = (doc && doc.text) || "";
+          // 0.4.122: once the notes list is edited in the app, this textarea is read-only
+          // (a text save would be refused with 409 notes_items_exist).
+          $("notes_text").readOnly = !!(doc && doc.textWritable === false);
+        }
         updateNotesCap();
         if ($("notes_status")) $("notes_status").textContent = "";
       } catch (e) {
@@ -2691,6 +2696,7 @@
     }
     async function saveNotesNow() {
       if (!notesReady) return;
+      if ($("notes_text") && $("notes_text").readOnly) return;
       const text = ($("notes_text") && $("notes_text").value) || "";
       if ($("notes_status")) $("notes_status").textContent = "Saving…";
       try {

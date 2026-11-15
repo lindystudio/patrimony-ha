@@ -59,8 +59,9 @@ def _stored(hass):
     return json.loads(hm.members_path(hass).read_text())
 
 
-def test_default_mint_gives_none(tmp_path):
+def test_default_mint_gives_none(tmp_path, monkeypatch):
     hass = _Hass(tmp_path)
+    monkeypatch.setattr(hm.time, "time", lambda: _NOW)
     row, tok = hm.mint(hass, "Fixture Ada", principal_id="prn_ada", now=_NOW)
     assert row["expiresAt"] is None
     raw = _stored(hass)
@@ -69,8 +70,8 @@ def test_default_mint_gives_none(tmp_path):
     assert stored["tokenHash"] == hm.token_hash(tok)
     listed = run(hh.PatrimonyMembersView(hass).get(_Req(user=_Admin()))).json()
     assert listed["pending"][0]["expiresAt"] is None
-    # Still authenticates far past the old 30-day window.
-    future = _NOW + 400 * _DAY
+    # Still authenticates far past the old 30-day window (0.4.121: inactivity lapses after 365 days).
+    future = _NOW + 365 * _DAY
     found, err = hm.authenticate(hass, tok, now=future, touch=False)
     assert err is None and found["memberId"] == row["memberId"]
     assert hm.row_status(stored, future) == hm.STATUS_PENDING

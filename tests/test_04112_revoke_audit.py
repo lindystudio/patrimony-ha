@@ -285,9 +285,11 @@ def test_no_ip_or_ua_stored(tmp_path):
 # ---------------------------------------------------------------- old rows
 
 
-def test_pre_04112_rows_load_list_and_tombstone(tmp_path):
+def test_pre_04112_rows_load_list_and_tombstone(tmp_path, monkeypatch):
     hass = _Hass(tmp_path)
     now = 2_000_000_000.0
+    # 0.4.121: the inactivity migration stamps lastUsedDay with the real clock's day.
+    monkeypatch.setattr(hm.time, "time", lambda: now)
     old = {
         "version": 1,
         "members": {

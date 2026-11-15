@@ -53,6 +53,20 @@ token hash and no re-pair. Revoked, cancelled, and tombstoned rows are left alon
 A store-level migrations marker makes a second run a no-op, so explicit-ttl mints
 made after the migration keep their exp. Logs counts only. A row with cancelledAt
 set (even without revokedAt) is not renewable and fails auth as revoked.
+
+0.4.121: 365-day inactivity expiry. Each row stores lastUsedDay, a UTC date string
+("YYYY-MM-DD", day granularity only). Mint sets it to the mint day; a successful
+member auth (every /m/* route, including /m/pairing) sets it to today, writing the
+store at most once per UTC day per row (no write when lastUsedDay already equals
+today and firstUsedAt is set, so lastUsedAt is also refreshed at most once a day).
+A row whose (today - lastUsedDay).days > 365 is expired: auth fails with
+member_token_expired and /m/pairing answers unpaired with reason expired. Check
+order: unknown -> unauthorized; revoked/cancelled/tombstone -> member_token_revoked;
+explicit exp passed -> expired; inactivity -> expired. A row without lastUsedDay is
+never inactive. A one-time migration (marker inactivity_365_04121) sets lastUsedDay
+to the migration day (UTC) on every live row (not revoked, cancelled, tombstoned)
+that lacks one; no backfill from logs. For prune, an inactivity-lapsed row ended at
+00:00 UTC of lastUsedDay + 366 days (or its exp, whichever is earlier).
 """
 
 from __future__ import annotations
@@ -68,7 +82,7 @@ import re
 import secrets
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +92,7 @@ from .const import (
     GUEST_LABEL_MONTHS,
     STOCK_MEMBER_NAMES,
     MEMBER_INACTIVE_KEEP_DAYS,
+    MEMBER_INACTIVITY_EXPIRY_DAYS,
     MEMBER_NAME_MAX,
     MEMBER_TOKEN_PREFIX,
     MEMBER_TOKEN_TTL_DAYS_MAX,
@@ -88,6 +103,8 @@ _LOGGER = logging.getLogger(__name__)
 _LOCK = threading.RLock()
 _DAY = 86400.0
 MIGRATION_NO_DEFAULT_EXPIRY = "no_default_expiry_04120"
+MIGRATION_INACTIVITY_365 = "inactivity_365_04121"
+MIGRATIONS = (MIGRATION_NO_DEFAULT_EXPIRY, MIGRATION_INACTIVITY_365)
 _ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 STATUS_PENDING = "pending"
@@ -223,12 +240,51 @@ def _rows(doc: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {k: v for k, v in rows.items() if isinstance(v, dict)}
 
 
+def utc_day(ts: float | None = None) -> str:
+    """UTC calendar day of ``ts`` (default now) as YYYY-MM-DD."""
+    ts = time.time() if ts is None else ts
+    return datetime.fromtimestamp(float(ts), timezone.utc).strftime("%Y-%m-%d")
+
+
+def _parse_day(raw: Any) -> date | None:
+    if not isinstance(raw, str) or len(raw) != 10:
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def inactivity_lapse_ts(row: dict[str, Any]) -> float | None:
+    """00:00 UTC of the first day the row counts as inactive, or None (no lastUsedDay)."""
+    day = _parse_day(row.get("lastUsedDay"))
+    if day is None:
+        return None
+    lapse = day + timedelta(days=MEMBER_INACTIVITY_EXPIRY_DAYS + 1)
+    return datetime(lapse.year, lapse.month, lapse.day, tzinfo=timezone.utc).timestamp()
+
+
+def is_inactive(row: dict[str, Any], now: float | None = None) -> bool:
+    """True when (today UTC - lastUsedDay).days > MEMBER_INACTIVITY_EXPIRY_DAYS."""
+    day = _parse_day(row.get("lastUsedDay"))
+    if day is None:
+        return False
+    today = datetime.fromtimestamp(time.time() if now is None else float(now), timezone.utc).date()
+    return (today - day).days > MEMBER_INACTIVITY_EXPIRY_DAYS
+
+
+def _exp_passed(row: dict[str, Any], now: float) -> bool:
+    exp = row.get("exp")
+    return exp is not None and float(exp) <= now
+
+
 def row_status(row: dict[str, Any], now: float | None = None) -> str:
     now = time.time() if now is None else now
     if row.get("revokedAt") or row.get("cancelledAt"):
         return STATUS_REVOKED
-    exp = row.get("exp")
-    if exp is not None and float(exp) <= now:
+    if _exp_passed(row, now):
+        return STATUS_EXPIRED
+    if is_inactive(row, now):
         return STATUS_EXPIRED
     if row.get("firstUsedAt"):
         return STATUS_ACTIVE
@@ -269,8 +325,18 @@ def _prune(rows: dict[str, dict[str, Any]], now: float) -> None:
                 rows.pop(k, None)
             continue
         st = row_status(r, now)
-        ended = float(r.get("revokedAt") or r.get("cancelledAt") or 0) if st == STATUS_REVOKED else float(r.get("exp") or 0)
-        if st in (STATUS_REVOKED, STATUS_EXPIRED) and ended + keep < now:
+        if st == STATUS_REVOKED:
+            ended = float(r.get("revokedAt") or r.get("cancelledAt") or 0)
+        elif st == STATUS_EXPIRED:
+            # 0.4.121: ended = the earlier of a passed exp and the inactivity lapse.
+            ends = [float(r["exp"])] if _exp_passed(r, now) else []
+            lapse = inactivity_lapse_ts(r)
+            if lapse is not None and lapse <= now:
+                ends.append(lapse)
+            ended = min(ends) if ends else now
+        else:
+            continue
+        if ended + keep < now:
             rows.pop(k, None)
 
 
@@ -291,14 +357,8 @@ def _numeric_exp(row: dict[str, Any]) -> bool:
     return True
 
 
-def _ensure_migrated(path: Path, doc: dict[str, Any]) -> dict[str, Any]:
-    """Idempotent 0.4.120 no-default-expiry migration. Lock must be held. Counts only in logs."""
-    if MIGRATION_NO_DEFAULT_EXPIRY in _migration_ids(doc):
-        return doc
-    # Missing file: do not create members.json just to record the marker.
-    if not doc and not fileio.exists(path):
-        return doc
-    rows = _rows(doc)
+def _migrate_no_default_expiry(rows: dict[str, dict[str, Any]]) -> None:
+    """0.4.120 no-default-expiry migration body. Counts only in logs."""
     cleared = 0
     skipped = 0
     for r in rows.values():
@@ -309,15 +369,48 @@ def _ensure_migrated(path: Path, doc: dict[str, Any]) -> dict[str, Any]:
         if _numeric_exp(r):
             r["exp"] = None
             cleared += 1
-    doc["migrations"] = _migration_ids(doc) + [MIGRATION_NO_DEFAULT_EXPIRY]
-    if "version" not in doc:
-        doc["version"] = 1
-    doc["members"] = rows
-    _write(path, doc)
     _LOGGER.info(
         "patrimony_members_no_default_expiry_migrated cleared=%d skipped=%d",
         cleared, skipped,
     )
+
+
+def _migrate_inactivity_365(rows: dict[str, dict[str, Any]], today: str) -> None:
+    """0.4.121: lastUsedDay = migration day on every live row lacking one. No log backfill."""
+    stamped = 0
+    skipped = 0
+    for r in rows.values():
+        if r.get("revokedAt") or r.get("cancelledAt") or _is_tombstone(r):
+            skipped += 1
+            continue
+        if _parse_day(r.get("lastUsedDay")) is None:
+            r["lastUsedDay"] = today
+            stamped += 1
+    _LOGGER.info(
+        "patrimony_members_inactivity_365_migrated stamped=%d skipped=%d", stamped, skipped,
+    )
+
+
+def _ensure_migrated(path: Path, doc: dict[str, Any]) -> dict[str, Any]:
+    """Idempotent one-time store migrations (0.4.120, 0.4.121). Lock must be held."""
+    done = _migration_ids(doc)
+    if all(m in done for m in MIGRATIONS):
+        return doc
+    # Missing file: do not create members.json just to record the marker.
+    if not doc and not fileio.exists(path):
+        return doc
+    rows = _rows(doc)
+    if MIGRATION_NO_DEFAULT_EXPIRY not in done:
+        _migrate_no_default_expiry(rows)
+        done = done + [MIGRATION_NO_DEFAULT_EXPIRY]
+    if MIGRATION_INACTIVITY_365 not in done:
+        _migrate_inactivity_365(rows, utc_day())
+        done = done + [MIGRATION_INACTIVITY_365]
+    doc["migrations"] = done
+    if "version" not in doc:
+        doc["version"] = 1
+    doc["members"] = rows
+    _write(path, doc)
     return doc
 
 
@@ -329,8 +422,7 @@ def _update(hass, mutate):
         result = mutate(rows)
         doc["version"] = 1
         ids = _migration_ids(doc)
-        if MIGRATION_NO_DEFAULT_EXPIRY not in ids:
-            ids = ids + [MIGRATION_NO_DEFAULT_EXPIRY]
+        ids = ids + [m for m in MIGRATIONS if m not in ids]
         doc["migrations"] = ids
         doc["members"] = rows
         _write(path, doc)
@@ -410,6 +502,8 @@ def mint(hass, member_name: Any, invite_id: Any = None, ttl_days: Any = None,
             "exp": None if days is None else now + days * _DAY,
             "firstUsedAt": None,
             "lastUsedAt": None,
+            # 0.4.121: the inactivity clock starts on the mint day (UTC).
+            "lastUsedDay": utc_day(now),
             "revokedAt": None,
             "cancelledAt": None,
         }
@@ -432,6 +526,7 @@ def public_row(row: dict[str, Any], now: float | None = None) -> dict[str, Any]:
         "createdAt": _iso(row.get("createdAt")),
         "expiresAt": _iso(row.get("exp")),
         "lastUsedAt": _iso(row.get("lastUsedAt")),
+        "lastUsedDay": row.get("lastUsedDay") if _parse_day(row.get("lastUsedDay")) else None,
         "revokedAt": _iso(row.get("revokedAt")),
         "revokedBy": row.get("revokedBy"),
         "revokeSource": row.get("revokeSource"),
@@ -477,7 +572,9 @@ def authenticate(hass, token: str, *, now: float | None = None, touch: bool = Tr
         return found, "member_token_revoked"
     if st == STATUS_EXPIRED:
         return found, "member_token_expired"
-    if touch:
+    today = utc_day(now)
+    # 0.4.121: at most one store write per UTC day per row (lastUsedDay throttle).
+    if touch and not (found.get("lastUsedDay") == today and found.get("firstUsedAt")):
         mid = found["memberId"]
 
         def mutate(rows):
@@ -485,6 +582,7 @@ def authenticate(hass, token: str, *, now: float | None = None, touch: bool = Tr
             if r is None:
                 return None
             r["lastUsedAt"] = now
+            r["lastUsedDay"] = today
             if not r.get("firstUsedAt"):
                 r["firstUsedAt"] = now
             return dict(r)

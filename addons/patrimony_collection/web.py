@@ -517,6 +517,15 @@ def load_notes_doc():
     return {"schemaVersion": 1, "propertyId": pid, "text": "", "updatedAt": None}
 
 
+def notes_have_items() -> bool:
+    """0.4.122: the integration keeps a notes list in notes.json; never clobber it."""
+    try:
+        data = json.loads(NOTES_PATH.read_text()) if NOTES_PATH.is_file() else {}
+    except Exception:
+        return True  # unreadable: do not overwrite
+    return isinstance(data, dict) and bool(data.get("items"))
+
+
 def save_notes_doc(raw) -> dict:
     from datetime import datetime, timezone
     text = ""
@@ -972,6 +981,9 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(raw.decode())
             except json.JSONDecodeError:
                 return self._json(400, {"error": "invalid_json"})
+            if notes_have_items():
+                return self._json(409, {"error": {"code": "notes_items_exist",
+                                                  "message": "Notes are a list now; edit them in the app"}})
             return self._json(200, save_notes_doc(payload))
         if path not in ("/api/contacts", "api/contacts"):
             self.send_error(404)
