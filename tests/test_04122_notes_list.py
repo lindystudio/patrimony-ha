@@ -307,3 +307,39 @@ def test_text_projection_empty_only_when_no_item_has_content(hass):
     assert st == 200 and out["text"] == "" and len(out["items"]) == 2
     st, out = owner_put(hass, {"items": [], "ifMatch": out["etag"]})
     assert st == 200 and out["text"] == "" and out["items"] == [] and out["textWritable"] is False
+
+
+# ------------------------------------------------------------------ 0.4.123: stale owner list PUT
+
+def test_69_stale_owner_list_put_after_member_edit_is_409_and_audited(hass, caplog):
+    """G1 edits after the owner's GET; the owner's stale list PUT must 409 (body or header),
+    a missing/null ifMatch is 400, a text PUT is 409 notes_items_exist. Items untouched.
+    Each owner PUT logs one audit line with etag prefixes only."""
+    import logging
+
+    caplog.set_level(logging.INFO)
+    tok, _ = member(hass)
+    e0 = owner_get(hass)["etag"]
+    s, d = owner_put(hass, {"items": items(("SECRET-T", "one")), "ifMatch": e0})
+    assert s == 200
+    e1, iid = d["etag"], d["items"][0]["id"]
+    s, d = member_put(hass, tok, {"items": items(("SECRET-T", "G1-newer"), ids=[iid]), "ifMatch": e1})
+    assert s == 200
+    e2 = d["etag"]
+    stale = items(("SECRET-T", "SECRET-stale"), ids=[iid])
+    s, d = owner_put(hass, {"items": stale, "ifMatch": e1})
+    assert s == 409 and d["error"]["code"] == "notes_conflict" and d["current"]["etag"] == e2
+    s, _ = owner_put(hass, {"items": stale}, if_match=e1)
+    assert s == 409
+    s, d = owner_put(hass, {"items": stale})
+    assert s == 400 and d["error"]["code"] == "notes_if_match_required"
+    s, d = owner_put(hass, {"items": stale, "ifMatch": None}, if_match=e2)
+    assert s == 400  # body key wins over the header, null is missing
+    s, d = owner_put(hass, {"text": "SECRET-stale"})
+    assert s == 409 and d["error"]["code"] == "notes_items_exist"
+    assert owner_get(hass)["items"][0]["body"] == "G1-newer"
+    t1, t2 = e1.strip('"')[:8], e2.strip('"')[:8]
+    assert f"patrimony_owner_notes_put form=items status=409 code=notes_conflict ifmatch={t1} etag={t2}" in caplog.text
+    assert "patrimony_owner_notes_put form=items status=400 code=notes_if_match_required ifmatch=-" in caplog.text
+    assert "patrimony_owner_notes_put form=text status=409 code=notes_items_exist ifmatch=-" in caplog.text
+    assert "SECRET" not in caplog.text

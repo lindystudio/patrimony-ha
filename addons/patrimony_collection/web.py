@@ -500,30 +500,58 @@ def restore_default_photo() -> bool:
 def load_notes_doc():
     opts = load_options()
     pid = opts.get("property_id")
+    empty = {
+        "schemaVersion": 1,
+        "propertyId": pid,
+        "text": "",
+        "updatedAt": None,
+        "items": [],
+        "textWritable": True,
+    }
     try:
         if NOTES_PATH.is_file():
             data = json.loads(NOTES_PATH.read_text())
             if isinstance(data, dict):
                 text = str(data.get("text") if data.get("text") is not None else "")[:NOTES_MAX_CHARS]
                 updated = data.get("updatedAt")
+                raw_items = data.get("items") if isinstance(data.get("items"), list) else []
+                items = []
+                for it in raw_items:
+                    if isinstance(it, dict):
+                        items.append({
+                            "id": it.get("id"),
+                            "title": "" if it.get("title") is None else str(it.get("title")),
+                            "body": "" if it.get("body") is None else str(it.get("body")),
+                            "order": it.get("order"),
+                        })
                 return {
                     "schemaVersion": 1,
                     "propertyId": pid,
                     "text": text,
                     "updatedAt": str(updated) if updated is not None else None,
+                    "items": items,
+                    "textWritable": not bool(data.get("listEdited")),
                 }
     except Exception:
         pass
-    return {"schemaVersion": 1, "propertyId": pid, "text": "", "updatedAt": None}
+    return empty
 
 
 def notes_have_items() -> bool:
-    """0.4.122: the integration keeps a notes list in notes.json; never clobber it."""
+    """True when a legacy text PUT must be refused.
+
+    0.4.123: once the list has been written (listEdited) — including an empty
+    list after every item was removed — or any items exist, never clobber.
+    """
     try:
         data = json.loads(NOTES_PATH.read_text()) if NOTES_PATH.is_file() else {}
     except Exception:
         return True  # unreadable: do not overwrite
-    return isinstance(data, dict) and bool(data.get("items"))
+    if not isinstance(data, dict):
+        return True
+    if data.get("listEdited"):
+        return True
+    return bool(data.get("items"))
 
 
 def save_notes_doc(raw) -> dict:

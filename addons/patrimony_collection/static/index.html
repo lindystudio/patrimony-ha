@@ -293,6 +293,15 @@
       border-radius: 12px; width: 232px; height: 232px;
     }
     #notes_text { min-height: 8.5em; resize: vertical; }
+    #notes_text[readonly] { opacity: .7; }
+    #notes_ingress_list { margin: 8px 0 0; border-top: 1px solid var(--line, #333); }
+    .notes-ingress-row { padding: 10px 0; border-bottom: 1px solid var(--line, #333); }
+    .notes-ingress-title { font-size: 15px; }
+    .notes-ingress-preview {
+      margin: 4px 0 0; font-size: 13px; opacity: .7;
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+    }
+    #notes_ingress_empty_title { font-size: 18px; margin: 12px 0 6px; }
     input:focus, select:focus, textarea:focus { outline: 1px solid var(--gold); border-color: var(--gold-deep); }
     #pair_qr[hidden] { display: none; }
     .soon-sec .confirm-bar { margin: 10px 0 0; }
@@ -368,7 +377,14 @@
       <section class="soon-sec" id="soon_notes">
         <h3>Notepad</h3>
         <p class="quiet">The same page on the phone.</p>
-        <textarea id="notes_text" maxlength="8000" placeholder="A quiet note"></textarea>
+        <div id="notes_ingress_list_view">
+          <div id="notes_ingress_empty" hidden>
+            <p id="notes_ingress_empty_title">No notes yet</p>
+            <p class="quiet">Notes added here are shared with everyone in this home.</p>
+          </div>
+          <div id="notes_ingress_list" hidden></div>
+        </div>
+        <textarea id="notes_text" maxlength="8000" placeholder="A quiet note" aria-label="Notepad"></textarea>
         <p class="status" id="notes_status" role="status" aria-live="polite"></p>
       </section>
       <section class="soon-sec" id="soon_pair">
@@ -1780,12 +1796,54 @@
       syncPhotoButtons("empty");
       $("photo_status").textContent = "Removed";
     }
+    let notesTextWritable = true;
+    function renderIngressNotes(doc) {
+      const items = (doc && Array.isArray(doc.items)) ? doc.items : [];
+      const writable = !(doc && doc.textWritable === false);
+      notesTextWritable = writable;
+      const listWrap = $("notes_ingress_list");
+      const empty = $("notes_ingress_empty");
+      const area = $("notes_text");
+      // Once the list has been written, never issue a legacy text PUT.
+      if (!writable) {
+        if (area) { area.hidden = true; area.readOnly = true; }
+        if (empty) empty.hidden = items.length !== 0;
+        if (listWrap) {
+          listWrap.hidden = items.length === 0;
+          while (listWrap.firstChild) listWrap.removeChild(listWrap.firstChild);
+          items.forEach(function (it) {
+            const row = document.createElement("div");
+            row.className = "notes-ingress-row";
+            const title = document.createElement("div");
+            title.className = "notes-ingress-title";
+            title.textContent = (it && it.title) ? String(it.title) : "Untitled";
+            row.appendChild(title);
+            if (it && it.body) {
+              const preview = document.createElement("div");
+              preview.className = "notes-ingress-preview";
+              const body = String(it.body);
+              preview.textContent = body.length > 240 ? body.slice(0, 240) : body;
+              row.appendChild(preview);
+            }
+            listWrap.appendChild(row);
+          });
+        }
+        return;
+      }
+      if (empty) empty.hidden = true;
+      if (listWrap) { listWrap.hidden = true; while (listWrap.firstChild) listWrap.removeChild(listWrap.firstChild); }
+      if (area) {
+        area.hidden = false;
+        area.readOnly = false;
+        area.value = (doc && doc.text) || "";
+      }
+    }
     async function loadNotes() {
       notesReady = false;
       try {
         const doc = await api(NOTES_PATH);
-        if ($("notes_text")) $("notes_text").value = doc.text || "";
-        if ($("notes_status")) $("notes_status").textContent = doc.updatedAt ? "Saved" : "";
+        renderIngressNotes(doc);
+        if ($("notes_status")) $("notes_status").textContent = (doc && doc.updatedAt) ? "Saved" : "";
       } catch (e) {
         if ($("notes_status")) $("notes_status").textContent = "Could not load notes";
       }
@@ -1793,7 +1851,10 @@
     }
     async function saveNotesNow() {
       if (!notesReady) return;
-      const text = ($("notes_text") && $("notes_text").value) || "";
+      if (!notesTextWritable) return;
+      const area = $("notes_text");
+      if (area && (area.readOnly || area.hidden)) return;
+      const text = (area && area.value) || "";
       if ($("notes_status")) $("notes_status").textContent = "Saving…";
       try {
         await api(NOTES_PATH, {
@@ -1808,6 +1869,9 @@
     }
     function scheduleNotes() {
       if (!notesReady) return;
+      if (!notesTextWritable) return;
+      const area = $("notes_text");
+      if (area && (area.readOnly || area.hidden)) return;
       if ($("notes_status")) $("notes_status").textContent = "Saving…";
       clearTimeout(notesTimer);
       notesTimer = setTimeout(saveNotesNow, 600);

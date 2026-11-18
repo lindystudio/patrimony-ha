@@ -386,9 +386,39 @@
     .conn-row .v.warn { color: var(--gold); opacity: 1; }
     .soon-meta { margin-top: 14px; }
     .soon-meta p { margin: 4px 0 0; font-size: 13px; opacity: .7; }
-    #notes_text { min-height: 10em; resize: vertical; }
-    #notes_text:focus { outline: 1px solid var(--gold); border-color: var(--gold-deep); }
     .notes-cap { margin: 0 0 0 auto; font-size: 12px; opacity: .55; }
+    #notes_list { margin: 8px 0 0; border-top: 1px solid var(--line); }
+    .notes-row {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 10px 0; border-bottom: 1px solid var(--line);
+    }
+    .notes-row-main {
+      flex: 1; min-width: 0; cursor: pointer; text-align: left;
+      background: none; border: 0; color: inherit; font: inherit; padding: 0;
+    }
+    .notes-row-title { font-size: 15px; color: var(--cream); }
+    .notes-row-title.is-untitled { opacity: .7; }
+    .notes-row-preview {
+      margin: 4px 0 0; font-size: 13px; opacity: .7; line-height: 1.4;
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+      overflow: hidden;
+    }
+    .notes-row-tools {
+      display: flex; flex-direction: column; gap: 4px; flex: none;
+    }
+    .notes-row-tools .ghost, .notes-row-tools .danger { padding: 4px 8px; font-size: 11px; }
+    #notes_empty { margin: 10px 0 0; }
+    #notes_empty_title {
+      font-family: Fraunces, Georgia, serif; font-size: 20px; font-weight: 500;
+      color: var(--cream); margin: 12px 0 6px;
+    }
+    #notes_edit_body { min-height: 10em; resize: vertical; }
+    #notes_edit_title:focus, #notes_edit_body:focus {
+      outline: 1px solid var(--gold); border-color: var(--gold-deep);
+    }
+    .notes-edit-caps { display: flex; justify-content: flex-end; margin: 4px 0 0; }
+    #notes_empty[hidden], #notes_list[hidden], #notes_list_view[hidden],
+    #notes_list_actions[hidden], #notes_edit_view[hidden] { display: none !important; }
     .qr-paper {
       display: inline-block;
       background: var(--paper);
@@ -507,10 +537,35 @@
         <p class="status" id="photo_status" role="status" aria-live="polite"></p>
         <h3>Notepad</h3>
         <p class="quiet">The same page on the phone.</p>
-        <textarea id="notes_text" maxlength="8000" aria-label="Notepad"></textarea>
-        <div class="actions">
-          <span class="status" id="notes_status" role="status" aria-live="polite"></span>
-          <span class="quiet notes-cap" id="notes_cap">0/8000</span>
+        <div id="notes_panel">
+          <div id="notes_list_view">
+            <div id="notes_empty" hidden>
+              <p id="notes_empty_title">No notes yet</p>
+              <p class="quiet">Notes added here are shared with everyone in this home.</p>
+              <div class="actions">
+                <button class="primary" type="button" id="notes_add_empty" aria-label="Add Note">Add Note</button>
+              </div>
+            </div>
+            <div id="notes_list" role="list" aria-label="Notes" hidden></div>
+            <div class="actions" id="notes_list_actions" hidden>
+              <button class="primary" type="button" id="notes_add" aria-label="Add Note">Add Note</button>
+            </div>
+            <div class="actions">
+              <span class="status" id="notes_status" role="status" aria-live="polite"></span>
+            </div>
+          </div>
+          <div id="notes_edit_view" hidden>
+            <label for="notes_edit_title">Title</label>
+            <input id="notes_edit_title" maxlength="80" autocomplete="off" placeholder="Title" aria-label="Title" />
+            <div class="notes-edit-caps"><span class="quiet notes-cap" id="notes_title_cap">0/80</span></div>
+            <label for="notes_edit_body">Note</label>
+            <textarea id="notes_edit_body" maxlength="8000" placeholder="Note" aria-label="Note"></textarea>
+            <div class="actions">
+              <button class="primary" type="button" id="notes_edit_done">Done</button>
+              <span class="status" id="notes_edit_status" role="status" aria-live="polite"></span>
+              <span class="quiet notes-cap" id="notes_body_cap">0/8000</span>
+            </div>
+          </div>
         </div>
         <h3>Invitation</h3>
         <p class="quiet" id="pair_quiet">Show once. The phone keeps it.</p>
@@ -2560,7 +2615,6 @@
 
     let photoObjectUrl = null;
     let notesTimer = null;
-    let notesReady = false;
     let pairingUri = null;
 
     function syncPhotoButtons(mode) {
@@ -2673,51 +2727,312 @@
         $("photo_status").textContent = "Could not save";
       }
     }
-    function updateNotesCap() {
-      const n = (($("notes_text") && $("notes_text").value) || "").length;
-      if ($("notes_cap")) $("notes_cap").textContent = n + "/8000";
+    const NOTES_TITLE_MAX = 80;
+    const NOTES_BODY_MAX = 8000;
+    const NOTES_MAX_ITEMS = 50;
+    const NOTES_COPY = {
+      untitled: "Untitled",
+      saveFailed: "Couldn't save this note. Try again in a moment.",
+      tooMany: "This home has 50 notes, the most it can hold. Remove one to add another.",
+      titleLimit: "Titles can be up to 80 characters.",
+      bodyLimit: "Notes can be up to 8,000 characters.",
+      emptyTitle: "No notes yet",
+      emptyBody: "Notes added here are shared with everyone in this home.",
+      add: "Add Note",
+      deleteTitle: "Delete this note?",
+      deleteBody: "It will be removed for everyone in this home.",
+      delete: "Delete",
+      cancel: "Cancel",
+      conflict: "Someone else changed this note first. Your edit wasn't saved, and the latest version is shown.",
+      titlePh: "Title",
+      bodyPh: "Note",
+      moveUp: "Move Up",
+      moveDown: "Move Down",
+      reorder: "Reorder Notes",
+      saved: "Saved",
+      done: "Done",
+    };
+    let notesReady = false;
+    let notesEtag = null;
+    let notesItems = [];
+    let notesTextWritable = true;
+    let notesEditingId = null;
+    let notesEditingIsNew = false;
+    let notesSaving = false;
+
+    function notesStatusEl() {
+      return $("notes_edit_status") && !$("notes_edit_view").hidden
+        ? $("notes_edit_status") : $("notes_status");
+    }
+    function setNotesStatus(text) {
+      const a = $("notes_status");
+      const b = $("notes_edit_status");
+      if (a) a.textContent = text || "";
+      if (b) b.textContent = text || "";
+    }
+    function notesCopyItem(it) {
+      return {
+        id: it && it.id ? String(it.id) : null,
+        title: it && it.title != null ? String(it.title) : "",
+        body: it && it.body != null ? String(it.body) : "",
+      };
+    }
+    // Atomic: etag and items always come from the same document.
+    // Never pair a fresh etag with stale items (stale list PUT).
+    function applyNotesDoc(doc) {
+      if (!doc || typeof doc !== "object" || !("etag" in doc)) return;
+      let items;
+      if (Array.isArray(doc.items)) {
+        items = doc.items.map(notesCopyItem);
+      } else {
+        // House has nothing saved through the list yet: show the legacy text as one item.
+        const text = doc.text != null ? String(doc.text) : "";
+        items = text ? [{ id: null, title: "", body: text }] : [];
+      }
+      notesEtag = doc.etag;
+      notesItems = items;
+      notesTextWritable = doc.textWritable !== false;
+    }
+    function notesPayloadItems() {
+      return notesItems.map(function (it) {
+        return { id: it.id || null, title: it.title || "", body: it.body || "" };
+      });
+    }
+    function notesFindIndex(id) {
+      if (id == null) return -1;
+      const sid = String(id);
+      for (let i = 0; i < notesItems.length; i++) {
+        if (notesItems[i].id && String(notesItems[i].id) === sid) return i;
+      }
+      return -1;
+    }
+    function updateNotesCaps() {
+      const t = $("notes_edit_title");
+      const b = $("notes_edit_body");
+      if ($("notes_title_cap") && t) $("notes_title_cap").textContent = (t.value || "").length + "/" + NOTES_TITLE_MAX;
+      if ($("notes_body_cap") && b) $("notes_body_cap").textContent = (b.value || "").length + "/" + NOTES_BODY_MAX;
+    }
+    function clipNotesFields(showLimit) {
+      const t = $("notes_edit_title");
+      const b = $("notes_edit_body");
+      if (t && t.value.length > NOTES_TITLE_MAX) {
+        t.value = t.value.slice(0, NOTES_TITLE_MAX);
+        if (showLimit) setNotesStatus(NOTES_COPY.titleLimit);
+      }
+      if (b && b.value.length > NOTES_BODY_MAX) {
+        b.value = b.value.slice(0, NOTES_BODY_MAX);
+        if (showLimit) setNotesStatus(NOTES_COPY.bodyLimit);
+      }
+      updateNotesCaps();
+    }
+    function showNotesListView() {
+      notesEditingId = null;
+      notesEditingIsNew = false;
+      if ($("notes_edit_view")) $("notes_edit_view").hidden = true;
+      if ($("notes_list_view")) $("notes_list_view").hidden = false;
+      renderNotesList();
+    }
+    function showNotesEditor(id, title, body, isNew) {
+      notesEditingId = id;
+      notesEditingIsNew = !!isNew;
+      if ($("notes_list_view")) $("notes_list_view").hidden = true;
+      if ($("notes_edit_view")) $("notes_edit_view").hidden = false;
+      if ($("notes_edit_title")) $("notes_edit_title").value = title || "";
+      if ($("notes_edit_body")) $("notes_edit_body").value = body || "";
+      updateNotesCaps();
+      if ($("notes_edit_title")) $("notes_edit_title").focus();
+    }
+    function syncEditorFromItems() {
+      if (!notesEditingId || notesEditingIsNew) return;
+      const i = notesFindIndex(notesEditingId);
+      if (i < 0) {
+        showNotesListView();
+        return;
+      }
+      if ($("notes_edit_title")) $("notes_edit_title").value = notesItems[i].title || "";
+      if ($("notes_edit_body")) $("notes_edit_body").value = notesItems[i].body || "";
+      updateNotesCaps();
+    }
+    function renderNotesList() {
+      const empty = $("notes_empty");
+      const list = $("notes_list");
+      const actions = $("notes_list_actions");
+      const emptyList = notesItems.length === 0;
+      if (empty) empty.hidden = !emptyList;
+      if (list) list.hidden = emptyList;
+      if (actions) actions.hidden = emptyList;
+      if (!list) return;
+      while (list.firstChild) list.removeChild(list.firstChild);
+      notesItems.forEach(function (it, index) {
+        const row = document.createElement("div");
+        row.className = "notes-row";
+        row.setAttribute("role", "listitem");
+        const main = document.createElement("button");
+        main.type = "button";
+        main.className = "notes-row-main";
+        const title = document.createElement("div");
+        title.className = "notes-row-title" + (it.title ? "" : " is-untitled");
+        title.textContent = it.title ? it.title : NOTES_COPY.untitled;
+        main.appendChild(title);
+        if (it.body) {
+          const preview = document.createElement("div");
+          preview.className = "notes-row-preview";
+          preview.textContent = it.body.length > 240 ? it.body.slice(0, 240) : it.body;
+          main.appendChild(preview);
+        }
+        main.addEventListener("click", function () { openNotesItem(it.id); });
+        const tools = document.createElement("div");
+        tools.className = "notes-row-tools";
+        tools.setAttribute("aria-label", NOTES_COPY.reorder);
+        const up = document.createElement("button");
+        up.type = "button";
+        up.className = "ghost";
+        up.textContent = NOTES_COPY.moveUp;
+        up.setAttribute("aria-label", NOTES_COPY.moveUp);
+        up.disabled = index === 0;
+        up.addEventListener("click", function (ev) { ev.stopPropagation(); moveNotesItem(index, -1); });
+        const down = document.createElement("button");
+        down.type = "button";
+        down.className = "ghost";
+        down.textContent = NOTES_COPY.moveDown;
+        down.setAttribute("aria-label", NOTES_COPY.moveDown);
+        down.disabled = index === notesItems.length - 1;
+        down.addEventListener("click", function (ev) { ev.stopPropagation(); moveNotesItem(index, 1); });
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "danger";
+        del.textContent = NOTES_COPY.delete;
+        del.addEventListener("click", function (ev) { ev.stopPropagation(); confirmRemoveNote(it.id); });
+        tools.appendChild(up);
+        tools.appendChild(down);
+        tools.appendChild(del);
+        row.appendChild(main);
+        row.appendChild(tools);
+        list.appendChild(row);
+      });
     }
     async function loadNotes() {
+      if (notesEditingId) return;
       notesReady = false;
       try {
         const doc = await api(NOTES_PATH);
-        if ($("notes_text")) {
-          $("notes_text").value = (doc && doc.text) || "";
-          // 0.4.122: once the notes list is edited in the app, this textarea is read-only
-          // (a text save would be refused with 409 notes_items_exist).
-          $("notes_text").readOnly = !!(doc && doc.textWritable === false);
-        }
-        updateNotesCap();
-        if ($("notes_status")) $("notes_status").textContent = "";
+        applyNotesDoc(doc);
+        setNotesStatus("");
+        showNotesListView();
       } catch (e) {
-        if ($("notes_status")) $("notes_status").textContent = "";
+        setNotesStatus("");
       }
       notesReady = true;
     }
-    async function saveNotesNow() {
-      if (!notesReady) return;
-      if ($("notes_text") && $("notes_text").readOnly) return;
-      const text = ($("notes_text") && $("notes_text").value) || "";
-      if ($("notes_status")) $("notes_status").textContent = "Saving…";
+    async function saveNotesList() {
+      if (!notesReady || !notesEtag || notesSaving) return false;
+      notesSaving = true;
       try {
-        await api(NOTES_PATH, {
+        const r = await mutate(NOTES_PATH, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ schemaVersion: 1, text: text })
+          body: JSON.stringify({ items: notesPayloadItems(), ifMatch: notesEtag }),
         });
-        if ($("notes_status")) $("notes_status").textContent = "Saved";
+        let doc = null;
+        try { doc = await r.json(); } catch (e) { doc = null; }
+        if (r.ok && doc) {
+          applyNotesDoc(doc);
+          setNotesStatus(NOTES_COPY.saved);
+          if (!notesEditingId) renderNotesList();
+          return true;
+        }
+        if (r.status === 409 && doc) {
+          applyNotesDoc(doc.current || doc);
+          setNotesStatus(NOTES_COPY.conflict);
+          if (notesEditingId && !notesEditingIsNew) syncEditorFromItems();
+          else showNotesListView();
+          return false;
+        }
+        const code = doc && doc.error && doc.error.code;
+        if (code === "notes_too_many_items") setNotesStatus(NOTES_COPY.tooMany);
+        else if (code === "notes_title_too_long") setNotesStatus(NOTES_COPY.titleLimit);
+        else if (code === "notes_body_too_long") setNotesStatus(NOTES_COPY.bodyLimit);
+        else setNotesStatus(NOTES_COPY.saveFailed);
+        return false;
       } catch (e) {
-        if ($("notes_status")) $("notes_status").textContent = "Could not save";
+        setNotesStatus(NOTES_COPY.saveFailed);
+        return false;
+      } finally {
+        notesSaving = false;
       }
     }
-    function scheduleNotes() {
-      if (!notesReady) return;
-      const el = $("notes_text");
-      if (el && el.value.length > 8000) el.value = el.value.slice(0, 8000);
-      updateNotesCap();
-      if ($("notes_status")) $("notes_status").textContent = "Saving…";
-      clearTimeout(notesTimer);
-      notesTimer = setTimeout(() => { notesTimer = null; saveNotesNow(); }, 600);
+    function openNotesItem(id) {
+      const i = notesFindIndex(id);
+      if (i < 0) return;
+      showNotesEditor(notesItems[i].id, notesItems[i].title, notesItems[i].body, false);
+    }
+    function startAddNote() {
+      if (notesItems.length >= NOTES_MAX_ITEMS) {
+        setNotesStatus(NOTES_COPY.tooMany);
+        return;
+      }
+      const id = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : null;
+      showNotesEditor(id, "", "", true);
+      setNotesStatus("");
+    }
+    async function doneNotesEditor() {
+      clipNotesFields(true);
+      const title = ($("notes_edit_title") && $("notes_edit_title").value) || "";
+      const body = ($("notes_edit_body") && $("notes_edit_body").value) || "";
+      if (notesEditingIsNew) {
+        if (!title && !body) {
+          showNotesListView();
+          return;
+        }
+        if (notesItems.length >= NOTES_MAX_ITEMS) {
+          setNotesStatus(NOTES_COPY.tooMany);
+          return;
+        }
+        notesItems = notesItems.concat([{ id: notesEditingId, title: title, body: body }]);
+        notesEditingIsNew = false;
+      } else {
+        const i = notesFindIndex(notesEditingId);
+        if (i < 0) { showNotesListView(); return; }
+        if ((notesItems[i].title || "") === title && (notesItems[i].body || "") === body) {
+          showNotesListView();
+          return;
+        }
+        notesItems[i] = { id: notesItems[i].id, title: title, body: body };
+      }
+      const ok = await saveNotesList();
+      if (ok) showNotesListView();
+    }
+    async function moveNotesItem(index, delta) {
+      const j = index + delta;
+      if (j < 0 || j >= notesItems.length) return;
+      const next = notesItems.slice();
+      const tmp = next[index];
+      next[index] = next[j];
+      next[j] = tmp;
+      notesItems = next;
+      renderNotesList();
+      await saveNotesList();
+    }
+    async function confirmRemoveNote(id) {
+      const ok = await confirmDialog({
+        title: NOTES_COPY.deleteTitle,
+        body: NOTES_COPY.deleteBody,
+        confirmLabel: NOTES_COPY.delete,
+      });
+      if (!ok) return;
+      const i = notesFindIndex(id);
+      if (i < 0) return;
+      notesItems = notesItems.filter(function (_, n) { return n !== i; });
+      if (notesEditingId && String(notesEditingId) === String(id)) showNotesListView();
+      else renderNotesList();
+      await saveNotesList();
+    }
+    function bindNotes() {
+      if ($("notes_add")) $("notes_add").onclick = startAddNote;
+      if ($("notes_add_empty")) $("notes_add_empty").onclick = startAddNote;
+      if ($("notes_edit_done")) $("notes_edit_done").onclick = function () { doneNotesEditor(); };
+      if ($("notes_edit_title")) $("notes_edit_title").addEventListener("input", function () { clipNotesFields(true); });
+      if ($("notes_edit_body")) $("notes_edit_body").addEventListener("input", function () { clipNotesFields(true); });
     }
     function clearPairing() {
       pairingUri = null;
@@ -3679,7 +3994,7 @@
       fillSoonMeta();
       loadHouseIdentity();
       loadPhoto();
-      if (!notesTimer) loadNotes();
+      if (!notesEditingId) loadNotes();
       loadNotifyConfigured();
     }
     function loadNotifyConfigured() { return loadNotifyConfig(); }
@@ -3699,7 +4014,7 @@
       if ($("photo_confirm_yes")) $("photo_confirm_yes").onclick = removePhoto;
       if ($("photo_keep")) $("photo_keep").onclick = () => { if ($("photo_confirm")) $("photo_confirm").hidden = true; };
       if ($("photo_confirm_no")) $("photo_confirm_no").onclick = () => { if ($("photo_confirm")) $("photo_confirm").hidden = true; };
-      if ($("notes_text")) $("notes_text").addEventListener("input", scheduleNotes);
+      bindNotes();
       if ($("pair_show")) $("pair_show").onclick = showPairing;
       if ($("pair_dismiss")) $("pair_dismiss").onclick = () => { clearPairing(); if ($("pair_status")) $("pair_status").textContent = ""; };
       fillComponentVersion();

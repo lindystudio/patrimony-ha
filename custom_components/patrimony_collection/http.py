@@ -276,6 +276,27 @@ class PatrimonyVersionView(HomeAssistantView):
         return web.json_response(house_version.document())
 
 
+def _tag8(raw: Any) -> str:
+    """Short etag prefix for logs (never content)."""
+    if raw is None:
+        return "-"
+    t = str(raw).strip()
+    if t.startswith("W/"):
+        t = t[2:]
+    t = t.strip().strip('"')
+    return t[:8] if t else "empty"
+
+
+def _notes_audit(form: str, status: int, code: str, if_match: Any, etag: Any) -> None:
+    """0.4.123: one line per owner notes PUT (form, status, code, ifMatch/etag prefixes).
+
+    The member path already logs patrimony_member_write; without this, an owner write
+    or 409 left no trace (stale list PUT). No titles, bodies or tokens.
+    """
+    _LOGGER.info("patrimony_owner_notes_put form=%s status=%d code=%s ifmatch=%s etag=%s",
+                 form, status, code, _tag8(if_match), _tag8(etag))
+
+
 class PatrimonyNotesView(HomeAssistantView):
     """House notepad. Off PresentationDocument. Same Bearer as state.
 
@@ -316,6 +337,7 @@ class PatrimonyNotesView(HomeAssistantView):
         if_match = payload["ifMatch"] if "ifMatch" in payload else headers.get("If-Match")
         pid = _property_id(self.hass)
         owner = {"memberId": None, "kind": "owner"}
+        form = "items" if "items" in payload else "text"
         try:
             if "items" in payload:
                 if "text" in payload:
@@ -330,11 +352,14 @@ class PatrimonyNotesView(HomeAssistantView):
                     house_notes.save_notes, self.hass, text or "", pid,
                     if_match=if_match, check=True, actor=owner))
         except house_notes.NotesInputError as err:
+            _notes_audit(form, 400, err.code, if_match, None)
             return web.json_response(house_notes.input_error_body(err), status=400,
                                      headers={"Cache-Control": "no-store"})
         except house_notes.NotesConflict as err:
+            _notes_audit(form, 409, err.code, if_match, err.current.get("etag"))
             return web.json_response(house_notes.conflict_body(err), status=409,
                                      headers={"Cache-Control": "no-store"})
+        _notes_audit(form, 200, "ok", if_match, saved.get("etag"))
         return web.json_response(saved, headers={"ETag": saved["etag"], "Cache-Control": "no-store"})
 
 
